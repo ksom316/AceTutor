@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { animate, motion, useInView, useMotionValue, useTransform } from "framer-motion";
@@ -8,7 +8,6 @@ import {
   BookOpen,
   Brain,
   Headphones,
-  
   PlayCircle,
   Sparkles,
   Target,
@@ -29,6 +28,9 @@ import {
 
 import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
+import { HeroPreview } from "@/components/site/HeroPreview";
+import { CourseCard } from "@/components/site/CourseCard";
+import { useEnrolledCourses } from "@/hooks/use-enrolled-courses";
 import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
@@ -82,55 +84,89 @@ const stats = [
 ];
 
 function VisitorHome() {
+  const { loggedIn, isEnrolled, enroll } = useEnrolledCourses();
+
+  // Real catalog (shares the ["courses"] cache with the /courses page); falls
+  // back to the hand-curated list so the marketing page is never empty.
+  const { data: dbCourses } = useQuery({
+    queryKey: ["courses"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("courses")
+        .select("id, slug, title, summary, order_index")
+        .order("order_index");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const previewCourses = (dbCourses?.length
+    ? dbCourses
+    : courses.map((c) => ({ id: c.slug, slug: c.slug, title: c.title, summary: c.blurb }))
+  ).slice(0, 6);
+
   return (
     <>
       {/* Hero */}
       <section className="relative overflow-hidden pt-10 md:pt-16">
-        <div className="absolute inset-x-0 top-0 -z-10 h-[520px] [background:radial-gradient(60%_60%_at_50%_0%,color-mix(in_oklab,var(--color-primary)_18%,transparent),transparent_70%)]" />
-        <div className="container mx-auto max-w-6xl px-4 pb-16 md:pb-24">
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="mx-auto max-w-4xl text-center"
-          >
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              <Sparkles className="h-3 w-3" /> Next-Gen Adaptive Tutor
-            </span>
-            <h1 className="mt-6 text-5xl font-bold leading-[1.02] tracking-tight md:text-7xl">
-              One Tutor. <span className="text-primary">Three Ways</span> to Learn.
-            </h1>
-            <p className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground md:text-lg">
-              AceTutor adapts every lesson to your VARK learning style — switching between text, video, and audio — and
-              tests what you know with quizzes that get smarter as you do.
-            </p>
-            <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Button asChild size="lg" className="h-12 rounded-full px-6 text-base">
-                <Link to="/signup">
-                  Get Started Free <ArrowRight className="ml-1.5 h-4 w-4" />
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="lg" className="h-12 rounded-full px-6 text-base">
-                <Link to="/login">Login</Link>
-              </Button>
-            </div>
-
+        <div className="absolute inset-x-0 top-0 -z-10 h-[620px] [background:radial-gradient(55%_60%_at_50%_0%,color-mix(in_oklab,var(--color-primary)_18%,transparent),transparent_70%)]" />
+        <div className="container mx-auto max-w-7xl px-4 pb-16 md:pb-24">
+          <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_1fr] lg:gap-10">
+            {/* Left — copy + CTAs + stats */}
             <motion.div
-              variants={staggerContainer}
-              initial="hidden"
-              animate="show"
-              className="mx-auto mt-14 grid max-w-3xl grid-cols-2 gap-6 md:grid-cols-4"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="text-center lg:text-left"
             >
-              {stats.map((s) => (
-                <motion.div key={s.label} variants={staggerItem} className="text-left md:text-center">
-                  <p className="text-4xl font-bold tracking-tight md:text-5xl">
-                    <CountUpValue value={s.value} />
-                  </p>
-                  <p className="mt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">{s.label}</p>
-                </motion.div>
-              ))}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                <Sparkles className="h-3 w-3" /> Next-Gen Adaptive Tutor
+              </span>
+              <h1 className="mt-6 text-5xl font-bold leading-[1.02] tracking-tight md:text-7xl">
+                One Tutor. <span className="text-primary">Three Ways</span> to Learn.
+              </h1>
+              <p className="mx-auto mt-6 max-w-xl text-base text-muted-foreground md:text-lg lg:mx-0">
+                AceTutor adapts every lesson to your VARK learning style — switching between text, video, and audio — and
+                tests what you know with quizzes that get smarter as you do.
+              </p>
+              <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
+                <Button asChild size="lg" className="h-12 rounded-full px-6 text-base">
+                  <Link to="/signup">
+                    Get Started Free <ArrowRight className="ml-1.5 h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="lg" className="h-12 rounded-full px-6 text-base">
+                  <Link to="/login">Login</Link>
+                </Button>
+              </div>
+
+              <motion.div
+                variants={staggerContainer}
+                initial="hidden"
+                animate="show"
+                className="mt-12 grid max-w-lg grid-cols-2 gap-6 md:grid-cols-4 lg:mx-0"
+              >
+                {stats.map((s) => (
+                  <motion.div key={s.label} variants={staggerItem} className="text-center lg:text-left">
+                    <p className="text-3xl font-bold tracking-tight md:text-4xl">
+                      <CountUpValue value={s.value} />
+                    </p>
+                    <p className="mt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">{s.label}</p>
+                  </motion.div>
+                ))}
+              </motion.div>
             </motion.div>
-          </motion.div>
+
+            {/* Right — product preview mockup */}
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1], delay: 0.15 }}
+              className="mx-auto w-full max-w-xl lg:mx-0"
+            >
+              <HeroPreview />
+            </motion.div>
+          </div>
         </div>
       </section>
 
@@ -175,30 +211,25 @@ function VisitorHome() {
             See all <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </Link>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {courses.map((c, i) => (
-            <motion.div
-              key={c.slug}
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.4, delay: i * 0.05 }}
-            >
-              <Link
-                to="/courses/$slug"
-                params={{ slug: c.slug }}
-                className="group block h-full rounded-2xl border border-border bg-card p-6 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg"
-              >
-                <div className="flex items-center justify-between">
-                  <BookOpen className="h-5 w-5 text-primary" />
-                  <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
-                </div>
-                <h3 className="mt-4 text-2xl font-semibold tracking-tight">{c.title}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{c.blurb}</p>
-              </Link>
-            </motion.div>
+        <motion.div
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={viewportOnce}
+          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {previewCourses.map((c, i) => (
+            <CourseCard
+              key={c.id}
+              course={c}
+              index={i}
+              loggedIn={loggedIn}
+              enrolled={isEnrolled(c.id)}
+              enrolling={enroll.isPending && enroll.variables === c.id}
+              onEnroll={() => enroll.mutate(c.id)}
+            />
           ))}
-        </div>
+        </motion.div>
       </section>
 
       {/* How it works */}
@@ -243,6 +274,41 @@ function VisitorHome() {
               <Link to="/signup">Create your free account</Link>
             </Button>
             <Button asChild size="lg" variant="outline" className="rounded-full">
+              <Link to="/login">Login</Link>
+            </Button>
+          </div>
+        </motion.div>
+      </section>
+
+      {/* Final CTA band */}
+      <section className="container mx-auto max-w-6xl px-4 pb-20 pt-4">
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="show"
+          viewport={viewportOnce}
+          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-8 text-center text-primary-foreground shadow-lg md:p-14"
+        >
+          <div aria-hidden className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
+          <div aria-hidden className="absolute -bottom-16 -left-6 h-44 w-44 rounded-full bg-white/10 blur-2xl" />
+          <h2 className="relative mx-auto max-w-2xl text-3xl font-bold tracking-tight md:text-5xl">
+            Learn the way your brain actually works.
+          </h2>
+          <p className="relative mx-auto mt-4 max-w-xl text-sm text-primary-foreground/85 md:text-base">
+            Take the VARK intake, pick a course, and start studying in your modality — text, video, or audio — today.
+          </p>
+          <div className="relative mt-8 flex flex-wrap justify-center gap-3">
+            <Button asChild size="lg" className="h-12 rounded-full bg-white px-6 text-base text-primary hover:bg-white/90">
+              <Link to="/signup">
+                Get Started Free <ArrowRight className="ml-1.5 h-4 w-4" />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              size="lg"
+              variant="outline"
+              className="h-12 rounded-full border-white/40 bg-transparent px-6 text-base text-primary-foreground hover:bg-white/10 hover:text-primary-foreground"
+            >
               <Link to="/login">Login</Link>
             </Button>
           </div>
@@ -356,11 +422,6 @@ function StudentPanels({
   totalEnrolled: number;
   attempts: any[];
 }) {
-  const navigate = useNavigate();
-  const firstCourseSlug = recentCourses[0]?.slug;
-  void navigate;
-  void firstCourseSlug;
-
   return (
     <>
       {/* Quick action */}

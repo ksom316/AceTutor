@@ -1,56 +1,61 @@
-# Welcome to your Expo app 👋
+# AceTutor — Mobile App (Expo)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Native iOS / Android (and web) build of AceTutor, ported from the TanStack web
+app. It talks to the **same Supabase backend**, so accounts, courses, progress
+and quiz attempts are shared across web and mobile.
 
-## Get started
+## Stack
 
-1. Install dependencies
+- **Expo SDK 56** + **expo-router** (file-based routing in `src/app`)
+- **Supabase** (`@supabase/supabase-js`) with session persistence via
+  `@react-native-async-storage/async-storage`
+- **@tanstack/react-query** for data fetching/caching
+- **expo-linear-gradient**, **@expo/vector-icons**, **expo-image** for the UI
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Run it
 
 ```bash
-npm run reset-project
+cd AceTutor
+npm install
+npx expo start          # then press i (iOS), a (Android), or w (web)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Supabase keys live in `.env` (`EXPO_PUBLIC_SUPABASE_URL`,
+`EXPO_PUBLIC_SUPABASE_ANON_KEY`) with safe in-code fallbacks.
 
-### Other setup steps
+## Screens (`src/app`)
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+| Route | Screen |
+|---|---|
+| `index` | Auth gate → redirects to login or the app |
+| `login`, `signup` | Email/password + Google OAuth + forgot-password |
+| `onboarding-vark` | 16-question VARK learning-style intake |
+| `(tabs)/dashboard` | Greeting, continue-learning hero, stats, recent quizzes |
+| `(tabs)/courses` | Enrolled courses + explore catalog |
+| `(tabs)/analytics` | KPIs, time-by-course & score-trend charts |
+| `(tabs)/profile` | Name edit, stats, VARK, sign out |
+| `course/[slug]` | Enroll, progress, modules, performance |
+| `topic/[topicId]` | Lesson viewer with Read / Watch / Listen modality switch |
+| `quiz/[topicId]` | Adaptive quiz runner (`get_quiz_questions` / `grade_quiz`) |
+| `result/[attemptId]` | Score + per-question review |
 
-## Learn more
+## Shared modules
 
-To learn more about developing your project with Expo, look at the following resources:
+- `src/theme.ts` — brand palette (violet) + light/dark colors
+- `src/components/ui.tsx` — Screen, Card, Button, GradientButton, TextField, etc.
+- `src/components/brand-splash.tsx` — animated logo splash on cold start
+- `src/lib/auth.tsx` — auth context + session auto-refresh
+- `src/lib/queries.ts`, `src/lib/use-learning.ts` — Supabase fetchers + derived stats
+- `src/integrations/supabase/*` — client + generated DB types (shared with web)
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Notes
 
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- The **AI Course Tutor** chat is web-only — it runs through a server function
+  with a server-side OpenRouter key that the mobile client can't call directly.
+  The course screen links users to the web app for it.
+- **Google sign-in** requires the Google provider and the `acetutor://` redirect
+  to be enabled in Supabase Auth settings.
+- Permanent **account deletion** is handled on the web (privileged server
+  function); the mobile profile screen signs out and points users there.
+- Lesson video/audio open in the system browser (no in-app iframe on native);
+  lesson text renders as plain text.

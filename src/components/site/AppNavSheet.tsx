@@ -4,23 +4,16 @@ import { useQuery } from "@tanstack/react-query";
 import logoAsset from "@/assets/ace-logo.jpg";
 import {
   BarChart3,
-  Bell,
   BookOpen,
-  Bot,
-  GraduationCap,
   Home,
   LayoutDashboard,
-  LifeBuoy,
-  ListChecks,
   LogOut,
   Menu,
   Settings,
-  Sparkles,
   User as UserIcon,
   Users,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -32,17 +25,13 @@ import type { User } from "@supabase/supabase-js";
 type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  to?: string;
-  href?: string;
+  to: string;
 };
 
 const studentItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
-  { label: "My Courses", icon: BookOpen, to: "/courses" },
-  { label: "AI Tutor", icon: Bot, to: "/courses" },
-  { label: "Quizzes", icon: ListChecks, to: "/dashboard" },
+  { label: "My Courses", icon: BookOpen, to: "/my-courses" },
   { label: "Progress & Analytics", icon: BarChart3, to: "/analytics" },
-  { label: "Notifications", icon: Bell, href: "#" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/profile" },
 ];
@@ -51,9 +40,6 @@ const lecturerItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "Course Management", icon: BookOpen, to: "/courses" },
   { label: "Student Analytics", icon: Users, to: "/analytics" },
-  { label: "AI Assistant", icon: Sparkles, to: "/courses" },
-  { label: "Quiz Management", icon: ListChecks, to: "/dashboard" },
-  { label: "Notifications", icon: Bell, href: "#" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/profile" },
 ];
@@ -99,7 +85,7 @@ export function AppNavSheet({ user }: { user: User }) {
     },
   });
 
-  const isLecturer = role === "lecturer";
+  const isLecturer = role === "lecturer" || role === "admin";
   const items = isLecturer ? lecturerItems : studentItems;
   const displayName =
     profile?.full_name || user.email?.split("@")[0] || "Learner";
@@ -123,30 +109,18 @@ export function AppNavSheet({ user }: { user: User }) {
 
   const renderItem = (item: NavItem) => {
     const Icon = item.icon;
-    const active = item.to && pathname === item.to;
+    const active = pathname === item.to;
     const base = cn(
       "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
       active
         ? "bg-primary/10 text-primary"
         : "text-muted-foreground hover:bg-secondary hover:text-foreground",
     );
-    const content = (
-      <>
+    return (
+      <Link key={item.label} to={item.to} className={base}>
         <Icon className="h-4 w-4 shrink-0" />
         <span className="truncate">{item.label}</span>
-      </>
-    );
-    if (item.to) {
-      return (
-        <Link key={item.label} to={item.to} className={base}>
-          {content}
-        </Link>
-      );
-    }
-    return (
-      <a key={item.label} href={item.href ?? "#"} className={base}>
-        {content}
-      </a>
+      </Link>
     );
   };
 
@@ -154,6 +128,7 @@ export function AppNavSheet({ user }: { user: User }) {
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
         <button
+          type="button"
           aria-label="Open navigation menu"
           className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -211,14 +186,8 @@ export function AppNavSheet({ user }: { user: User }) {
           <Separator className="my-1" />
 
           <nav className="flex flex-col gap-1 py-3">
-            <a
-              href="#"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <LifeBuoy className="h-4 w-4 shrink-0" />
-              <span>Help & Support</span>
-            </a>
             <button
+              type="button"
               onClick={handleSignOut}
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
             >

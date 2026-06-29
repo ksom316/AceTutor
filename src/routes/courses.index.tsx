@@ -1,11 +1,12 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { BookOpen, ArrowRight } from "lucide-react";
 import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
+import { CourseCard } from "@/components/site/CourseCard";
+import { useEnrolledCourses } from "@/hooks/use-enrolled-courses";
 import { supabase } from "@/integrations/supabase/client";
-import { fadeUp, staggerContainer, staggerItem } from "@/lib/motion";
+import { fadeUp, staggerContainer } from "@/lib/motion";
 
 export const Route = createFileRoute("/courses/")({
   head: () => ({
@@ -18,6 +19,8 @@ export const Route = createFileRoute("/courses/")({
 });
 
 function CoursesPage() {
+  const { loggedIn, isEnrolled, enroll } = useEnrolledCourses();
+
   const { data, isLoading } = useQuery({
     queryKey: ["courses"],
     queryFn: async () => {
@@ -36,13 +39,15 @@ function CoursesPage() {
       <main className="container mx-auto max-w-6xl px-4 py-12">
         <motion.div variants={fadeUp} initial="hidden" animate="show">
           <h1 className="font-display text-5xl">All courses</h1>
-          <p className="mt-2 text-muted-foreground">Pick a course to see its topics and lessons.</p>
+          <p className="mt-2 text-muted-foreground">
+            {loggedIn ? "Enroll, then jump back into the courses you're taking." : "Pick a course to see its topics and lessons."}
+          </p>
         </motion.div>
 
         {isLoading ? (
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-40 animate-pulse rounded-2xl border border-border bg-card/60" />
+              <div key={i} className="h-56 animate-pulse rounded-2xl border border-border bg-card/60" />
             ))}
           </div>
         ) : (
@@ -52,23 +57,16 @@ function CoursesPage() {
             animate="show"
             className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
-            {data?.map((c) => (
-              <motion.div key={c.id} variants={staggerItem} whileHover={{ y: -4 }}>
-                <Link
-                  to="/courses/$slug"
-                  params={{ slug: c.slug }}
-                  className="group block h-full rounded-2xl border border-border bg-card p-6 transition-all hover:border-accent/60 hover:shadow-lg"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
-                      <BookOpen className="h-5 w-5" />
-                    </span>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
-                  </div>
-                  <h2 className="mt-4 font-display text-2xl">{c.title}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{c.summary}</p>
-                </Link>
-              </motion.div>
+            {data?.map((c, i) => (
+              <CourseCard
+                key={c.id}
+                course={c}
+                index={i}
+                loggedIn={loggedIn}
+                enrolled={isEnrolled(c.id)}
+                enrolling={enroll.isPending && enroll.variables === c.id}
+                onEnroll={() => enroll.mutate(c.id)}
+              />
             ))}
           </motion.div>
         )}

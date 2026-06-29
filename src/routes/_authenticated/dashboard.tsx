@@ -1,113 +1,525 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, BookOpen, Trophy } from "lucide-react";
+import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
+import {
+  ArrowRight,
+  ArrowUpRight,
+  BookOpen,
+  Clock,
+  GraduationCap,
+  Play,
+  Sparkles,
+  Target,
+  Trophy,
+} from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { fadeUp, staggerContainer, staggerItem } from "@/lib/motion";
+import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: Dashboard,
 });
 
+const CHART_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--muted)"];
+
+function formatHours(seconds: number) {
+  const h = seconds / 3600;
+  if (h >= 10) return `${Math.round(h)}`;
+  return h.toFixed(1).replace(/\.0$/, "");
+}
+
 function Dashboard() {
   const { user } = useAuth();
-  const { data: attempts } = useQuery({
-    queryKey: ["recent-attempts", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("quiz_attempts")
-        .select("id, topic_id, score, total, finished_at, topics(title, slug, courses(slug, title))")
-        .not("finished_at", "is", null)
-        .order("finished_at", { ascending: false })
-        .limit(5);
-      if (error) throw error;
-      return data;
-    },
-  });
 
   const { data: profile } = useQuery({
-    queryKey: ["profile", user?.id],
+    queryKey: ["dash-profile", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("full_name, vark_primary").eq("id", user!.id).maybeSingle();
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, avatar_url, vark_primary")
+        .eq("id", user!.id)
+        .maybeSingle();
       return data;
     },
   });
 
+  const { data: avatarUrl } = useQuery({
+    queryKey: ["dash-avatar", profile?.avatar_url],
+    enabled: !!profile?.avatar_url,
+    queryFn: async () => {
+      const { data, error } = await supabase.storage
+        .from("avatars")
+        .createSignedUrl(profile!.avatar_url!, 60 * 60);
+      if (error) throw error;
+      return data.signedUrl;
+    },
+  });
+
+  const { data: enrollments } = useQuery({
+    queryKey: ["dash-enrollments", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("enrollments")
+        .select("course_id, created_at, courses(id, slug, title, summary)")
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+
+  const enrolledCourses = useMemo(
+    () => (enrollments ?? []).map((e: any) => e.courses).filter(Boolean),
+    [enrollments],
+  );
+  const enrolledIds = useMemo(() => enrolledCourses.map((c: any) => c.id), [enrolledCourses]);
+
+  // All lessons that belong to the user's enrolled courses (for totals).
+  const { data: courseLessons } = useQuery({
+    queryKey: ["dash-lessons", enrolledIds],
+    enabled: enrolledIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("lessons")
+        .select("id, topics!inner(course_id)")
+        .in("topics.course_id", enrolledIds);
+      return (data ?? []) as any[];
+    },
+  });
+
+  // The user's lesson progress (completed + time watched).
+  const { data: progressRows } = useQuery({
+    queryKey: ["dash-progress", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("progress")
+        .select("completed_at, watched_seconds, lessons!inner(id, topics!inner(course_id))")
+        .eq("user_id", user!.id);
+      return (data ?? []) as any[];
+    },
+  });
+
+  const { data: attempts } = useQuery({
+    queryKey: ["dash-attempts", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("quiz_attempts")
+        .select("id, score, total, finished_at, topics(title, courses(title, slug))")
+        .not("finished_at", "is", null)
+        .order("finished_at", { ascending: false })
+        .limit(6);
+      return (data ?? []) as any[];
+    },
+  });
+
+  /* ---- Derived stats ------------------------------------------------ */
+  const stats = useMemo(() => {
+    const lessons = courseLessons ?? [];
+    const prog = progressRows ?? [];
+
+    const totalByCourse = new Map<string, number>();
+    for (const l of lessons) {
+      const cid = l.topics?.course_id;
+      if (cid) totalByCourse.set(cid, (totalByCourse.get(cid) ?? 0) + 1);
+    }
+
+    const completedByCourse = new Map<string, number>();
+    const touchedByCourse = new Map<string, number>();
+    let totalSeconds = 0;
+    let completedLessons = 0;
+    let inProgressLessons = 0;
+    for (const p of prog) {
+      const cid = p.lessons?.topics?.course_id;
+      totalSeconds += p.watched_seconds ?? 0;
+      if (cid) {
+        touchedByCourse.set(cid, (touchedByCourse.get(cid) ?? 0) + 1);
+        if (p.completed_at) {
+          completedByCourse.set(cid, (completedByCourse.get(cid) ?? 0) + 1);
+          completedLessons += 1;
+        } else {
+          inProgressLessons += 1;
+        }
+      }
+    }
+
+    const totalLessons = Array.from(totalByCourse.values()).reduce((s, n) => s + n, 0);
+    const notStarted = Math.max(0, totalLessons - completedLessons - inProgressLessons);
+    const overallPct = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+
+    const perCourse = enrolledCourses.map((c: any) => {
+      const total = totalByCourse.get(c.id) ?? 0;
+      const done = completedByCourse.get(c.id) ?? 0;
+      const touched = touchedByCourse.get(c.id) ?? 0;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      return { ...c, total, done, touched, pct };
+    });
+
+    const att = attempts ?? [];
+    const avgScore = att.length
+      ? Math.round(att.reduce((s, a) => s + (a.total ? (a.score / a.total) * 100 : 0), 0) / att.length)
+      : 0;
+
+    return {
+      perCourse,
+      overallPct,
+      donut: [
+        { name: "Completed", value: completedLessons },
+        { name: "In Progress", value: inProgressLessons },
+        { name: "Not Started", value: notStarted },
+      ],
+      totalSeconds,
+      avgScore,
+      quizzes: att.length,
+    };
+  }, [courseLessons, progressRows, enrolledCourses, attempts]);
+
+  const firstName = profile?.full_name?.split(" ")[0] ?? "there";
+  const displayName = profile?.full_name || user?.email?.split("@")[0] || "Learner";
+  const initials = displayName
+    .split(" ")
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  // "Continue learning": furthest-along touched course, else most recent enrollment.
+  const continueCourse = useMemo(() => {
+    const touched = stats.perCourse.filter((c: any) => c.touched > 0).sort((a: any, b: any) => b.pct - a.pct);
+    return touched[0] ?? stats.perCourse[0] ?? null;
+  }, [stats.perCourse]);
+
+  const recommended = useMemo(
+    () => enrolledCourses.filter((c: any) => !stats.perCourse.find((p: any) => p.id === c.id && p.touched > 0)).slice(0, 3),
+    [enrolledCourses, stats.perCourse],
+  );
+
+  const donutHasData = stats.donut.some((d) => d.value > 0);
+
   return (
-    <main className="container mx-auto max-w-5xl px-4 py-12">
-      <motion.div variants={fadeUp} initial="hidden" animate="show">
-        <p className="text-sm text-muted-foreground">Welcome back</p>
-        <h1 className="mt-1 font-display text-5xl">{profile?.full_name?.split(" ")[0] ?? "Student"}</h1>
-      </motion.div>
+    <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">
+      <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+        {/* ----------------------------- MAIN ----------------------------- */}
+        <div className="min-w-0 space-y-6">
+          {/* Welcome */}
+          <motion.div variants={fadeUp} initial="hidden" animate="show">
+            <h1 className="font-display text-3xl md:text-4xl">
+              Welcome back, {firstName} <span className="inline-block">👋</span>
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">Let's continue your learning journey.</p>
+          </motion.div>
 
-      {!profile?.vark_primary && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15, duration: 0.45 }}
-        >
-          <Link
-            to="/onboarding/vark"
-            className="group mt-6 inline-flex items-center gap-2 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-sm text-foreground transition-colors hover:bg-accent/15"
+          {/* Continue learning + progress donut */}
+          <motion.div
+            variants={staggerContainer}
+            initial="hidden"
+            animate="show"
+            className="grid gap-6 lg:grid-cols-[1.5fr_1fr]"
           >
-            Take the 16-question VARK intake to personalize your lessons{" "}
-            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-          </Link>
-        </motion.div>
-      )}
+            {/* Continue learning */}
+            <motion.div
+              variants={staggerItem}
+              className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-6 text-primary-foreground shadow-lg md:p-7"
+            >
+              <div aria-hidden className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl" />
+              <div aria-hidden className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+              <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
+                Continue learning
+              </p>
+              {continueCourse ? (
+                <>
+                  <h2 className="relative mt-2 font-display text-2xl leading-tight md:text-3xl">
+                    {continueCourse.title}
+                  </h2>
+                  <p className="relative mt-1 text-sm text-primary-foreground/80">
+                    {continueCourse.done}/{continueCourse.total || "—"} lessons complete
+                  </p>
+                  <div className="relative mt-5 h-2 w-full max-w-sm overflow-hidden rounded-full bg-white/25">
+                    <motion.div
+                      className="h-full rounded-full bg-white"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${continueCourse.pct}%` }}
+                      transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
+                    />
+                  </div>
+                  <p className="relative mt-1.5 text-xs text-primary-foreground/80">{continueCourse.pct}% complete</p>
+                  <Link
+                    to="/courses/$slug"
+                    params={{ slug: continueCourse.slug }}
+                    className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
+                  >
+                    <Play className="h-4 w-4 fill-primary" /> Resume course
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <h2 className="relative mt-2 font-display text-2xl leading-tight md:text-3xl">
+                    Start your first course
+                  </h2>
+                  <p className="relative mt-1 max-w-sm text-sm text-primary-foreground/80">
+                    Browse the catalog and enroll to begin tracking your progress here.
+                  </p>
+                  <Link
+                    to="/courses"
+                    className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
+                  >
+                    <BookOpen className="h-4 w-4" /> Browse courses
+                  </Link>
+                </>
+              )}
+            </motion.div>
 
-      <motion.div
-        variants={staggerContainer}
-        initial="hidden"
-        animate="show"
-        className="mt-12 grid gap-6 md:grid-cols-2"
-      >
-        <motion.section
-          variants={staggerItem}
-          whileHover={{ y: -4 }}
-          className="group rounded-2xl border border-border bg-card p-6 transition-shadow hover:shadow-lg"
+            {/* Progress donut */}
+            <motion.div variants={staggerItem} className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-lg">Your progress</h2>
+                <Target className="h-4 w-4 text-primary" />
+              </div>
+              <div className="relative mt-2 h-40">
+                {donutHasData ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={stats.donut}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={52}
+                        outerRadius={70}
+                        paddingAngle={3}
+                        stroke="var(--card)"
+                        strokeWidth={2}
+                        startAngle={90}
+                        endAngle={-270}
+                      >
+                        {stats.donut.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="grid h-full place-items-center text-center text-xs text-muted-foreground">
+                    Start a lesson to track progress
+                  </div>
+                )}
+                <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <div className="text-center">
+                    <div className="font-display text-3xl">{stats.overallPct}%</div>
+                    <div className="text-[11px] text-muted-foreground">overall</div>
+                  </div>
+                </div>
+              </div>
+              <ul className="mt-3 space-y-1.5 text-xs">
+                {stats.donut.map((d, i) => (
+                  <li key={d.name} className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: CHART_COLORS[i] }} />
+                      {d.name}
+                    </span>
+                    <span className="font-medium">{d.value}</span>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+          </motion.div>
+
+          {/* My courses */}
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-display text-xl">My courses</h2>
+              <Link to="/my-courses" className="inline-flex items-center text-sm text-muted-foreground transition-colors hover:text-foreground">
+                View all <ArrowRight className="ml-1 h-3.5 w-3.5" />
+              </Link>
+            </div>
+            {stats.perCourse.length > 0 ? (
+              <motion.div
+                variants={staggerContainer}
+                initial="hidden"
+                whileInView="show"
+                viewport={viewportOnce}
+                className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              >
+                {stats.perCourse.map((c: any) => (
+                  <motion.div key={c.id} variants={staggerItem} whileHover={{ y: -4 }}>
+                    <Link
+                      to="/courses/$slug"
+                      params={{ slug: c.slug }}
+                      className="group block h-full rounded-2xl border border-border bg-card p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-lg"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                          <BookOpen className="h-5 w-5" />
+                        </span>
+                        <ArrowUpRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                      </div>
+                      <h3 className="mt-3 line-clamp-1 font-display text-lg">{c.title}</h3>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {c.total > 0 ? `${c.total} lessons` : "Lessons coming soon"}
+                      </p>
+                      <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                        <motion.div
+                          className="h-full rounded-full bg-primary"
+                          initial={{ width: 0 }}
+                          whileInView={{ width: `${c.pct}%` }}
+                          viewport={{ once: true }}
+                          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+                        />
+                      </div>
+                      <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">{c.pct}% complete</p>
+                    </Link>
+                  </motion.div>
+                ))}
+              </motion.div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
+                <p className="text-sm text-muted-foreground">You're not enrolled in any course yet.</p>
+                <Link
+                  to="/courses"
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-transform hover:scale-[1.03]"
+                >
+                  Browse courses <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            )}
+          </section>
+
+          {/* Recent quiz attempts */}
+          <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-display text-lg">Recent quiz attempts</h2>
+              <Trophy className="h-4 w-4 text-primary" />
+            </div>
+            {attempts && attempts.length > 0 ? (
+              <ul className="divide-y divide-border/70">
+                {attempts.map((a: any) => {
+                  const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
+                  return (
+                    <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{a.topics?.title ?? "Quiz"}</p>
+                        <p className="truncate text-xs text-muted-foreground">{a.topics?.courses?.title}</p>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          pct >= 70 ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
+                        }`}
+                      >
+                        {a.score}/{a.total} · {pct}%
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No quizzes yet — take one to see your scores here.</p>
+            )}
+          </section>
+        </div>
+
+        {/* ----------------------------- RIGHT RAIL ----------------------------- */}
+        <motion.aside
+          variants={staggerContainer}
+          initial="hidden"
+          animate="show"
+          className="space-y-6 xl:sticky xl:top-24 xl:self-start"
         >
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl">Jump back in</h2>
-            <BookOpen className="h-5 w-5 text-primary transition-transform duration-300 group-hover:scale-110" />
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">Browse the catalog and pick a topic.</p>
-          <Link
-            to="/courses"
-            className="mt-4 inline-flex items-center text-sm font-medium text-foreground underline-offset-4 hover:underline"
+          {/* Profile card */}
+          <motion.div
+            variants={staggerItem}
+            className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm"
           >
-            See all courses <ArrowRight className="ml-1 h-3.5 w-3.5" />
-          </Link>
-        </motion.section>
+            <div className="h-20 bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)]" />
+            <div className="-mt-10 flex flex-col items-center px-5 pb-5 text-center">
+              <Avatar className="h-20 w-20 border-4 border-card shadow-md">
+                <AvatarImage src={avatarUrl ?? undefined} alt={displayName} />
+                <AvatarFallback className="text-lg">{initials}</AvatarFallback>
+              </Avatar>
+              <h3 className="mt-3 font-display text-lg">{displayName}</h3>
+              <p className="text-xs text-muted-foreground">{user?.email}</p>
+              <Link
+                to="/profile"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-xs font-medium transition-colors hover:bg-secondary"
+              >
+                Edit profile
+              </Link>
+            </div>
+          </motion.div>
 
-        <motion.section
-          variants={staggerItem}
-          whileHover={{ y: -4 }}
-          className="group rounded-2xl border border-border bg-card p-6 transition-shadow hover:shadow-lg"
-        >
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-2xl">Recent quizzes</h2>
-            <Trophy className="h-5 w-5 text-accent transition-transform duration-300 group-hover:scale-110" />
-          </div>
-          {attempts && attempts.length > 0 ? (
-            <ul className="mt-3 space-y-2 text-sm">
-              {attempts.map((a: any) => (
-                <li key={a.id} className="flex items-center justify-between border-b border-border/60 py-2 last:border-0 transition-colors hover:text-primary">
-                  <span className="truncate">{a.topics?.title}</span>
-                  <span className="text-muted-foreground">
-                    {a.score} / {a.total}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-3 text-sm text-muted-foreground">No quizzes yet — take one to see your progress.</p>
+          {/* Stat tiles */}
+          <motion.div variants={staggerItem} className="grid grid-cols-2 gap-3">
+            <StatTile icon={BookOpen} label="Courses" value={String(enrolledCourses.length)} />
+            <StatTile icon={Trophy} label="Quizzes" value={String(stats.quizzes)} />
+            <StatTile icon={Clock} label="Hours" value={formatHours(stats.totalSeconds)} />
+            <StatTile icon={Target} label="Avg score" value={stats.quizzes ? `${stats.avgScore}%` : "—"} />
+          </motion.div>
+
+          {/* VARK nudge */}
+          {!profile?.vark_primary && (
+            <motion.div variants={staggerItem}>
+              <Link
+                to="/onboarding/vark"
+                className="flex items-start gap-3 rounded-2xl border border-primary/25 bg-primary/10 p-4 transition-colors hover:bg-primary/15"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+                  <GraduationCap className="h-4 w-4" />
+                </span>
+                <div>
+                  <p className="text-sm font-medium">Personalize your learning</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Take the 16-question VARK intake to tailor every lesson.
+                  </p>
+                </div>
+              </Link>
+            </motion.div>
           )}
-        </motion.section>
-      </motion.div>
+
+          {/* Recommended */}
+          {recommended.length > 0 && (
+            <motion.div variants={staggerItem} className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <div className="mb-2 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <h3 className="font-display text-base">Pick up next</h3>
+              </div>
+              <ul className="space-y-1">
+                {recommended.map((c: any) => (
+                  <li key={c.id}>
+                    <Link
+                      to="/courses/$slug"
+                      params={{ slug: c.slug }}
+                      className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-secondary"
+                    >
+                      <span className="truncate">{c.title}</span>
+                      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+          )}
+        </motion.aside>
+      </div>
     </main>
+  );
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
+      <Icon className="h-4 w-4 text-primary" />
+      <p className="mt-2 font-display text-2xl leading-none">{value}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+    </div>
   );
 }

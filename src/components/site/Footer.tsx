@@ -2,13 +2,10 @@ import { Link } from "@tanstack/react-router";
 import logoAsset from "@/assets/ace-logo.jpg";
 
 const links = [
-  { label: "Schools", to: "/" },
-  { label: "Parents", to: "/" },
   { label: "Teachers", to: "/" },
-  { label: "Self-learners", to: "/" },
   { label: "Privacy", to: "/privacy" },
   { label: "Terms", to: "/terms" },
-  { label: "Contact", to: "/" },
+  { label: "Contact", to: "/contact" },
 ];
 
 export function Footer() {

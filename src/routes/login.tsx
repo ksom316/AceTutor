@@ -46,6 +46,19 @@ function LoginPage() {
     else navigate({ to: "/dashboard" });
   };
 
+  const forgotPassword = async () => {
+    const parsed = z.string().trim().email().safeParse(email);
+    if (!parsed.success) {
+      toast.error("Enter your email above first, then tap Forgot Password");
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(parsed.data, {
+      redirectTo: window.location.origin + "/login",
+    });
+    if (error) toast.error(error.message);
+    else toast.success("Password reset link sent — check your inbox");
+  };
+
   const googleSignIn = async () => {
     const result = await lovable.auth.signInWithOAuth("google", {
       redirect_uri: window.location.origin,
@@ -102,7 +115,9 @@ function LoginPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Link to="/login" className="text-sm font-medium hover:underline">Forgot Password</Link>
+              <button type="button" onClick={forgotPassword} className="text-sm font-medium hover:underline">
+                Forgot Password
+              </button>
             </div>
             <Button type="submit" disabled={loading} className="w-full rounded-xl h-11 bg-gradient-to-r from-primary to-primary/80 text-primary-foreground font-semibold shadow-md">
               {loading ? "Signing in…" : (<span className="inline-flex items-center gap-2">Sign in <ArrowRight className="h-4 w-4" /></span>)}
