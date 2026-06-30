@@ -3,15 +3,7 @@ import { motion } from "framer-motion";
 import { ArrowRight, BookOpen, Check, Loader2, Play, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { staggerItem } from "@/lib/motion";
-
-/** Varied violet/blue hues for course-card thumbnail gradients. */
-const COURSE_HUES = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-];
+import { courseGradient } from "@/lib/course-visuals";
 
 export type CourseCardCourse = {
   id: string;
@@ -45,7 +37,6 @@ export function CourseCard({
   enrolling?: boolean;
   onEnroll?: () => void;
 }) {
-  const hue = COURSE_HUES[index % COURSE_HUES.length];
   const detailLink = { to: "/courses/$slug" as const, params: { slug: course.slug } };
 
   return (
@@ -58,7 +49,7 @@ export function CourseCard({
       <Link
         {...detailLink}
         className="relative block h-24"
-        style={{ background: `linear-gradient(120deg, ${hue}, color-mix(in oklab, ${hue} 50%, white))` }}
+        style={{ background: courseGradient(index) }}
         aria-label={course.title}
       >
         <span className="absolute left-4 top-4 grid h-9 w-9 place-items-center rounded-xl bg-white/25 text-white backdrop-blur-sm">

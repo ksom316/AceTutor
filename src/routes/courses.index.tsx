@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Header } from "@/components/site/Header";
-import { Footer } from "@/components/site/Footer";
+import { PageShell } from "@/components/site/PageShell";
 import { CourseCard } from "@/components/site/CourseCard";
 import { useEnrolledCourses } from "@/hooks/use-enrolled-courses";
 import { supabase } from "@/integrations/supabase/client";
@@ -34,8 +33,7 @@ function CoursesPage() {
   });
 
   return (
-    <div className="min-h-screen">
-      <Header />
+    <PageShell>
       <main className="container mx-auto max-w-6xl px-4 py-12">
         <motion.div variants={fadeUp} initial="hidden" animate="show">
           <h1 className="font-display text-5xl">All courses</h1>
@@ -71,7 +69,6 @@ function CoursesPage() {
           </motion.div>
         )}
       </main>
-      <Footer />
-    </div>
+    </PageShell>
   );
 }

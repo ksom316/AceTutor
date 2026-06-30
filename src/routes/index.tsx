@@ -5,9 +5,11 @@ import { animate, motion, useInView, useMotionValue, useTransform } from "framer
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 import {
   ArrowRight,
+  ArrowUpRight,
   BookOpen,
   Brain,
   Headphones,
+  Play,
   PlayCircle,
   Sparkles,
   Target,
@@ -15,16 +17,7 @@ import {
   Users,
 } from "lucide-react";
 
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 
 import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
@@ -32,23 +25,14 @@ import { HeroPreview } from "@/components/site/HeroPreview";
 import { CourseCard } from "@/components/site/CourseCard";
 import { useEnrolledCourses } from "@/hooks/use-enrolled-courses";
 import { Button } from "@/components/ui/button";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useStudentDashboard, type PerCourse } from "@/hooks/use-student-dashboard";
+import { courseGradient } from "@/lib/course-visuals";
+import { AppShell } from "@/components/site/AppShell";
 import { supabase } from "@/integrations/supabase/client";
 
-const CHART_PALETTE = [
-  "var(--color-chart-1)",
-  "var(--color-chart-2)",
-  "var(--color-chart-3)",
-  "var(--color-chart-4)",
-  "var(--color-chart-5)",
-];
+const DONUT_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--muted)"];
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -57,10 +41,21 @@ export const Route = createFileRoute("/")({
 function HomePage() {
   const { user, loading } = useAuth();
 
+  // Signed in → the same sidebar shell as the student workspace, so the home
+  // page and the workspace share one navigation. Visitors keep the marketing
+  // chrome (floating header + footer).
+  if (user) {
+    return (
+      <AppShell user={user}>
+        <AuthedHome userId={user.id} />
+      </AppShell>
+    );
+  }
+
   return (
     <div className="min-h-screen">
       <Header />
-      <main>{loading ? <div className="h-[60vh]" /> : user ? <AuthedHome userId={user.id} /> : <VisitorHome />}</main>
+      <main>{loading ? <div className="h-[60vh]" /> : <VisitorHome />}</main>
       <Footer />
     </div>
   );
@@ -341,35 +336,8 @@ function AuthedHome({ userId }: { userId: string }) {
     },
   });
 
-  const { data: enrollments } = useQuery({
-    queryKey: ["home-enrollments", userId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("enrollments")
-        .select("course_id, created_at, courses(id, slug, title, summary)")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
-  const { data: attempts } = useQuery({
-    queryKey: ["home-attempts", userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("quiz_attempts")
-        .select("id, score, total, finished_at, topic_id, topics(title, slug, courses(slug, title))")
-        .not("finished_at", "is", null)
-        .order("finished_at", { ascending: false })
-        .limit(5);
-      return data ?? [];
-    },
-  });
-
   const isLecturer = role === "lecturer" || role === "admin";
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
-  const enrolledCourses = (enrollments ?? []).map((e: any) => e.courses).filter(Boolean);
-  const recentCourses = enrolledCourses.slice(0, 3);
 
   return (
     <div className="container mx-auto max-w-6xl px-4 py-10">
@@ -381,11 +349,10 @@ function AuthedHome({ userId }: { userId: string }) {
         className="flex flex-wrap items-end justify-between gap-4"
       >
         <div>
-          <p className="text-sm text-muted-foreground">Welcome back</p>
-          <h1 className="mt-1 text-4xl font-bold tracking-tight md:text-5xl">{firstName}</h1>
-          <p className="mt-1 text-sm capitalize text-muted-foreground">
-            {isLecturer ? "Lecturer" : "Student"} workspace
-          </p>
+          <h1 className="font-display text-3xl tracking-tight md:text-4xl">
+            Welcome back, {firstName} <span className="inline-block">👋</span>
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">Let's continue your learning journey.</p>
         </div>
         {!profile?.vark_primary && !isLecturer && (
           <Link
@@ -397,104 +364,155 @@ function AuthedHome({ userId }: { userId: string }) {
         )}
       </motion.section>
 
-      {isLecturer ? (
-        <LecturerPanels />
-      ) : (
-        <StudentPanels
-          recentCourses={recentCourses}
-          enrolledCourses={enrolledCourses}
-          totalEnrolled={enrolledCourses.length}
-          attempts={attempts ?? []}
-        />
-      )}
+      {isLecturer ? <LecturerPanels /> : <StudentPanels userId={userId} />}
     </div>
   );
 }
 
-function StudentPanels({
-  recentCourses,
-  enrolledCourses,
-  totalEnrolled,
-  attempts,
-}: {
-  recentCourses: any[];
-  enrolledCourses: any[];
-  totalEnrolled: number;
-  attempts: any[];
-}) {
+function StudentPanels({ userId }: { userId: string }) {
+  const { perCourse, overallPct, donut, continueCourse, recommended, recentAttempts } =
+    useStudentDashboard(userId);
+  const donutHasData = donut.some((d) => d.value > 0);
+
   return (
     <>
-      {/* Quick action */}
-      <section className="mt-10 rounded-3xl border border-border bg-card p-6 md:p-8">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          <h2 className="text-2xl font-semibold tracking-tight">Expand your learning</h2>
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Browse the catalog and enroll in additional courses any time.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Button asChild size="lg" className="h-12 rounded-xl">
-            <Link to="/courses">
-              <BookOpen className="mr-1.5 h-4 w-4" /> Enroll in a new course
-            </Link>
-          </Button>
-        </div>
-      </section>
-
-
-      {/* Learning overview */}
+      {/* Continue learning + progress donut */}
       <motion.section
         variants={staggerContainer}
         initial="hidden"
-        whileInView="show"
-        viewport={viewportOnce}
-        className="mt-8 grid gap-6 md:grid-cols-3"
+        animate="show"
+        className="mt-8 grid gap-6 lg:grid-cols-[1.5fr_1fr]"
       >
-        <StatCard icon={BookOpen} label="Enrolled courses" value={String(totalEnrolled)} />
-        <StatCard icon={Trophy} label="Quizzes taken" value={String(attempts.length)} />
-        <StatCard
-          icon={Target}
-          label="Avg. score"
-          value={
-            attempts.length
-              ? `${Math.round(
-                  (attempts.reduce((s, a) => s + (a.score / Math.max(1, a.total)) * 100, 0) / attempts.length),
-                )}%`
-              : "—"
-          }
-        />
+        {/* Continue learning */}
+        <motion.div
+          variants={staggerItem}
+          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-6 text-primary-foreground shadow-lg md:p-8"
+        >
+          <div aria-hidden className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl" />
+          <div aria-hidden className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+          <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
+            Continue learning
+          </p>
+          {continueCourse ? (
+            <>
+              <h2 className="relative mt-2 font-display text-2xl leading-tight md:text-3xl">
+                {continueCourse.title}
+              </h2>
+              <p className="relative mt-1 text-sm text-primary-foreground/80">
+                {continueCourse.done}/{continueCourse.total || "—"} lessons complete
+              </p>
+              <div className="relative mt-5 h-2 w-full max-w-sm overflow-hidden rounded-full bg-white/25">
+                <motion.div
+                  className="h-full rounded-full bg-white"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${continueCourse.pct}%` }}
+                  transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
+                />
+              </div>
+              <p className="relative mt-1.5 text-xs text-primary-foreground/80">{continueCourse.pct}% complete</p>
+              <Link
+                to="/courses/$slug"
+                params={{ slug: continueCourse.slug }}
+                className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
+              >
+                <Play className="h-4 w-4 fill-primary" /> Resume course
+              </Link>
+            </>
+          ) : (
+            <>
+              <h2 className="relative mt-2 font-display text-2xl leading-tight md:text-3xl">
+                Start your first course
+              </h2>
+              <p className="relative mt-1 max-w-sm text-sm text-primary-foreground/80">
+                Browse the catalog and enroll to begin tracking your progress here.
+              </p>
+              <Link
+                to="/courses"
+                className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
+              >
+                <BookOpen className="h-4 w-4" /> Browse courses
+              </Link>
+            </>
+          )}
+        </motion.div>
+
+        {/* Progress donut */}
+        <motion.div variants={staggerItem} className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-lg">Your progress</h2>
+            <Target className="h-4 w-4 text-primary" />
+          </div>
+          <div className="relative mt-2 h-40">
+            {donutHasData ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={donut}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={52}
+                    outerRadius={70}
+                    paddingAngle={3}
+                    stroke="var(--card)"
+                    strokeWidth={2}
+                    startAngle={90}
+                    endAngle={-270}
+                  >
+                    {donut.map((_, i) => (
+                      <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="grid h-full place-items-center text-center text-xs text-muted-foreground">
+                Start a lesson to track progress
+              </div>
+            )}
+            <div className="pointer-events-none absolute inset-0 grid place-items-center">
+              <div className="text-center">
+                <div className="font-display text-3xl">{overallPct}%</div>
+                <div className="text-[11px] text-muted-foreground">overall</div>
+              </div>
+            </div>
+          </div>
+          <ul className="mt-3 space-y-1.5 text-xs">
+            {donut.map((d, i) => (
+              <li key={d.name} className="flex items-center justify-between">
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: DONUT_COLORS[i] }} />
+                  {d.name}
+                </span>
+                <span className="font-medium">{d.value}</span>
+              </li>
+            ))}
+          </ul>
+        </motion.div>
       </motion.section>
 
-      {/* Progress charts */}
-      <ProgressCharts enrolledCourses={enrolledCourses} attempts={attempts} />
-
-      {/* Recently accessed courses */}
+      {/* My courses */}
       <section className="mt-10">
-        <div className="mb-4 flex items-end justify-between">
-          <h2 className="text-2xl font-semibold tracking-tight">Your courses</h2>
-          <Link to="/courses" className="text-sm text-muted-foreground hover:text-foreground">
-            Browse catalog →
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-display text-xl">My courses</h2>
+          <Link
+            to="/my-courses"
+            className="inline-flex items-center text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            View all <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </Link>
         </div>
-        {recentCourses.length ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {recentCourses.map((c) => (
-              <Link
-                key={c.slug}
-                to="/courses/$slug"
-                params={{ slug: c.slug }}
-                className="group block rounded-2xl border border-border bg-card p-5 transition-all hover:-translate-y-0.5 hover:border-primary/40"
-              >
-                <BookOpen className="h-5 w-5 text-primary" />
-                <h3 className="mt-3 text-lg font-semibold">{c.title}</h3>
-                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{c.summary}</p>
-                <span className="mt-3 inline-flex items-center text-sm text-primary">
-                  Continue <ArrowRight className="ml-1 h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
-                </span>
-              </Link>
+        {perCourse.length > 0 ? (
+          <motion.div
+            variants={staggerContainer}
+            initial="hidden"
+            whileInView="show"
+            viewport={viewportOnce}
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {perCourse.map((c, i) => (
+              <CourseProgressCard key={c.id} course={c} index={i} />
             ))}
-          </div>
+          </motion.div>
         ) : (
           <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
             <p className="text-sm text-muted-foreground">You're not enrolled in any course yet.</p>
@@ -507,48 +525,123 @@ function StudentPanels({
 
       {/* Recent activity */}
       <section className="mt-10 grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Recent quiz attempts</h2>
-            <Trophy className="h-5 w-5 text-accent" />
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-display text-lg">Recent quiz attempts</h2>
+            <Trophy className="h-4 w-4 text-primary" />
           </div>
-          {attempts.length ? (
-            <ul className="mt-3 space-y-2 text-sm">
-              {attempts.map((a: any) => (
-                <li key={a.id} className="flex items-center justify-between border-b border-border/60 py-2 last:border-0">
-                  <span className="truncate pr-3">{a.topics?.title ?? "Quiz"}</span>
-                  <span className="text-muted-foreground">
-                    {a.score} / {a.total}
-                  </span>
+          {recentAttempts.length ? (
+            <ul className="divide-y divide-border/70">
+              {recentAttempts.map((a: any) => {
+                const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
+                return (
+                  <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{a.topics?.title ?? "Quiz"}</p>
+                      <p className="truncate text-xs text-muted-foreground">{a.topics?.courses?.title}</p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        pct >= 70 ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
+                      }`}
+                    >
+                      {a.score}/{a.total} · {pct}%
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No quizzes yet — take one to see your scores here.</p>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-display text-lg">Recommended for you</h2>
+            <Sparkles className="h-4 w-4 text-primary" />
+          </div>
+          {recommended.length ? (
+            <ul className="space-y-1">
+              {recommended.map((c: any) => (
+                <li key={c.id}>
+                  <Link
+                    to="/courses/$slug"
+                    params={{ slug: c.slug }}
+                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-secondary"
+                  >
+                    <span className="truncate">{c.title}</span>
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  </Link>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="mt-3 text-sm text-muted-foreground">No quizzes yet — take one to see your progress.</p>
+            <div className="py-2">
+              <p className="text-sm text-muted-foreground">
+                You're making progress everywhere — explore the catalog for something new.
+              </p>
+              <Button asChild variant="outline" size="sm" className="mt-3 rounded-full">
+                <Link to="/courses">Browse catalog</Link>
+              </Button>
+            </div>
           )}
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Recommended for you</h2>
-            <Sparkles className="h-5 w-5 text-primary" />
-          </div>
-          <ul className="mt-3 space-y-2 text-sm">
-            {courses
-              .filter((c) => !recentCourses.some((r) => r.slug === c.slug))
-              .slice(0, 4)
-              .map((c) => (
-                <li key={c.slug} className="flex items-center justify-between border-b border-border/60 py-2 last:border-0">
-                  <span className="truncate pr-3">{c.title}</span>
-                  <Link to="/courses/$slug" params={{ slug: c.slug }} className="text-primary hover:underline">
-                    View
-                  </Link>
-                </li>
-              ))}
-          </ul>
         </div>
       </section>
     </>
+  );
+}
+
+/** A "My courses" card with a gradient thumbnail banner, status pill, and progress bar. */
+function CourseProgressCard({ course, index }: { course: PerCourse; index: number }) {
+  const status =
+    course.pct >= 100
+      ? { label: "Completed", className: "bg-success/15 text-success" }
+      : course.touched > 0
+        ? { label: "In Progress", className: "bg-primary/10 text-primary" }
+        : { label: "Not Started", className: "bg-muted text-muted-foreground" };
+
+  return (
+    <motion.div variants={staggerItem} whileHover={{ y: -4 }}>
+      <Link
+        to="/courses/$slug"
+        params={{ slug: course.slug }}
+        className="group block h-full overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all hover:border-primary/40 hover:shadow-lg"
+      >
+        {/* Gradient thumbnail */}
+        <div className="relative h-24" style={{ background: courseGradient(index) }}>
+          <span className="absolute left-4 top-4 grid h-9 w-9 place-items-center rounded-xl bg-white/25 text-white backdrop-blur-sm">
+            <BookOpen className="h-5 w-5" />
+          </span>
+          <span
+            className={`absolute right-3 top-3 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm ${status.className}`}
+          >
+            {status.label}
+          </span>
+        </div>
+
+        {/* Body */}
+        <div className="p-5">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="line-clamp-1 font-display text-lg">{course.title}</h3>
+            <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {course.total > 0 ? `${course.total} lessons` : "Lessons coming soon"}
+          </p>
+          <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+            <motion.div
+              className="h-full rounded-full bg-primary"
+              initial={{ width: 0 }}
+              whileInView={{ width: `${course.pct}%` }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+            />
+          </div>
+          <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">{course.pct}% complete</p>
+        </div>
+      </Link>
+    </motion.div>
   );
 }
 
@@ -575,108 +668,6 @@ function LecturerPanels() {
       </section>
     </>
   );
-}
-
-/* --------------------------- Progress charts --------------------------- */
-
-function ProgressCharts({ enrolledCourses, attempts }: { enrolledCourses: any[]; attempts: any[] }) {
-  // Bar chart: score (%) for each recent attempt, oldest → newest.
-  const scoreData = [...attempts]
-    .reverse()
-    .map((a: any, i: number) => ({
-      name: a.topics?.title ? truncate(a.topics.title, 16) : `Quiz ${i + 1}`,
-      score: Math.round((a.score / Math.max(1, a.total)) * 100),
-    }));
-
-  // Pie chart: how your study time is split across courses.
-  // Prefer quizzes-per-course; fall back to enrolled courses so the chart is never empty.
-  const counts = new Map<string, number>();
-  for (const a of attempts) {
-    const title = a.topics?.courses?.title ?? "Other";
-    counts.set(title, (counts.get(title) ?? 0) + 1);
-  }
-  let pieData = Array.from(counts, ([name, value]) => ({ name, value }));
-  let pieLabel = "Quizzes taken per course";
-  if (pieData.length === 0) {
-    pieData = (enrolledCourses ?? []).map((c: any) => ({ name: c.title, value: 1 }));
-    pieLabel = "Courses you're enrolled in";
-  }
-
-  const hasAnyData = scoreData.length > 0 || pieData.length > 0;
-  if (!hasAnyData) return null;
-
-  const scoreConfig: ChartConfig = {
-    score: { label: "Score %", color: "var(--color-chart-1)" },
-  };
-  const pieConfig: ChartConfig = Object.fromEntries(
-    pieData.map((d, i) => [d.name, { label: d.name, color: CHART_PALETTE[i % CHART_PALETTE.length] }]),
-  );
-
-  return (
-    <section className="mt-8 grid gap-6 lg:grid-cols-2">
-      {/* Bar graph — scores over time */}
-      <div className="rounded-2xl border border-border bg-card p-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Quiz scores over time</h2>
-          <Target className="h-5 w-5 text-primary" />
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">Your most recent quiz results, as a percentage.</p>
-        {scoreData.length ? (
-          <ChartContainer config={scoreConfig} className="mt-4 aspect-[16/9] w-full">
-            <BarChart data={scoreData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
-              <YAxis domain={[0, 100]} tickLine={false} axisLine={false} tickMargin={8} width={36} fontSize={11} />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey="score" fill="var(--color-chart-1)" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ChartContainer>
-        ) : (
-          <p className="mt-6 text-sm text-muted-foreground">Take a quiz to start tracking your scores.</p>
-        )}
-      </div>
-
-      {/* Pie chart — course distribution */}
-      <div className="rounded-2xl border border-border bg-card p-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Where you're focused</h2>
-          <BookOpen className="h-5 w-5 text-primary" />
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">{pieLabel}.</p>
-        {pieData.length ? (
-          <ChartContainer config={pieConfig} className="mt-4 aspect-square max-h-[280px] w-full">
-            <PieChart>
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={95} paddingAngle={2}>
-                {pieData.map((_, i) => (
-                  <Cell key={i} fill={CHART_PALETTE[i % CHART_PALETTE.length]} stroke="var(--color-card)" strokeWidth={2} />
-                ))}
-              </Pie>
-            </PieChart>
-          </ChartContainer>
-        ) : (
-          <p className="mt-6 text-sm text-muted-foreground">Enroll in a course to see your focus areas.</p>
-        )}
-        {pieData.length > 0 && (
-          <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm">
-            {pieData.map((d, i) => (
-              <li key={d.name} className="flex items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: CHART_PALETTE[i % CHART_PALETTE.length] }}
-                />
-                <span className="text-muted-foreground">{d.name}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function truncate(s: string, n: number) {
-  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
 /** Counts up to a numeric value when scrolled into view; renders non-numeric strings (e.g. "24/7") as-is. */

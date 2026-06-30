@@ -38,6 +38,9 @@ export function useEnrolledCourses() {
       toast.success("Enrolled — find it under My Courses");
       qc.invalidateQueries({ queryKey: ["enrolled-courses", user?.id] });
       qc.invalidateQueries({ queryKey: ["enrollment", user?.id, courseId] });
+      // Keep the dashboard / home / my-courses surfaces (which read the dash-*
+      // queries) in sync with the new enrollment.
+      qc.invalidateQueries({ queryKey: ["dash-enrollments", user?.id] });
     },
     onError: (e: Error) => toast.error(e.message),
   });

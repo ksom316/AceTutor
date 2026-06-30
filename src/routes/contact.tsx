@@ -33,6 +33,38 @@ function telHref(display: string) {
   return `tel:+${digits}`;
 }
 
+/**
+ * Copies text to the clipboard. Prefers the async Clipboard API, but falls back
+ * to a hidden-textarea + execCommand so it still works outside a secure context
+ * (e.g. when the dev server is opened over a LAN IP instead of localhost).
+ */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to the legacy path below
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function ContactPage() {
   return (
     <div className="min-h-screen">
@@ -222,13 +254,13 @@ function ContactRow({
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(copyValue);
+    const ok = await copyToClipboard(copyValue);
+    if (ok) {
       setCopied(true);
-      toast.success(`${label} copied`);
+      toast.success(`${label} copied to clipboard`);
       setTimeout(() => setCopied(false), 1600);
-    } catch {
-      toast.error("Couldn't copy — please copy manually");
+    } else {
+      toast.error("Couldn't copy — please select and copy manually");
     }
   };
 
@@ -250,10 +282,15 @@ function ContactRow({
       <button
         type="button"
         onClick={copy}
-        aria-label={`Copy ${label.toLowerCase()}`}
-        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        aria-label={`Copy ${label.toLowerCase()} ${value}`}
+        className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+          copied
+            ? "border-success/40 bg-success/10 text-success"
+            : "border-border text-muted-foreground hover:border-primary/40 hover:bg-secondary hover:text-foreground"
+        }`}
       >
-        {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? "Copied" : "Copy"}
       </button>
     </motion.div>
   );

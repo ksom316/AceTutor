@@ -55,7 +55,8 @@ function QuizRunner() {
         .single();
       if (!active) return;
       if (aErr) toast.error(aErr.message);
-      else setAttemptId(attempt.id);
+      else if (attempt) setAttemptId(attempt.id);
+      else toast.error("Could not start this quiz. Please try again.");
       setLoading(false);
     })();
     return () => {

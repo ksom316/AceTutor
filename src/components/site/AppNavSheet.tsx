@@ -8,6 +8,7 @@ import {
   Home,
   LayoutDashboard,
   LogOut,
+  Mail,
   Menu,
   Settings,
   User as UserIcon,
@@ -34,6 +35,7 @@ const studentItems: NavItem[] = [
   { label: "Progress & Analytics", icon: BarChart3, to: "/analytics" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/profile" },
+  { label: "Contact", icon: Mail, to: "/contact" },
 ];
 
 const lecturerItems: NavItem[] = [
@@ -42,6 +44,7 @@ const lecturerItems: NavItem[] = [
   { label: "Student Analytics", icon: Users, to: "/analytics" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/profile" },
+  { label: "Contact", icon: Mail, to: "/contact" },
 ];
 
 export function AppNavSheet({ user }: { user: User }) {
@@ -90,7 +93,8 @@ export function AppNavSheet({ user }: { user: User }) {
   const displayName =
     profile?.full_name || user.email?.split("@")[0] || "Learner";
   const initials = displayName
-    .split(" ")
+    .split(/\s+/)
+    .filter(Boolean)
     .map((p) => p[0])
     .slice(0, 2)
     .join("")

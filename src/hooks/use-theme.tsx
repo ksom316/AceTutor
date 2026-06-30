@@ -1,16 +1,31 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from "react";
 
 type Theme = "light" | "dark";
 type ThemeCtx = { theme: Theme; toggle: () => void; setTheme: (t: Theme) => void };
 
 const ThemeContext = createContext<ThemeCtx | undefined>(undefined);
 
+// Runs before paint on the client (so the toggle icon never flashes the wrong
+// state) but falls back to a no-op-safe effect during SSR.
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
+  // Start "light" to match the server-rendered markup (avoids a hydration
+  // mismatch); the layout effect below reconciles with the stored preference
+  // before the first paint.
   const [theme, setThemeState] = useState<Theme>("light");
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     const stored = (typeof window !== "undefined" && localStorage.getItem("theme")) as Theme | null;
-    const initial: Theme = stored ?? "light";
+    const initial: Theme =
+      stored ?? (document.documentElement.classList.contains("dark") ? "dark" : "light");
     setThemeState(initial);
     document.documentElement.classList.toggle("dark", initial === "dark");
   }, []);
@@ -20,7 +35,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle("dark", t === "dark");
     try {
       localStorage.setItem("theme", t);
-    } catch {}
+    } catch {
+      // Ignore storage failures (private mode / disabled storage).
+    }
   };
 
   const toggle = () => setTheme(theme === "dark" ? "light" : "dark");

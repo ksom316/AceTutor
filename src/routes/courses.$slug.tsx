@@ -20,8 +20,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
-import { Header } from "@/components/site/Header";
-import { Footer } from "@/components/site/Footer";
+import { PageShell } from "@/components/site/PageShell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -159,6 +158,8 @@ function CourseDetail() {
       toast.success(`Enrolled in ${course?.title}`);
       qc.invalidateQueries({ queryKey: ["enrollment", user?.id, course?.id] });
       qc.invalidateQueries({ queryKey: ["enrolled-courses", user?.id] });
+      // Refresh the dashboard / home / my-courses surfaces too.
+      qc.invalidateQueries({ queryKey: ["dash-enrollments", user?.id] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -239,19 +240,16 @@ function CourseDetail() {
 
   if (isLoading || !course) {
     return (
-      <div className="min-h-screen">
-        <Header />
+      <PageShell>
         <main className="container mx-auto max-w-6xl px-4 py-12 text-sm text-muted-foreground">Loading…</main>
-        <Footer />
-      </div>
+      </PageShell>
     );
   }
 
   const isEnrolled = !!enrollment;
 
   return (
-    <div className="min-h-screen">
-      <Header />
+    <PageShell>
       <main className="container mx-auto max-w-6xl px-4 py-10">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
           <Link to="/courses" className="hover:underline">Courses</Link>
@@ -694,7 +692,6 @@ function CourseDetail() {
           </aside>
         </div>
       </main>
-      <Footer />
       {aiQuiz && user && (
         <AIQuizDialog
           open={!!aiQuiz}
@@ -706,9 +703,12 @@ function CourseDetail() {
           questions={aiQuiz.questions}
           onCompleted={() => {
             qc.invalidateQueries({ queryKey: ["course-attempts", user.id, course.id] });
+            // Keep the dashboard / home quiz widgets in sync with the new attempt.
+            qc.invalidateQueries({ queryKey: ["dash-attempts", user.id] });
+            qc.invalidateQueries({ queryKey: ["dash-progress", user.id] });
           }}
         />
       )}
-    </div>
+    </PageShell>
   );
 }

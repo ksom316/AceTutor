@@ -11,6 +11,7 @@ import {
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { AuthProvider } from "@/hooks/use-auth";
 import { SplashScreen } from "@/components/site/SplashScreen";
 
 const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'){document.documentElement.classList.add('dark');}}catch(e){}})();`;
@@ -84,12 +85,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "AceTutor is an intelligent multimodal tutoring system that adapts text, video, and audio lessons to your learning style, with quizzes and instant feedback.",
       },
       { property: "og:title", content: "AceTutor — Adaptive AI Tutoring for CS & IT Students" },
-      { property: "og:description", content: "Captures and replicates screenshots with pixel-perfect accuracy." },
+      {
+        property: "og:description",
+        content:
+          "Adaptive multimodal tutoring that matches text, video, and audio lessons to your VARK learning style, with quizzes and instant feedback.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "AceTutor — Adaptive AI Tutoring for CS & IT Students" },
-      { name: "description", content: "Captures and replicates screenshots with pixel-perfect accuracy." },
-      { name: "twitter:description", content: "Captures and replicates screenshots with pixel-perfect accuracy." },
+      {
+        name: "twitter:description",
+        content:
+          "Adaptive multimodal tutoring that matches text, video, and audio lessons to your VARK learning style, with quizzes and instant feedback.",
+      },
       { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/24d2bd84-8cb0-4a98-8f25-9e4ebb9bd3e2/id-preview-e94ed467--e06e4945-6e15-44f0-b5e7-c19bbe07b5f8.lovable.app-1778507642832.png" },
       { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/24d2bd84-8cb0-4a98-8f25-9e4ebb9bd3e2/id-preview-e94ed467--e06e4945-6e15-44f0-b5e7-c19bbe07b5f8.lovable.app-1778507642832.png" },
     ],
@@ -132,9 +140,11 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <Outlet />
-        <Toaster />
-        <SplashScreen />
+        <AuthProvider>
+          <Outlet />
+          <Toaster />
+          <SplashScreen />
+        </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

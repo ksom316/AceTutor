@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import {
@@ -17,6 +16,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useStudentDashboard } from "@/hooks/use-student-dashboard";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -59,146 +59,30 @@ function Dashboard() {
     },
   });
 
-  const { data: enrollments } = useQuery({
-    queryKey: ["dash-enrollments", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("enrollments")
-        .select("course_id, created_at, courses(id, slug, title, summary)")
-        .order("created_at", { ascending: false });
-      return data ?? [];
-    },
-  });
-
-  const enrolledCourses = useMemo(
-    () => (enrollments ?? []).map((e: any) => e.courses).filter(Boolean),
-    [enrollments],
-  );
-  const enrolledIds = useMemo(() => enrolledCourses.map((c: any) => c.id), [enrolledCourses]);
-
-  // All lessons that belong to the user's enrolled courses (for totals).
-  const { data: courseLessons } = useQuery({
-    queryKey: ["dash-lessons", enrolledIds],
-    enabled: enrolledIds.length > 0,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("lessons")
-        .select("id, topics!inner(course_id)")
-        .in("topics.course_id", enrolledIds);
-      return (data ?? []) as any[];
-    },
-  });
-
-  // The user's lesson progress (completed + time watched).
-  const { data: progressRows } = useQuery({
-    queryKey: ["dash-progress", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("progress")
-        .select("completed_at, watched_seconds, lessons!inner(id, topics!inner(course_id))")
-        .eq("user_id", user!.id);
-      return (data ?? []) as any[];
-    },
-  });
-
-  const { data: attempts } = useQuery({
-    queryKey: ["dash-attempts", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("quiz_attempts")
-        .select("id, score, total, finished_at, topics(title, courses(title, slug))")
-        .not("finished_at", "is", null)
-        .order("finished_at", { ascending: false })
-        .limit(6);
-      return (data ?? []) as any[];
-    },
-  });
-
-  /* ---- Derived stats ------------------------------------------------ */
-  const stats = useMemo(() => {
-    const lessons = courseLessons ?? [];
-    const prog = progressRows ?? [];
-
-    const totalByCourse = new Map<string, number>();
-    for (const l of lessons) {
-      const cid = l.topics?.course_id;
-      if (cid) totalByCourse.set(cid, (totalByCourse.get(cid) ?? 0) + 1);
-    }
-
-    const completedByCourse = new Map<string, number>();
-    const touchedByCourse = new Map<string, number>();
-    let totalSeconds = 0;
-    let completedLessons = 0;
-    let inProgressLessons = 0;
-    for (const p of prog) {
-      const cid = p.lessons?.topics?.course_id;
-      totalSeconds += p.watched_seconds ?? 0;
-      if (cid) {
-        touchedByCourse.set(cid, (touchedByCourse.get(cid) ?? 0) + 1);
-        if (p.completed_at) {
-          completedByCourse.set(cid, (completedByCourse.get(cid) ?? 0) + 1);
-          completedLessons += 1;
-        } else {
-          inProgressLessons += 1;
-        }
-      }
-    }
-
-    const totalLessons = Array.from(totalByCourse.values()).reduce((s, n) => s + n, 0);
-    const notStarted = Math.max(0, totalLessons - completedLessons - inProgressLessons);
-    const overallPct = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
-
-    const perCourse = enrolledCourses.map((c: any) => {
-      const total = totalByCourse.get(c.id) ?? 0;
-      const done = completedByCourse.get(c.id) ?? 0;
-      const touched = touchedByCourse.get(c.id) ?? 0;
-      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      return { ...c, total, done, touched, pct };
-    });
-
-    const att = attempts ?? [];
-    const avgScore = att.length
-      ? Math.round(att.reduce((s, a) => s + (a.total ? (a.score / a.total) * 100 : 0), 0) / att.length)
-      : 0;
-
-    return {
-      perCourse,
-      overallPct,
-      donut: [
-        { name: "Completed", value: completedLessons },
-        { name: "In Progress", value: inProgressLessons },
-        { name: "Not Started", value: notStarted },
-      ],
-      totalSeconds,
-      avgScore,
-      quizzes: att.length,
-    };
-  }, [courseLessons, progressRows, enrolledCourses, attempts]);
+  const {
+    enrolledCourses,
+    perCourse,
+    overallPct,
+    donut,
+    continueCourse,
+    recommended,
+    recentAttempts: attempts,
+    quizzes,
+    avgScore,
+    totalSeconds,
+  } = useStudentDashboard(user?.id);
 
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
   const displayName = profile?.full_name || user?.email?.split("@")[0] || "Learner";
   const initials = displayName
-    .split(" ")
+    .split(/\s+/)
+    .filter(Boolean)
     .map((p) => p[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
 
-  // "Continue learning": furthest-along touched course, else most recent enrollment.
-  const continueCourse = useMemo(() => {
-    const touched = stats.perCourse.filter((c: any) => c.touched > 0).sort((a: any, b: any) => b.pct - a.pct);
-    return touched[0] ?? stats.perCourse[0] ?? null;
-  }, [stats.perCourse]);
-
-  const recommended = useMemo(
-    () => enrolledCourses.filter((c: any) => !stats.perCourse.find((p: any) => p.id === c.id && p.touched > 0)).slice(0, 3),
-    [enrolledCourses, stats.perCourse],
-  );
-
-  const donutHasData = stats.donut.some((d) => d.value > 0);
+  const donutHasData = donut.some((d) => d.value > 0);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">
@@ -284,7 +168,7 @@ function Dashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={stats.donut}
+                        data={donut}
                         dataKey="value"
                         nameKey="name"
                         innerRadius={52}
@@ -295,7 +179,7 @@ function Dashboard() {
                         startAngle={90}
                         endAngle={-270}
                       >
-                        {stats.donut.map((_, i) => (
+                        {donut.map((_, i) => (
                           <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                         ))}
                       </Pie>
@@ -308,13 +192,13 @@ function Dashboard() {
                 )}
                 <div className="pointer-events-none absolute inset-0 grid place-items-center">
                   <div className="text-center">
-                    <div className="font-display text-3xl">{stats.overallPct}%</div>
+                    <div className="font-display text-3xl">{overallPct}%</div>
                     <div className="text-[11px] text-muted-foreground">overall</div>
                   </div>
                 </div>
               </div>
               <ul className="mt-3 space-y-1.5 text-xs">
-                {stats.donut.map((d, i) => (
+                {donut.map((d, i) => (
                   <li key={d.name} className="flex items-center justify-between">
                     <span className="flex items-center gap-2 text-muted-foreground">
                       <span className="h-2.5 w-2.5 rounded-full" style={{ background: CHART_COLORS[i] }} />
@@ -335,7 +219,7 @@ function Dashboard() {
                 View all <ArrowRight className="ml-1 h-3.5 w-3.5" />
               </Link>
             </div>
-            {stats.perCourse.length > 0 ? (
+            {perCourse.length > 0 ? (
               <motion.div
                 variants={staggerContainer}
                 initial="hidden"
@@ -343,7 +227,7 @@ function Dashboard() {
                 viewport={viewportOnce}
                 className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
               >
-                {stats.perCourse.map((c: any) => (
+                {perCourse.map((c: any) => (
                   <motion.div key={c.id} variants={staggerItem} whileHover={{ y: -4 }}>
                     <Link
                       to="/courses/$slug"
@@ -452,9 +336,9 @@ function Dashboard() {
           {/* Stat tiles */}
           <motion.div variants={staggerItem} className="grid grid-cols-2 gap-3">
             <StatTile icon={BookOpen} label="Courses" value={String(enrolledCourses.length)} />
-            <StatTile icon={Trophy} label="Quizzes" value={String(stats.quizzes)} />
-            <StatTile icon={Clock} label="Hours" value={formatHours(stats.totalSeconds)} />
-            <StatTile icon={Target} label="Avg score" value={stats.quizzes ? `${stats.avgScore}%` : "—"} />
+            <StatTile icon={Trophy} label="Quizzes" value={String(quizzes)} />
+            <StatTile icon={Clock} label="Hours" value={formatHours(totalSeconds)} />
+            <StatTile icon={Target} label="Avg score" value={quizzes ? `${avgScore}%` : "—"} />
           </motion.div>
 
           {/* VARK nudge */}

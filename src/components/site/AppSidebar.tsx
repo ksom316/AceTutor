@@ -4,8 +4,10 @@ import {
   BarChart3,
   BookOpen,
   GraduationCap,
+  Home,
   LayoutDashboard,
   LogOut,
+  Mail,
   Settings,
   User as UserIcon,
   Users,
@@ -35,12 +37,14 @@ type NavItem = {
 };
 
 const studentItems: NavItem[] = [
+  { label: "Home", icon: Home, to: "/" },
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "My Courses", icon: BookOpen, to: "/my-courses" },
   { label: "Progress & Analytics", icon: BarChart3, to: "/analytics" },
 ];
 
 const lecturerItems: NavItem[] = [
+  { label: "Home", icon: Home, to: "/" },
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "Course Management", icon: BookOpen, to: "/courses" },
   { label: "Student Analytics", icon: Users, to: "/analytics" },
@@ -49,6 +53,7 @@ const lecturerItems: NavItem[] = [
 const accountItems: NavItem[] = [
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/profile" },
+  { label: "Contact", icon: Mail, to: "/contact" },
 ];
 
 export function AppSidebar({ user }: { user: User }) {
@@ -95,7 +100,8 @@ export function AppSidebar({ user }: { user: User }) {
   const items = isLecturer ? lecturerItems : studentItems;
   const displayName = profile?.full_name || user.email?.split("@")[0] || "Learner";
   const initials = displayName
-    .split(" ")
+    .split(/\s+/)
+    .filter(Boolean)
     .map((p) => p[0])
     .slice(0, 2)
     .join("")
