@@ -34,7 +34,13 @@ export function Txt({
     title: { fontSize: 16, fontWeight: "600", color: c.text },
     body: { fontSize: 15, fontWeight: "500", color: c.text, lineHeight: 22 },
     muted: { fontSize: 14, fontWeight: "500", color: c.textMuted, lineHeight: 20 },
-    label: { fontSize: 12, fontWeight: "700", color: c.textMuted, letterSpacing: 1, textTransform: "uppercase" },
+    label: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: c.textMuted,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+    },
     small: { fontSize: 12, fontWeight: "500", color: c.textMuted },
   };
   return <Text style={[map[variant], color ? { color } : null, style]} {...rest} />;
@@ -56,7 +62,10 @@ export function Screen({
   const c = useColors();
   const body = scroll ? (
     <ScrollView
-      contentContainerStyle={[{ padding: space.lg, paddingBottom: 96, gap: space.lg }, contentStyle]}
+      contentContainerStyle={[
+        { padding: space.lg, paddingBottom: 96, gap: space.lg },
+        contentStyle,
+      ]}
       showsVerticalScrollIndicator={false}
     >
       {children}
@@ -118,11 +127,7 @@ export function Button({
   const c = useColors();
   const isSolid = variant === "primary" || variant === "destructive";
   const bg =
-    variant === "primary"
-      ? c.primary
-      : variant === "destructive"
-        ? c.destructive
-        : "transparent";
+    variant === "primary" ? c.primary : variant === "destructive" ? c.destructive : "transparent";
   const fg = isSolid ? "#fff" : variant === "ghost" ? c.text : c.primary;
   const border = variant === "outline" ? c.border : "transparent";
 
@@ -191,12 +196,25 @@ export function GradientButton({
 
 /* ------------------------------ Badge ------------------------------- */
 
-export function Badge({ label, tone = "primary" }: { label: string; tone?: "primary" | "muted" | "success" }) {
+export function Badge({
+  label,
+  tone = "primary",
+}: {
+  label: string;
+  tone?: "primary" | "muted" | "success";
+}) {
   const c = useColors();
   const bg = tone === "success" ? c.success + "22" : tone === "muted" ? c.surface : c.primarySoft;
   const fg = tone === "success" ? c.success : tone === "muted" ? c.textMuted : c.primary;
   return (
-    <View style={{ backgroundColor: bg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill }}>
+    <View
+      style={{
+        backgroundColor: bg,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: radius.pill,
+      }}
+    >
       <Text style={{ color: fg, fontWeight: "700", fontSize: 11 }}>{label}</Text>
     </View>
   );
@@ -208,8 +226,17 @@ export function ProgressBar({ value, height = 8 }: { value: number; height?: num
   const c = useColors();
   const pct = Math.max(0, Math.min(100, value));
   return (
-    <View style={{ height, backgroundColor: c.surface, borderRadius: radius.pill, overflow: "hidden" }}>
-      <View style={{ width: `${pct}%`, height: "100%", backgroundColor: c.primary, borderRadius: radius.pill }} />
+    <View
+      style={{ height, backgroundColor: c.surface, borderRadius: radius.pill, overflow: "hidden" }}
+    >
+      <View
+        style={{
+          width: `${pct}%`,
+          height: "100%",
+          backgroundColor: c.primary,
+          borderRadius: radius.pill,
+        }}
+      />
     </View>
   );
 }

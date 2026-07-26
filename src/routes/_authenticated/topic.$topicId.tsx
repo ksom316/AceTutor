@@ -1,15 +1,31 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import { ArrowRight, FileText, Headphones, PlayCircle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StartQuizButton } from "@/components/course/StartQuizButton";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { fadeUp } from "@/lib/motion";
 
 type Modality = "text" | "video" | "audio";
+
+type LessonRow = {
+  id: string;
+  modality: Modality;
+  title: string;
+  body_md: string | null;
+  media_url: string | null;
+  duration_sec: number | null;
+};
+type TopicDetail = {
+  id: string;
+  title: string;
+  summary: string | null;
+  courses: { title: string; slug: string } | null;
+};
 
 const VARK_TO_MODALITY: Record<string, Modality> = {
   visual: "video",
@@ -27,18 +43,26 @@ export const Route = createFileRoute("/_authenticated/topic/$topicId")({
 function TopicPage() {
   const { topicId } = Route.useParams();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [modality, setModality] = useState<Modality>("text");
 
   const { data, isLoading } = useQuery({
     queryKey: ["topic", topicId],
     queryFn: async () => {
-      const { data: topic } = await supabase.from("topics").select("id, title, summary, courses(title, slug)").eq("id", topicId).maybeSingle();
+      const { data: topic } = await supabase
+        .from("topics")
+        .select("id, title, summary, courses(title, slug)")
+        .eq("id", topicId)
+        .maybeSingle();
       const { data: lessons } = await supabase
         .from("lessons")
         .select("id, modality, title, body_md, media_url, duration_sec")
         .eq("topic_id", topicId)
         .order("order_index");
-      return { topic, lessons: lessons ?? [] };
+      return {
+        topic: (topic ?? null) as unknown as TopicDetail | null,
+        lessons: (lessons ?? []) as unknown as LessonRow[],
+      };
     },
   });
 
@@ -46,7 +70,11 @@ function TopicPage() {
     queryKey: ["profile-modality", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("vark_primary").eq("id", user!.id).maybeSingle();
+      const { data } = await supabase
+        .from("profiles")
+        .select("vark_primary")
+        .eq("id", user!.id)
+        .maybeSingle();
       return data;
     },
   });
@@ -55,7 +83,10 @@ function TopicPage() {
     if (profile?.vark_primary) setModality(VARK_TO_MODALITY[profile.vark_primary] ?? "text");
   }, [profile?.vark_primary]);
 
-  const lesson = useMemo(() => data?.lessons.find((l: any) => l.modality === modality), [data, modality]);
+  const lesson = useMemo(
+    () => data?.lessons.find((l) => l.modality === modality),
+    [data, modality],
+  );
 
   if (isLoading) {
     return (
@@ -69,50 +100,85 @@ function TopicPage() {
     );
   }
 
+  if (!data?.topic) {
+    return (
+      <main className="container mx-auto flex min-h-[60vh] max-w-4xl items-center justify-center px-4 py-12">
+        <div className="max-w-md rounded-2xl border border-dashed border-border bg-card/60 p-10 text-center">
+          <h1 className="font-display text-2xl">Topic not found</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This lesson is unavailable or may have been moved.
+          </p>
+          <Button onClick={() => navigate({ to: "/dashboard" })} className="mt-6 rounded-full">
+            Back to dashboard
+          </Button>
+        </div>
+      </main>
+    );
+  }
+
+  const courseRelation = data.topic.courses as
+    | { title?: string; slug?: string }
+    | { title?: string; slug?: string }[]
+    | null;
+  const course = Array.isArray(courseRelation) ? courseRelation[0] : courseRelation;
+
   return (
     <main className="container mx-auto max-w-4xl px-4 py-12">
-      {data?.topic && (
-        <motion.div variants={fadeUp} initial="hidden" animate="show">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">
-            <Link to="/courses/$slug" params={{ slug: (data.topic as any).courses?.slug ?? "" }} className="transition-colors hover:text-foreground hover:underline">
-              {(data.topic as any).courses?.title}
+      <motion.div variants={fadeUp} initial="hidden" animate="show">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          {course?.slug ? (
+            <Link
+              to="/courses/$slug"
+              params={{ slug: course.slug }}
+              className="transition-colors hover:text-foreground hover:underline"
+            >
+              {course.title ?? "Course"}
             </Link>
-          </p>
-          <h1 className="mt-2 font-display text-5xl">{data.topic.title}</h1>
-          <p className="mt-2 max-w-2xl text-muted-foreground">{data.topic.summary}</p>
-        </motion.div>
-      )}
+          ) : (
+            (course?.title ?? "Course")
+          )}
+        </p>
+        <h1 className="mt-2 font-display text-5xl">{data.topic.title}</h1>
+        <p className="mt-2 max-w-2xl text-muted-foreground">{data.topic.summary}</p>
+      </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.45, ease: EASE, delay: 0.1 }}
-        className="mt-8 inline-flex rounded-full border border-border bg-card p-1 text-sm"
+        className="mt-8 inline-flex rounded-full border border-border bg-muted p-1 text-sm shadow-sm"
       >
-        {([
-          { k: "text", Icon: FileText, label: "Read" },
-          { k: "video", Icon: PlayCircle, label: "Watch" },
-          { k: "audio", Icon: Headphones, label: "Listen" },
-        ] as { k: Modality; Icon: any; label: string }[]).map(({ k, Icon, label }) => {
+        {(
+          [
+            { k: "text", Icon: FileText, label: "Read" },
+            { k: "video", Icon: PlayCircle, label: "Watch" },
+            { k: "audio", Icon: Headphones, label: "Listen" },
+          ] as { k: Modality; Icon: React.ComponentType<{ className?: string }>; label: string }[]
+        ).map(({ k, Icon, label }) => {
           const isActive = modality === k;
           return (
             <button
               key={k}
               onClick={() => setModality(k)}
-              className={`relative inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 transition-colors ${
-                isActive ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+              aria-pressed={isActive}
+              className={`relative isolate inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 font-medium transition-colors duration-300 ${
+                isActive
+                  ? "text-primary-foreground"
+                  : "text-foreground/80 hover:bg-background/70 hover:text-foreground"
               }`}
             >
               {isActive && (
                 <motion.span
                   layoutId="modality-pill"
                   transition={{ type: "spring", stiffness: 400, damping: 32 }}
-                  className="absolute inset-0 -z-10 rounded-full bg-primary"
+                  className="absolute inset-0 -z-10 rounded-full bg-primary shadow-sm"
                 />
               )}
               <Icon className="h-4 w-4" /> {label}
               {profile?.vark_primary && VARK_TO_MODALITY[profile.vark_primary] === k && (
-                <Sparkles className={`ml-0.5 h-3 w-3 ${isActive ? "text-primary-foreground" : "text-accent"}`} />
+                <Sparkles
+                  className={`ml-0.5 h-3 w-3 ${isActive ? "text-primary-foreground" : "text-accent"}`}
+                />
               )}
             </button>
           );
@@ -168,8 +234,8 @@ function TopicPage() {
                 )}
               </span>
               <p className="mt-4 text-sm text-muted-foreground">
-                No {modality === "text" ? "reading" : modality === "video" ? "video" : "audio"} lesson is available for this
-                topic yet. Try another format above.
+                No {modality === "text" ? "reading" : modality === "video" ? "video" : "audio"}{" "}
+                lesson is available for this topic yet. Try another format above.
               </p>
             </div>
           )}
@@ -182,11 +248,13 @@ function TopicPage() {
         transition={{ duration: 0.45, ease: EASE, delay: 0.2 }}
         className="mt-8"
       >
-        <Button asChild size="lg" className="rounded-full transition-transform hover:scale-[1.02] active:scale-95">
-          <Link to="/quiz/$topicId" params={{ topicId }}>
-            Take the quiz <ArrowRight className="ml-1.5 h-4 w-4" />
-          </Link>
-        </Button>
+        <StartQuizButton
+          topicId={topicId}
+          size="lg"
+          className="rounded-full transition-transform hover:scale-[1.02] active:scale-95"
+        >
+          Start quiz <ArrowRight className="ml-1.5 h-4 w-4" />
+        </StartQuizButton>
       </motion.div>
     </main>
   );

@@ -51,6 +51,9 @@ function Dashboard() {
     queryKey: ["dash-avatar", profile?.avatar_url],
     enabled: !!profile?.avatar_url,
     queryFn: async () => {
+      // Google OAuth avatars are stored as full https URLs (synced by
+      // /auth/callback) — use them directly. Only storage paths need signing.
+      if (profile!.avatar_url!.startsWith("http")) return profile!.avatar_url!;
       const { data, error } = await supabase.storage
         .from("avatars")
         .createSignedUrl(profile!.avatar_url!, 60 * 60);
@@ -94,7 +97,9 @@ function Dashboard() {
             <h1 className="font-display text-3xl md:text-4xl">
               Welcome back, {firstName} <span className="inline-block">👋</span>
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">Let's continue your learning journey.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Let's continue your learning journey.
+            </p>
           </motion.div>
 
           {/* Continue learning + progress donut */}
@@ -109,8 +114,14 @@ function Dashboard() {
               variants={staggerItem}
               className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-6 text-primary-foreground shadow-lg md:p-7"
             >
-              <div aria-hidden className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl" />
-              <div aria-hidden className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+              <div
+                aria-hidden
+                className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl"
+              />
+              <div
+                aria-hidden
+                className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl"
+              />
               <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
                 Continue learning
               </p>
@@ -130,7 +141,9 @@ function Dashboard() {
                       transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
                     />
                   </div>
-                  <p className="relative mt-1.5 text-xs text-primary-foreground/80">{continueCourse.pct}% complete</p>
+                  <p className="relative mt-1.5 text-xs text-primary-foreground/80">
+                    {continueCourse.pct}% complete
+                  </p>
                   <Link
                     to="/courses/$slug"
                     params={{ slug: continueCourse.slug }}
@@ -158,7 +171,10 @@ function Dashboard() {
             </motion.div>
 
             {/* Progress donut */}
-            <motion.div variants={staggerItem} className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+            <motion.div
+              variants={staggerItem}
+              className="rounded-3xl border border-border bg-card p-6 shadow-sm"
+            >
               <div className="flex items-center justify-between">
                 <h2 className="font-display text-lg">Your progress</h2>
                 <Target className="h-4 w-4 text-primary" />
@@ -186,22 +202,33 @@ function Dashboard() {
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="grid h-full place-items-center text-center text-xs text-muted-foreground">
-                    Start a lesson to track progress
+                  <div className="grid h-full place-items-center text-center">
+                    <div>
+                      <div className="font-display text-3xl">{overallPct}%</div>
+                      <div className="text-[11px] text-muted-foreground">overall</div>
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Start a lesson to track progress
+                      </div>
+                    </div>
                   </div>
                 )}
-                <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                  <div className="text-center">
-                    <div className="font-display text-3xl">{overallPct}%</div>
-                    <div className="text-[11px] text-muted-foreground">overall</div>
+                {donutHasData && (
+                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                    <div className="text-center">
+                      <div className="font-display text-3xl">{overallPct}%</div>
+                      <div className="text-[11px] text-muted-foreground">overall</div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
               <ul className="mt-3 space-y-1.5 text-xs">
                 {donut.map((d, i) => (
                   <li key={d.name} className="flex items-center justify-between">
                     <span className="flex items-center gap-2 text-muted-foreground">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: CHART_COLORS[i] }} />
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ background: CHART_COLORS[i] }}
+                      />
                       {d.name}
                     </span>
                     <span className="font-medium">{d.value}</span>
@@ -215,7 +242,10 @@ function Dashboard() {
           <section>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="font-display text-xl">My courses</h2>
-              <Link to="/my-courses" className="inline-flex items-center text-sm text-muted-foreground transition-colors hover:text-foreground">
+              <Link
+                to="/my-courses"
+                className="inline-flex items-center text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
                 View all <ArrowRight className="ml-1 h-3.5 w-3.5" />
               </Link>
             </div>
@@ -227,7 +257,7 @@ function Dashboard() {
                 viewport={viewportOnce}
                 className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
               >
-                {perCourse.map((c: any) => (
+                {perCourse.map((c) => (
                   <motion.div key={c.id} variants={staggerItem} whileHover={{ y: -4 }}>
                     <Link
                       to="/courses/$slug"
@@ -253,14 +283,18 @@ function Dashboard() {
                           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                         />
                       </div>
-                      <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">{c.pct}% complete</p>
+                      <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">
+                        {c.pct}% complete
+                      </p>
                     </Link>
                   </motion.div>
                 ))}
               </motion.div>
             ) : (
               <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
-                <p className="text-sm text-muted-foreground">You're not enrolled in any course yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  You're not enrolled in any course yet.
+                </p>
                 <Link
                   to="/courses"
                   className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-transform hover:scale-[1.03]"
@@ -279,27 +313,31 @@ function Dashboard() {
             </div>
             {attempts && attempts.length > 0 ? (
               <ul className="divide-y divide-border/70">
-                {attempts.map((a: any) => {
-                  const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
+                {attempts.map((a) => {
+                  const pct = a.total ? Math.round(((a.score ?? 0) / a.total) * 100) : 0;
                   return (
                     <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{a.topics?.title ?? "Quiz"}</p>
-                        <p className="truncate text-xs text-muted-foreground">{a.topics?.courses?.title}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {a.topics?.courses?.title}
+                        </p>
                       </div>
                       <span
                         className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
                           pct >= 70 ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
                         }`}
                       >
-                        {a.score}/{a.total} · {pct}%
+                        {a.score ?? 0}/{a.total ?? 0} · {pct}%
                       </span>
                     </li>
                   );
                 })}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No quizzes yet — take one to see your scores here.</p>
+              <p className="text-sm text-muted-foreground">
+                No quizzes yet — take one to see your scores here.
+              </p>
             )}
           </section>
         </div>
@@ -363,13 +401,16 @@ function Dashboard() {
 
           {/* Recommended */}
           {recommended.length > 0 && (
-            <motion.div variants={staggerItem} className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <motion.div
+              variants={staggerItem}
+              className="rounded-2xl border border-border bg-card p-5 shadow-sm"
+            >
               <div className="mb-2 flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-primary" />
                 <h3 className="font-display text-base">Pick up next</h3>
               </div>
               <ul className="space-y-1">
-                {recommended.map((c: any) => (
+                {recommended.map((c) => (
                   <li key={c.id}>
                     <Link
                       to="/courses/$slug"

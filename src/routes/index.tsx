@@ -95,9 +95,10 @@ function VisitorHome() {
     },
   });
 
-  const previewCourses = (dbCourses?.length
-    ? dbCourses
-    : courses.map((c) => ({ id: c.slug, slug: c.slug, title: c.title, summary: c.blurb }))
+  const previewCourses = (
+    dbCourses?.length
+      ? dbCourses
+      : courses.map((c) => ({ id: c.slug, slug: c.slug, title: c.title, summary: c.blurb }))
   ).slice(0, 6);
 
   return (
@@ -121,8 +122,8 @@ function VisitorHome() {
                 One Tutor. <span className="text-primary">Three Ways</span> to Learn.
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-base text-muted-foreground md:text-lg lg:mx-0">
-                AceTutor adapts every lesson to your VARK learning style — switching between text, video, and audio — and
-                tests what you know with quizzes that get smarter as you do.
+                AceTutor adapts every lesson to your VARK learning style — switching between text,
+                video, and audio — and tests what you know with quizzes that get smarter as you do.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
                 <Button asChild size="lg" className="h-12 rounded-full px-6 text-base">
@@ -130,7 +131,12 @@ function VisitorHome() {
                     Get Started Free <ArrowRight className="ml-1.5 h-4 w-4" />
                   </Link>
                 </Button>
-                <Button asChild variant="outline" size="lg" className="h-12 rounded-full px-6 text-base">
+                <Button
+                  asChild
+                  variant="outline"
+                  size="lg"
+                  className="h-12 rounded-full px-6 text-base"
+                >
                   <Link to="/login">Login</Link>
                 </Button>
               </div>
@@ -142,11 +148,17 @@ function VisitorHome() {
                 className="mt-12 grid max-w-lg grid-cols-2 gap-6 md:grid-cols-4 lg:mx-0"
               >
                 {stats.map((s) => (
-                  <motion.div key={s.label} variants={staggerItem} className="text-center lg:text-left">
+                  <motion.div
+                    key={s.label}
+                    variants={staggerItem}
+                    className="text-center lg:text-left"
+                  >
                     <p className="text-3xl font-bold tracking-tight md:text-4xl">
                       <CountUpValue value={s.value} />
                     </p>
-                    <p className="mt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">{s.label}</p>
+                    <p className="mt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                      {s.label}
+                    </p>
                   </motion.div>
                 ))}
               </motion.div>
@@ -175,9 +187,21 @@ function VisitorHome() {
           className="grid gap-4 md:grid-cols-3"
         >
           {[
-            { icon: Brain, title: "VARK-aware", body: "A quick intake classifies how you process information — visual, aural, read/write, or kinesthetic." },
-            { icon: PlayCircle, title: "Three modalities", body: "Every topic ships as readable notes, an explainer video, and a focused audio lesson." },
-            { icon: Target, title: "Adaptive quizzes", body: "Question difficulty scales with your rolling accuracy so you're always working the right edge." },
+            {
+              icon: Brain,
+              title: "VARK-aware",
+              body: "A quick intake classifies how you process information — visual, aural, read/write, or kinesthetic.",
+            },
+            {
+              icon: PlayCircle,
+              title: "Three modalities",
+              body: "Every topic ships as readable notes, an explainer video, and a focused audio lesson.",
+            },
+            {
+              icon: Target,
+              title: "Adaptive quizzes",
+              body: "Question difficulty scales with your rolling accuracy so you're always working the right edge.",
+            },
           ].map(({ icon: Icon, title, body }) => (
             <motion.div
               key={title}
@@ -199,10 +223,17 @@ function VisitorHome() {
       <section className="container mx-auto max-w-6xl px-4 py-16">
         <div className="mb-8 flex items-end justify-between">
           <div>
-            <h2 className="text-4xl font-bold tracking-tight">Five university courses, ready now.</h2>
-            <p className="mt-2 text-muted-foreground">Hand-curated topics for the BSc CS / IT curriculum.</p>
+            <h2 className="text-4xl font-bold tracking-tight">
+              Five university courses, ready now.
+            </h2>
+            <p className="mt-2 text-muted-foreground">
+              Hand-curated topics for the BSc CS / IT curriculum.
+            </p>
           </div>
-          <Link to="/courses" className="hidden text-sm text-muted-foreground hover:text-foreground md:inline-flex md:items-center">
+          <Link
+            to="/courses"
+            className="hidden text-sm text-muted-foreground hover:text-foreground md:inline-flex md:items-center"
+          >
             See all <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </Link>
         </div>
@@ -245,9 +276,24 @@ function VisitorHome() {
             className="mt-8 grid gap-6 md:grid-cols-3"
           >
             {[
-              { n: "01", t: "Tell us how you learn", d: "Answer 16 short questions to discover your VARK style.", Icon: Brain },
-              { n: "02", t: "Study in your modality", d: "Lessons default to your preferred medium. Switch any time.", Icon: Headphones },
-              { n: "03", t: "Quiz, review, repeat", d: "Adaptive quizzes diagnose gaps with plain-language feedback.", Icon: Target },
+              {
+                n: "01",
+                t: "Tell us how you learn",
+                d: "Answer 16 short questions to discover your VARK style.",
+                Icon: Brain,
+              },
+              {
+                n: "02",
+                t: "Study in your modality",
+                d: "Lessons default to your preferred medium. Switch any time.",
+                Icon: Headphones,
+              },
+              {
+                n: "03",
+                t: "Quiz, review, repeat",
+                d: "Adaptive quizzes diagnose gaps with plain-language feedback.",
+                Icon: Target,
+              },
             ].map(({ n, t, d, Icon }) => (
               <motion.li
                 key={n}
@@ -264,14 +310,6 @@ function VisitorHome() {
               </motion.li>
             ))}
           </motion.ol>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Button asChild size="lg" className="rounded-full">
-              <Link to="/signup">Create your free account</Link>
-            </Button>
-            <Button asChild size="lg" variant="outline" className="rounded-full">
-              <Link to="/login">Login</Link>
-            </Button>
-          </div>
         </motion.div>
       </section>
 
@@ -284,16 +322,27 @@ function VisitorHome() {
           viewport={viewportOnce}
           className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-8 text-center text-primary-foreground shadow-lg md:p-14"
         >
-          <div aria-hidden className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
-          <div aria-hidden className="absolute -bottom-16 -left-6 h-44 w-44 rounded-full bg-white/10 blur-2xl" />
+          <div
+            aria-hidden
+            className="absolute -right-10 -top-10 h-48 w-48 rounded-full bg-white/10 blur-2xl"
+          />
+          <div
+            aria-hidden
+            className="absolute -bottom-16 -left-6 h-44 w-44 rounded-full bg-white/10 blur-2xl"
+          />
           <h2 className="relative mx-auto max-w-2xl text-3xl font-bold tracking-tight md:text-5xl">
             Learn the way your brain actually works.
           </h2>
           <p className="relative mx-auto mt-4 max-w-xl text-sm text-primary-foreground/85 md:text-base">
-            Take the VARK intake, pick a course, and start studying in your modality — text, video, or audio — today.
+            Take the VARK intake, pick a course, and start studying in your modality — text, video,
+            or audio — today.
           </p>
           <div className="relative mt-8 flex flex-wrap justify-center gap-3">
-            <Button asChild size="lg" className="h-12 rounded-full bg-white px-6 text-base text-primary hover:bg-white/90">
+            <Button
+              asChild
+              size="lg"
+              className="h-12 rounded-full bg-white px-6 text-base text-primary hover:bg-white/90"
+            >
               <Link to="/signup">
                 Get Started Free <ArrowRight className="ml-1.5 h-4 w-4" />
               </Link>
@@ -331,7 +380,11 @@ function AuthedHome({ userId }: { userId: string }) {
   const { data: role } = useQuery({
     queryKey: ["home-role", userId],
     queryFn: async () => {
-      const { data } = await supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle();
+      const { data } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .maybeSingle();
       return (data?.role as string | undefined) ?? "student";
     },
   });
@@ -352,7 +405,9 @@ function AuthedHome({ userId }: { userId: string }) {
           <h1 className="font-display text-3xl tracking-tight md:text-4xl">
             Welcome back, {firstName} <span className="inline-block">👋</span>
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">Let's continue your learning journey.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Let's continue your learning journey.
+          </p>
         </div>
         {!profile?.vark_primary && !isLecturer && (
           <Link
@@ -388,8 +443,14 @@ function StudentPanels({ userId }: { userId: string }) {
           variants={staggerItem}
           className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-6 text-primary-foreground shadow-lg md:p-8"
         >
-          <div aria-hidden className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl" />
-          <div aria-hidden className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+          <div
+            aria-hidden
+            className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl"
+          />
+          <div
+            aria-hidden
+            className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl"
+          />
           <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
             Continue learning
           </p>
@@ -409,7 +470,9 @@ function StudentPanels({ userId }: { userId: string }) {
                   transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
                 />
               </div>
-              <p className="relative mt-1.5 text-xs text-primary-foreground/80">{continueCourse.pct}% complete</p>
+              <p className="relative mt-1.5 text-xs text-primary-foreground/80">
+                {continueCourse.pct}% complete
+              </p>
               <Link
                 to="/courses/$slug"
                 params={{ slug: continueCourse.slug }}
@@ -437,7 +500,10 @@ function StudentPanels({ userId }: { userId: string }) {
         </motion.div>
 
         {/* Progress donut */}
-        <motion.div variants={staggerItem} className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+        <motion.div
+          variants={staggerItem}
+          className="rounded-3xl border border-border bg-card p-6 shadow-sm"
+        >
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg">Your progress</h2>
             <Target className="h-4 w-4 text-primary" />
@@ -465,22 +531,33 @@ function StudentPanels({ userId }: { userId: string }) {
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div className="grid h-full place-items-center text-center text-xs text-muted-foreground">
-                Start a lesson to track progress
+              <div className="grid h-full place-items-center text-center">
+                <div>
+                  <div className="font-display text-3xl">{overallPct}%</div>
+                  <div className="text-[11px] text-muted-foreground">overall</div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Start a lesson to track progress
+                  </div>
+                </div>
               </div>
             )}
-            <div className="pointer-events-none absolute inset-0 grid place-items-center">
-              <div className="text-center">
-                <div className="font-display text-3xl">{overallPct}%</div>
-                <div className="text-[11px] text-muted-foreground">overall</div>
+            {donutHasData && (
+              <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                <div className="text-center">
+                  <div className="font-display text-3xl">{overallPct}%</div>
+                  <div className="text-[11px] text-muted-foreground">overall</div>
+                </div>
               </div>
-            </div>
+            )}
           </div>
           <ul className="mt-3 space-y-1.5 text-xs">
             {donut.map((d, i) => (
               <li key={d.name} className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-muted-foreground">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: DONUT_COLORS[i] }} />
+                  <span
+                    className="h-2.5 w-2.5 rounded-full"
+                    style={{ background: DONUT_COLORS[i] }}
+                  />
                   {d.name}
                 </span>
                 <span className="font-medium">{d.value}</span>
@@ -532,13 +609,15 @@ function StudentPanels({ userId }: { userId: string }) {
           </div>
           {recentAttempts.length ? (
             <ul className="divide-y divide-border/70">
-              {recentAttempts.map((a: any) => {
-                const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
+              {recentAttempts.map((a) => {
+                const pct = a.total ? Math.round(((a.score ?? 0) / a.total) * 100) : 0;
                 return (
                   <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{a.topics?.title ?? "Quiz"}</p>
-                      <p className="truncate text-xs text-muted-foreground">{a.topics?.courses?.title}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {a.topics?.courses?.title}
+                      </p>
                     </div>
                     <span
                       className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -552,7 +631,9 @@ function StudentPanels({ userId }: { userId: string }) {
               })}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">No quizzes yet — take one to see your scores here.</p>
+            <p className="text-sm text-muted-foreground">
+              No quizzes yet — take one to see your scores here.
+            </p>
           )}
         </div>
 
@@ -563,7 +644,7 @@ function StudentPanels({ userId }: { userId: string }) {
           </div>
           {recommended.length ? (
             <ul className="space-y-1">
-              {recommended.map((c: any) => (
+              {recommended.map((c) => (
                 <li key={c.id}>
                   <Link
                     to="/courses/$slug"
@@ -638,7 +719,9 @@ function CourseProgressCard({ course, index }: { course: PerCourse; index: numbe
               transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
             />
           </div>
-          <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">{course.pct}% complete</p>
+          <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">
+            {course.pct}% complete
+          </p>
         </div>
       </Link>
     </motion.div>
@@ -656,7 +739,9 @@ function LecturerPanels() {
 
       <section className="mt-10 rounded-2xl border border-border bg-card p-6">
         <h2 className="text-xl font-semibold">Course management</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Manage your courses, review student analytics, and respond to activity.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Manage your courses, review student analytics, and respond to activity.
+        </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Button asChild className="rounded-full">
             <Link to="/courses">Open course catalog</Link>
@@ -696,7 +781,15 @@ function CountUpValue({ value }: { value: string }) {
   return <span ref={ref}>{display}</span>;
 }
 
-function StatCard({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
   return (
     <motion.div
       variants={staggerItem}
@@ -711,4 +804,3 @@ function StatCard({ icon: Icon, label, value }: { icon: any; label: string; valu
     </motion.div>
   );
 }
-

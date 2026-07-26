@@ -28,6 +28,15 @@ function formatHours(seconds: number) {
   return h.toFixed(1).replace(/\.0$/, "");
 }
 
+type Course = { id: string; slug: string; title: string; summary: string | null };
+type LessonRow = { id: string; topics: { course_id: string } | null };
+type ProgressRow = {
+  completed_at: string | null;
+  watched_seconds: number | null;
+  lessons: { id: string; topics: { course_id: string } | null } | null;
+};
+type AttemptRow = { score: number | null; total: number | null; finished_at: string | null };
+
 function MyCoursesPage() {
   const { user } = useAuth();
 
@@ -45,10 +54,13 @@ function MyCoursesPage() {
   });
 
   const enrolledCourses = useMemo(
-    () => (enrollments ?? []).map((e: any) => e.courses).filter(Boolean),
+    () =>
+      ((enrollments ?? []) as unknown as { courses: Course | null }[])
+        .map((e) => e.courses)
+        .filter(Boolean) as Course[],
     [enrollments],
   );
-  const enrolledIds = useMemo(() => enrolledCourses.map((c: any) => c.id), [enrolledCourses]);
+  const enrolledIds = useMemo(() => enrolledCourses.map((c) => c.id), [enrolledCourses]);
 
   const { data: allCourses } = useQuery({
     queryKey: ["all-courses"],
@@ -57,7 +69,7 @@ function MyCoursesPage() {
         .from("courses")
         .select("id, slug, title, summary, order_index")
         .order("order_index");
-      return (data ?? []) as any[];
+      return (data ?? []) as unknown as Course[];
     },
   });
 
@@ -69,7 +81,7 @@ function MyCoursesPage() {
         .from("lessons")
         .select("id, topics!inner(course_id)")
         .in("topics.course_id", enrolledIds);
-      return (data ?? []) as any[];
+      return (data ?? []) as unknown as LessonRow[];
     },
   });
 
@@ -81,7 +93,7 @@ function MyCoursesPage() {
         .from("progress")
         .select("completed_at, watched_seconds, lessons!inner(id, topics!inner(course_id))")
         .eq("user_id", user!.id);
-      return (data ?? []) as any[];
+      return (data ?? []) as unknown as ProgressRow[];
     },
   });
 
@@ -95,7 +107,7 @@ function MyCoursesPage() {
         .not("finished_at", "is", null)
         .order("finished_at", { ascending: false })
         .limit(20);
-      return (data ?? []) as any[];
+      return (data ?? []) as unknown as AttemptRow[];
     },
   });
 
@@ -125,7 +137,7 @@ function MyCoursesPage() {
       }
     }
 
-    const perCourse = enrolledCourses.map((c: any) => {
+    const perCourse = enrolledCourses.map((c) => {
       const total = totalByCourse.get(c.id) ?? 0;
       const done = completedByCourse.get(c.id) ?? 0;
       const touched = touchedByCourse.get(c.id) ?? 0;
@@ -135,19 +147,22 @@ function MyCoursesPage() {
 
     const att = attempts ?? [];
     const avgScore = att.length
-      ? Math.round(att.reduce((s, a) => s + (a.total ? (a.score / a.total) * 100 : 0), 0) / att.length)
+      ? Math.round(
+          att.reduce((s, a) => s + (a.total ? ((a.score ?? 0) / a.total) * 100 : 0), 0) /
+            att.length,
+        )
       : 0;
 
     return { perCourse, totalSeconds, completedLessons, avgScore, quizzes: att.length };
   }, [courseLessons, progressRows, enrolledCourses, attempts]);
 
   const continueCourse = useMemo(() => {
-    const touched = stats.perCourse.filter((c: any) => c.touched > 0).sort((a: any, b: any) => b.pct - a.pct);
+    const touched = stats.perCourse.filter((c) => c.touched > 0).sort((a, b) => b.pct - a.pct);
     return touched[0] ?? stats.perCourse[0] ?? null;
   }, [stats.perCourse]);
 
   const exploreCourses = useMemo(
-    () => (allCourses ?? []).filter((c: any) => !enrolledIds.includes(c.id)),
+    () => (allCourses ?? []).filter((c) => !enrolledIds.includes(c.id)),
     [allCourses, enrolledIds],
   );
 
@@ -167,17 +182,26 @@ function MyCoursesPage() {
           {/* Continue learning hero */}
           <motion.div variants={fadeUp} initial="hidden" animate="show">
             <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-6 text-primary-foreground shadow-lg md:p-7">
-              <div aria-hidden className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl" />
-              <div aria-hidden className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+              <div
+                aria-hidden
+                className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl"
+              />
+              <div
+                aria-hidden
+                className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl"
+              />
               <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
                 Continue learning
               </p>
               {continueCourse ? (
                 <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-end">
                   <div className="min-w-0">
-                    <h2 className="mt-2 font-display text-2xl leading-tight md:text-3xl">{continueCourse.title}</h2>
+                    <h2 className="mt-2 font-display text-2xl leading-tight md:text-3xl">
+                      {continueCourse.title}
+                    </h2>
                     <p className="mt-1 text-sm text-primary-foreground/80">
-                      {continueCourse.done}/{continueCourse.total || "—"} lessons complete · {continueCourse.pct}%
+                      {continueCourse.done}/{continueCourse.total || "—"} lessons complete ·{" "}
+                      {continueCourse.pct}%
                     </p>
                     <div className="mt-4 h-2 w-full max-w-md overflow-hidden rounded-full bg-white/25">
                       <motion.div
@@ -198,7 +222,9 @@ function MyCoursesPage() {
                 </div>
               ) : (
                 <div className="relative">
-                  <h2 className="mt-2 font-display text-2xl leading-tight md:text-3xl">Start your first course</h2>
+                  <h2 className="mt-2 font-display text-2xl leading-tight md:text-3xl">
+                    Start your first course
+                  </h2>
                   <p className="mt-1 max-w-md text-sm text-primary-foreground/80">
                     Enroll below to begin tracking your progress here.
                   </p>
@@ -221,7 +247,7 @@ function MyCoursesPage() {
                 viewport={viewportOnce}
                 className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
               >
-                {stats.perCourse.map((c: any) => (
+                {stats.perCourse.map((c) => (
                   <motion.div key={c.id} variants={staggerItem} whileHover={{ y: -4 }}>
                     <Link
                       to="/courses/$slug"
@@ -247,15 +273,21 @@ function MyCoursesPage() {
                           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                         />
                       </div>
-                      <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">{c.pct}% complete</p>
+                      <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">
+                        {c.pct}% complete
+                      </p>
                     </Link>
                   </motion.div>
                 ))}
               </motion.div>
             ) : (
               <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
-                <p className="text-sm text-muted-foreground">You haven't enrolled in any course yet.</p>
-                <p className="mt-1 text-xs text-muted-foreground">Explore the catalog below to get started.</p>
+                <p className="text-sm text-muted-foreground">
+                  You haven't enrolled in any course yet.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Explore the catalog below to get started.
+                </p>
               </div>
             )}
           </section>
@@ -274,7 +306,7 @@ function MyCoursesPage() {
                 viewport={viewportOnce}
                 className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
               >
-                {exploreCourses.map((c: any) => (
+                {exploreCourses.map((c) => (
                   <motion.div key={c.id} variants={staggerItem} whileHover={{ y: -4 }}>
                     <Link
                       to="/courses/$slug"
@@ -290,7 +322,9 @@ function MyCoursesPage() {
                         </span>
                       </div>
                       <h3 className="mt-3 line-clamp-1 font-display text-lg">{c.title}</h3>
-                      <p className="mt-0.5 line-clamp-2 flex-1 text-xs text-muted-foreground">{c.summary}</p>
+                      <p className="mt-0.5 line-clamp-2 flex-1 text-xs text-muted-foreground">
+                        {c.summary}
+                      </p>
                       <span className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
                         <Plus className="h-3.5 w-3.5" /> Enroll & start
                       </span>
@@ -310,18 +344,32 @@ function MyCoursesPage() {
           className="space-y-6 xl:sticky xl:top-24 xl:self-start"
         >
           {/* Learning snapshot */}
-          <motion.div variants={staggerItem} className="rounded-3xl border border-border bg-card p-5 shadow-sm">
+          <motion.div
+            variants={staggerItem}
+            className="rounded-3xl border border-border bg-card p-5 shadow-sm"
+          >
             <h3 className="font-display text-base">Learning snapshot</h3>
             <div className="mt-4 grid grid-cols-2 gap-3">
               <StatTile icon={BookOpen} label="Enrolled" value={String(enrolledCourses.length)} />
-              <StatTile icon={GraduationCap} label="Lessons done" value={String(stats.completedLessons)} />
+              <StatTile
+                icon={GraduationCap}
+                label="Lessons done"
+                value={String(stats.completedLessons)}
+              />
               <StatTile icon={Clock} label="Hours" value={formatHours(stats.totalSeconds)} />
-              <StatTile icon={Target} label="Avg score" value={stats.quizzes ? `${stats.avgScore}%` : "—"} />
+              <StatTile
+                icon={Target}
+                label="Avg score"
+                value={stats.quizzes ? `${stats.avgScore}%` : "—"}
+              />
             </div>
           </motion.div>
 
           {/* Quick links */}
-          <motion.div variants={staggerItem} className="rounded-3xl border border-border bg-card p-5 shadow-sm">
+          <motion.div
+            variants={staggerItem}
+            className="rounded-3xl border border-border bg-card p-5 shadow-sm"
+          >
             <h3 className="font-display text-base">Quick links</h3>
             <div className="mt-3 space-y-2">
               <Link

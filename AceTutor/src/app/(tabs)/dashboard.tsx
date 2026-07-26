@@ -69,8 +69,22 @@ export default function DashboardScreen() {
               {cont.done}/{cont.total || "—"} lessons complete · {cont.pct}%
             </Txt>
             <View style={{ marginTop: 8 }}>
-              <View style={{ height: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.3)", overflow: "hidden" }}>
-                <View style={{ width: `${cont.pct}%`, height: "100%", backgroundColor: "#fff", borderRadius: 999 }} />
+              <View
+                style={{
+                  height: 8,
+                  borderRadius: 999,
+                  backgroundColor: "rgba(255,255,255,0.3)",
+                  overflow: "hidden",
+                }}
+              >
+                <View
+                  style={{
+                    width: `${cont.pct}%`,
+                    height: "100%",
+                    backgroundColor: "#fff",
+                    borderRadius: 999,
+                  }}
+                />
               </View>
             </View>
             <Pressable
@@ -126,10 +140,18 @@ export default function DashboardScreen() {
 
       {/* Stat tiles */}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>
-        <StatTile icon="book-outline" label="Courses" value={String(learning.enrolledCourses.length)} />
+        <StatTile
+          icon="book-outline"
+          label="Courses"
+          value={String(learning.enrolledCourses.length)}
+        />
         <StatTile icon="trophy-outline" label="Quizzes" value={String(learning.quizzes)} />
         <StatTile icon="time-outline" label="Hours" value={formatHours(learning.totalSeconds)} />
-        <StatTile icon="locate-outline" label="Avg score" value={learning.quizzes ? `${learning.avgScore}%` : "—"} />
+        <StatTile
+          icon="locate-outline"
+          label="Avg score"
+          value={learning.quizzes ? `${learning.avgScore}%` : "—"}
+        />
       </View>
 
       {/* VARK nudge */}
@@ -156,7 +178,9 @@ export default function DashboardScreen() {
 
       {/* My courses */}
       <View style={{ gap: 12 }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <View
+          style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+        >
           <Txt variant="h3">My courses</Txt>
           <Pressable onPress={() => router.push("/courses")}>
             <Txt variant="small" color={c.primary} style={{ fontWeight: "700" }}>
@@ -186,7 +210,9 @@ export default function DashboardScreen() {
                     <Txt variant="title" numberOfLines={1}>
                       {course.title}
                     </Txt>
-                    <Txt variant="small">{course.total > 0 ? `${course.total} lessons` : "Lessons coming soon"}</Txt>
+                    <Txt variant="small">
+                      {course.total > 0 ? `${course.total} lessons` : "Lessons coming soon"}
+                    </Txt>
                   </View>
                   <Ionicons name="arrow-forward" size={18} color={c.textMuted} />
                 </View>
@@ -207,13 +233,15 @@ export default function DashboardScreen() {
 
       {/* Recent quiz attempts */}
       <Card style={{ gap: 10 }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <View
+          style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+        >
           <Txt variant="h3">Recent quizzes</Txt>
           <Ionicons name="trophy-outline" size={18} color={c.primary} />
         </View>
         {learning.attempts.length > 0 ? (
-          learning.attempts.slice(0, 5).map((a: any) => {
-            const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
+          learning.attempts.slice(0, 5).map((a) => {
+            const pct = a.total ? Math.round(((a.score ?? 0) / a.total) * 100) : 0;
             return (
               <View
                 key={a.id}
@@ -229,7 +257,10 @@ export default function DashboardScreen() {
                 <Txt variant="body" numberOfLines={1} style={{ flex: 1, paddingRight: 12 }}>
                   {a.topics?.title ?? "Quiz"}
                 </Txt>
-                <Badge label={`${a.score}/${a.total} · ${pct}%`} tone={pct >= 70 ? "success" : "primary"} />
+                <Badge
+                  label={`${a.score}/${a.total} · ${pct}%`}
+                  tone={pct >= 70 ? "success" : "primary"}
+                />
               </View>
             );
           })

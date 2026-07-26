@@ -65,9 +65,10 @@ function ProfilePage() {
         .eq("user_id", user!.id)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? [])
-        .map((row: any) => row.courses)
-        .filter((c: any): c is { id: string; slug: string; title: string; summary: string | null } => !!c);
+      type EnrolledCourse = { id: string; slug: string; title: string; summary: string | null };
+      return ((data ?? []) as unknown as { courses: EnrolledCourse | null }[])
+        .map((row) => row.courses)
+        .filter((c): c is EnrolledCourse => !!c);
     },
   });
 
@@ -75,6 +76,9 @@ function ProfilePage() {
     queryKey: ["avatar-signed", profile?.avatar_url],
     enabled: !!profile?.avatar_url,
     queryFn: async () => {
+      // Google OAuth avatars are full https URLs — use directly; only
+      // storage paths need signing.
+      if (profile!.avatar_url!.startsWith("http")) return profile!.avatar_url!;
       const { data, error } = await supabase.storage
         .from("avatars")
         .createSignedUrl(profile!.avatar_url!, 60 * 60);
@@ -82,17 +86,19 @@ function ProfilePage() {
       return data.signedUrl;
     },
   });
-  const initials =
-    (profile?.full_name ?? user?.email ?? "?")
-      .split(/\s+/)
-      .map((s) => s[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
+  const initials = (profile?.full_name ?? user?.email ?? "?")
+    .split(/\s+/)
+    .map((s) => s[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   const saveName = useMutation({
     mutationFn: async (name: string) => {
-      const { error } = await supabase.from("profiles").update({ full_name: name }).eq("id", user!.id);
+      const { error } = await supabase
+        .from("profiles")
+        .update({ full_name: name })
+        .eq("id", user!.id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -114,16 +120,21 @@ function ProfilePage() {
     try {
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const path = `${user.id}/avatar-${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, { upsert: true });
+      const { error: upErr } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, { upsert: true });
       if (upErr) throw upErr;
-      const { error: dbErr } = await supabase.from("profiles").update({ avatar_url: path }).eq("id", user.id);
+      const { error: dbErr } = await supabase
+        .from("profiles")
+        .update({ avatar_url: path })
+        .eq("id", user.id);
       if (dbErr) throw dbErr;
       toast.success("Profile picture updated");
       qc.invalidateQueries({ queryKey: ["profile-full", user.id] });
       qc.invalidateQueries({ queryKey: ["nav-profile", user.id] });
       qc.invalidateQueries({ queryKey: ["home-profile", user.id] });
-    } catch (e: any) {
-      toast.error(e.message ?? "Upload failed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -161,7 +172,11 @@ function ProfilePage() {
               aria-label="Change profile picture"
               className="absolute -bottom-1 -right-1 grid h-9 w-9 place-items-center rounded-full border border-border bg-background shadow-sm transition-colors hover:bg-secondary disabled:opacity-50"
             >
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              {uploading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Camera className="h-4 w-4" />
+              )}
             </button>
             <input
               ref={fileRef}
@@ -224,7 +239,9 @@ function ProfilePage() {
       {/* Stats */}
       <section className="mt-6 grid gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-border bg-card p-6">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Courses enrolled</p>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">
+            Courses enrolled
+          </p>
           <p className="mt-1 font-display text-4xl">{enrolled?.length ?? 0}</p>
         </div>
         <div className="rounded-2xl border border-border bg-card p-6">
@@ -232,7 +249,10 @@ function ProfilePage() {
           <p className="mt-1 font-display text-2xl">
             {profile?.vark_primary ? VARK_LABEL[profile.vark_primary] : "Not set"}
           </p>
-          <Link to="/onboarding/vark" className="mt-2 inline-block text-xs underline-offset-4 hover:underline">
+          <Link
+            to="/onboarding/vark"
+            className="mt-2 inline-block text-xs underline-offset-4 hover:underline"
+          >
             {profile?.vark_primary ? "Retake VARK" : "Take VARK"}
           </Link>
         </div>
@@ -245,7 +265,11 @@ function ProfilePage() {
           <ul className="mt-4 divide-y divide-border">
             {enrolled.map((c) => (
               <li key={c.slug}>
-                <Link to="/courses/$slug" params={{ slug: c.slug }} className="flex items-center justify-between py-3 hover:text-primary">
+                <Link
+                  to="/courses/$slug"
+                  params={{ slug: c.slug }}
+                  className="flex items-center justify-between py-3 hover:text-primary"
+                >
                   <span>{c.title}</span>
                   <span className="text-xs text-muted-foreground">Open →</span>
                 </Link>
@@ -266,7 +290,8 @@ function ProfilePage() {
       <section className="mt-6 rounded-2xl border border-destructive/40 bg-destructive/5 p-6">
         <h2 className="font-display text-xl text-destructive">Danger zone</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Deleting your account is permanent. Your profile, progress, and quiz attempts will be removed.
+          Deleting your account is permanent. Your profile, progress, and quiz attempts will be
+          removed.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
@@ -288,7 +313,8 @@ function ProfilePage() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete your account?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This cannot be undone. Your profile, progress, and quiz history will be permanently deleted.
+                  This cannot be undone. Your profile, progress, and quiz history will be
+                  permanently deleted.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -300,7 +326,9 @@ function ProfilePage() {
                   }}
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 >
-                  {removeAccountMutation.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                  {removeAccountMutation.isPending && (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  )}
                   Yes, delete it
                 </AlertDialogAction>
               </AlertDialogFooter>

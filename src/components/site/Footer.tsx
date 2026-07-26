@@ -21,7 +21,9 @@ export function Footer() {
               height={32}
               className="rounded-lg object-contain transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
             />
-            <span className="font-semibold transition-colors group-hover:text-primary">AceTutor</span>
+            <span className="font-semibold transition-colors group-hover:text-primary">
+              AceTutor
+            </span>
           </Link>
 
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
@@ -36,7 +38,9 @@ export function Footer() {
             ))}
           </nav>
 
-          <p className="text-sm text-muted-foreground">© {new Date().getFullYear()} AceTutor · KNUST</p>
+          <p className="text-sm text-muted-foreground">
+            © {new Date().getFullYear()} AceTutor · KNUST
+          </p>
         </div>
       </div>
     </footer>

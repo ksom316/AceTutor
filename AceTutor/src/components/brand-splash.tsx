@@ -5,6 +5,7 @@ import { Animated, Easing, StyleSheet, View } from "react-native";
 
 import { brand } from "@/theme";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- RN static asset require is the idiomatic Expo pattern
 const LOGO = require("@/assets/images/ace-logo.jpg");
 const HOLD_MS = 1900;
 
@@ -73,7 +74,13 @@ export function BrandSplash() {
           {/* Rotating gradient orbit ring */}
           <Animated.View style={[styles.ring, { transform: [{ rotate }] }]} />
           {/* Pulsing halo */}
-          <Animated.View style={{ position: "absolute", opacity: haloOpacity, transform: [{ scale: haloScale }] }}>
+          <Animated.View
+            style={{
+              position: "absolute",
+              opacity: haloOpacity,
+              transform: [{ scale: haloScale }],
+            }}
+          >
             <LinearGradient colors={[brand.cyan, brand.violet]} style={styles.halo} />
           </Animated.View>
           <Image source={LOGO} style={styles.logo} contentFit="contain" />

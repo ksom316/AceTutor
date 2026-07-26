@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { signInWithGoogle } from "@/lib/oauth";
 import { brand, useColors } from "@/theme";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- RN static asset require is the idiomatic Expo pattern
 const LOGO = require("@/assets/images/ace-logo.jpg");
 
 export default function SignupScreen() {
@@ -21,7 +22,10 @@ export default function SignupScreen() {
 
   const onSignup = async () => {
     if (!fullName.trim() || !email.trim() || password.length < 6) {
-      Alert.alert("Check your details", "Enter your name, a valid email, and a 6+ character password.");
+      Alert.alert(
+        "Check your details",
+        "Enter your name, a valid email, and a 6+ character password.",
+      );
       return;
     }
     setLoading(true);
@@ -43,8 +47,8 @@ export default function SignupScreen() {
     try {
       const ok = await signInWithGoogle();
       if (ok) router.replace("/onboarding-vark");
-    } catch (e: any) {
-      Alert.alert("Google sign-in failed", e.message ?? "Try again later.");
+    } catch (e) {
+      Alert.alert("Google sign-in failed", e instanceof Error ? e.message : "Try again later.");
     } finally {
       setGoogleLoading(false);
     }
@@ -54,7 +58,11 @@ export default function SignupScreen() {
     <Screen>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={{ alignItems: "center", marginTop: 24, gap: 12 }}>
-          <Image source={LOGO} style={{ width: 72, height: 72, borderRadius: 18 }} contentFit="contain" />
+          <Image
+            source={LOGO}
+            style={{ width: 72, height: 72, borderRadius: 18 }}
+            contentFit="contain"
+          />
           <Txt variant="h1" style={{ textAlign: "center" }}>
             Join AceTutor
           </Txt>
@@ -89,7 +97,12 @@ export default function SignupScreen() {
             onChangeText={setPassword}
           />
 
-          <GradientButton label="Create account" icon="arrow-forward" onPress={onSignup} loading={loading} />
+          <GradientButton
+            label="Create account"
+            icon="arrow-forward"
+            onPress={onSignup}
+            loading={loading}
+          />
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 4 }}>
             <View style={{ flex: 1, height: 1, backgroundColor: c.border }} />

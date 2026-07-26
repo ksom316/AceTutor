@@ -52,7 +52,7 @@ const lecturerItems: NavItem[] = [
 
 const accountItems: NavItem[] = [
   { label: "Profile", icon: UserIcon, to: "/profile" },
-  { label: "Settings", icon: Settings, to: "/profile" },
+  { label: "Settings", icon: Settings, to: "/settings" },
   { label: "Contact", icon: Mail, to: "/contact" },
 ];
 
@@ -88,6 +88,9 @@ export function AppSidebar({ user }: { user: User }) {
     queryKey: ["avatar-signed", profile?.avatar_url],
     enabled: !!profile?.avatar_url,
     queryFn: async () => {
+      // Google OAuth avatars are full https URLs — use directly; only
+      // storage paths need signing.
+      if (profile!.avatar_url!.startsWith("http")) return profile!.avatar_url!;
       const { data, error } = await supabase.storage
         .from("avatars")
         .createSignedUrl(profile!.avatar_url!, 60 * 60);
@@ -140,7 +143,9 @@ export function AppSidebar({ user }: { user: User }) {
             className="shrink-0 rounded-xl object-contain shadow-sm"
           />
           <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
-            <span className="truncate text-sm font-bold leading-tight tracking-tight">AceTutor</span>
+            <span className="truncate text-sm font-bold leading-tight tracking-tight">
+              AceTutor
+            </span>
             <span className="truncate text-[11px] text-muted-foreground">
               {isLecturer ? "Lecturer workspace" : "Student workspace"}
             </span>

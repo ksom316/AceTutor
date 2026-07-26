@@ -12,6 +12,25 @@ export const Route = createFileRoute("/_authenticated/result/$attemptId")({
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
+type AttemptDetail = {
+  id: string;
+  score: number | null;
+  total: number | null;
+  topic_id: string;
+  topics: { title: string } | null;
+};
+type AnswerRow = {
+  question_id: string;
+  selected_index: number;
+  is_correct: boolean;
+  questions: {
+    prompt: string;
+    choices: string[];
+    correct_index: number;
+    explanation: string | null;
+  };
+};
+
 /** Count-up percentage shown in the score hero. */
 function ScoreCounter({ value }: { value: number }) {
   const mv = useMotionValue(0);
@@ -40,9 +59,14 @@ function ResultPage() {
         .maybeSingle();
       const { data: answers } = await supabase
         .from("attempt_answers")
-        .select("question_id, selected_index, is_correct, questions(prompt, choices, correct_index, explanation)")
+        .select(
+          "question_id, selected_index, is_correct, questions(prompt, choices, correct_index, explanation)",
+        )
         .eq("attempt_id", attemptId);
-      return { attempt, answers: answers ?? [] };
+      return {
+        attempt: (attempt ?? null) as unknown as AttemptDetail | null,
+        answers: (answers ?? []) as unknown as AnswerRow[],
+      };
     },
   });
 
@@ -55,9 +79,18 @@ function ResultPage() {
     );
   }
 
-  const pct = data.attempt.total ? Math.round((data.attempt.score / data.attempt.total) * 100) : 0;
+  const pct = data.attempt.total
+    ? Math.round(((data.attempt.score ?? 0) / data.attempt.total) * 100)
+    : 0;
   const passed = pct >= 70;
-  const headline = pct >= 90 ? "Outstanding!" : pct >= 70 ? "Great work!" : pct >= 50 ? "Good effort!" : "Keep practicing!";
+  const headline =
+    pct >= 90
+      ? "Outstanding!"
+      : pct >= 70
+        ? "Great work!"
+        : pct >= 50
+          ? "Good effort!"
+          : "Keep practicing!";
 
   return (
     <main className="container mx-auto max-w-3xl px-4 py-12">
@@ -75,7 +108,7 @@ function ResultPage() {
         transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
         className="mt-2 font-display text-4xl"
       >
-        {(data.attempt as any).topics?.title}
+        {data.attempt.topics?.title}
       </motion.h1>
 
       {/* Score hero */}
@@ -113,7 +146,7 @@ function ResultPage() {
 
       {/* Answer breakdown */}
       <ol className="mt-10 space-y-6">
-        {data.answers.map((a: any, idx: number) => {
+        {data.answers.map((a, idx) => {
           const correctIdx = a.questions.correct_index;
           return (
             <motion.li
@@ -140,8 +173,8 @@ function ResultPage() {
                       i === correctIdx
                         ? "border-success/60 bg-success/10"
                         : i === a.selected_index
-                        ? "border-destructive/50 bg-destructive/10"
-                        : "border-border"
+                          ? "border-destructive/50 bg-destructive/10"
+                          : "border-border"
                     }`}
                   >
                     {c}
@@ -150,7 +183,8 @@ function ResultPage() {
               </div>
               {a.questions.explanation && (
                 <p className="mt-4 rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">Why:</span> {a.questions.explanation}
+                  <span className="font-medium text-foreground">Why:</span>{" "}
+                  {a.questions.explanation}
                 </p>
               )}
             </motion.li>

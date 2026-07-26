@@ -10,6 +10,14 @@ import { useAuth } from "@/lib/auth";
 import { keys, type Topic } from "@/lib/queries";
 import { useColors } from "@/theme";
 
+type CourseAttemptRow = {
+  id: string;
+  topic_id: string;
+  score: number | null;
+  total: number | null;
+  finished_at: string | null;
+};
+
 export default function CourseDetail() {
   const c = useColors();
   const router = useRouter();
@@ -67,7 +75,7 @@ export default function CourseDetail() {
         .select("id, topic_id, score, total, finished_at")
         .eq("user_id", user!.id)
         .in("topic_id", ids);
-      return (data ?? []) as any[];
+      return (data ?? []) as unknown as CourseAttemptRow[];
     },
   });
 
@@ -76,8 +84,8 @@ export default function CourseDetail() {
     const byTopic = new Map<string, { score: number; total: number; count: number }>();
     for (const a of finished) {
       const cur = byTopic.get(a.topic_id) ?? { score: 0, total: 0, count: 0 };
-      cur.score += a.score;
-      cur.total += a.total;
+      cur.score += a.score ?? 0;
+      cur.total += a.total ?? 0;
       cur.count += 1;
       byTopic.set(a.topic_id, cur);
     }
@@ -86,8 +94,8 @@ export default function CourseDetail() {
       const pct = m && m.total > 0 ? Math.round((m.score / m.total) * 100) : null;
       return { topic: t, accuracy: pct, attempts: m?.count ?? 0 };
     });
-    const totalScore = finished.reduce((s, a) => s + a.score, 0);
-    const totalQ = finished.reduce((s, a) => s + a.total, 0);
+    const totalScore = finished.reduce((s, a) => s + (a.score ?? 0), 0);
+    const totalQ = finished.reduce((s, a) => s + (a.total ?? 0), 0);
     const overall = totalQ > 0 ? Math.round((totalScore / totalQ) * 100) : 0;
     const completed = perTopic.filter((p) => p.attempts > 0).length;
     const progress = topics.length > 0 ? Math.round((completed / topics.length) * 100) : 0;
@@ -98,7 +106,9 @@ export default function CourseDetail() {
   const enroll = useMutation({
     mutationFn: async () => {
       if (!user || !course) throw new Error("Sign in to enroll");
-      const { error } = await supabase.from("enrollments").insert({ user_id: user.id, course_id: course.id });
+      const { error } = await supabase
+        .from("enrollments")
+        .insert({ user_id: user.id, course_id: course.id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -113,7 +123,15 @@ export default function CourseDetail() {
 
   return (
     <Screen>
-      <Stack.Screen options={{ headerShown: true, title: "", headerTransparent: false, headerTintColor: c.text, headerStyle: { backgroundColor: c.bg } }} />
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: "",
+          headerTransparent: false,
+          headerTintColor: c.text,
+          headerStyle: { backgroundColor: c.bg },
+        }}
+      />
 
       {isLoading || !course ? (
         <Txt variant="muted">Loading…</Txt>
@@ -126,7 +144,11 @@ export default function CourseDetail() {
                 {course.title}
               </Txt>
               {user ? (
-                isEnrolled ? <Badge label="Enrolled" tone="success" /> : <Badge label="Not enrolled" tone="muted" />
+                isEnrolled ? (
+                  <Badge label="Enrolled" tone="success" />
+                ) : (
+                  <Badge label="Not enrolled" tone="muted" />
+                )
               ) : null}
             </View>
             {course.summary ? <Txt variant="muted">{course.summary}</Txt> : null}
@@ -145,9 +167,19 @@ export default function CourseDetail() {
 
             <View style={{ marginTop: 6 }}>
               {!user ? (
-                <Button label="Sign in to enroll" icon="log-in-outline" onPress={() => router.push("/login")} full />
+                <Button
+                  label="Sign in to enroll"
+                  icon="log-in-outline"
+                  onPress={() => router.push("/login")}
+                  full
+                />
               ) : !isEnrolled ? (
-                <GradientButton label="Enroll in this course" icon="add" onPress={() => enroll.mutate()} loading={enroll.isPending} />
+                <GradientButton
+                  label="Enroll in this course"
+                  icon="add"
+                  onPress={() => enroll.mutate()}
+                  loading={enroll.isPending}
+                />
               ) : analytics.nextTopic ? (
                 <GradientButton
                   label="Continue learning"
@@ -159,7 +191,15 @@ export default function CourseDetail() {
           </Card>
 
           {/* AI tutor note */}
-          <Card style={{ flexDirection: "row", gap: 12, alignItems: "center", backgroundColor: c.primarySoft, borderColor: c.primary + "33" }}>
+          <Card
+            style={{
+              flexDirection: "row",
+              gap: 12,
+              alignItems: "center",
+              backgroundColor: c.primarySoft,
+              borderColor: c.primary + "33",
+            }}
+          >
             <Ionicons name="sparkles" size={20} color={c.primary} />
             <Txt variant="small" style={{ flex: 1 }}>
               The AI Course Tutor (ask, explain, auto-quiz) is available in the AceTutor web app.
@@ -189,16 +229,35 @@ export default function CourseDetail() {
                           {t.title}
                         </Txt>
                       </View>
-                      {stat?.accuracy != null && <Badge label={`${stat.accuracy}%`} tone={stat.accuracy >= 70 ? "success" : "primary"} />}
-                      <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={18} color={c.textMuted} />
+                      {stat?.accuracy != null && (
+                        <Badge
+                          label={`${stat.accuracy}%`}
+                          tone={stat.accuracy >= 70 ? "success" : "primary"}
+                        />
+                      )}
+                      <Ionicons
+                        name={expanded ? "chevron-up" : "chevron-down"}
+                        size={18}
+                        color={c.textMuted}
+                      />
                     </Pressable>
 
                     {expanded && (
                       <View style={{ gap: 10 }}>
                         {t.summary ? <Txt variant="muted">{t.summary}</Txt> : null}
                         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-                          <Button label="Open module" icon="book-outline" variant="outline" onPress={() => router.push(`/topic/${t.id}`)} />
-                          <Button label="Take quiz" icon="clipboard-outline" variant="outline" onPress={() => router.push(`/quiz/${t.id}`)} />
+                          <Button
+                            label="Open module"
+                            icon="book-outline"
+                            variant="outline"
+                            onPress={() => router.push(`/topic/${t.id}`)}
+                          />
+                          <Button
+                            label="Take quiz"
+                            icon="clipboard-outline"
+                            variant="outline"
+                            onPress={() => router.push(`/quiz/${t.id}`)}
+                          />
                         </View>
                       </View>
                     )}

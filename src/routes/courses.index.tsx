@@ -11,7 +11,10 @@ export const Route = createFileRoute("/courses/")({
   head: () => ({
     meta: [
       { title: "Courses — AceTutor" },
-      { name: "description", content: "Five CS/IT university courses with adaptive multimodal lessons and quizzes." },
+      {
+        name: "description",
+        content: "Five CS/IT university courses with adaptive multimodal lessons and quizzes.",
+      },
     ],
   }),
   component: CoursesPage,
@@ -38,14 +41,19 @@ function CoursesPage() {
         <motion.div variants={fadeUp} initial="hidden" animate="show">
           <h1 className="font-display text-5xl">All courses</h1>
           <p className="mt-2 text-muted-foreground">
-            {loggedIn ? "Enroll, then jump back into the courses you're taking." : "Pick a course to see its topics and lessons."}
+            {loggedIn
+              ? "Enroll, then jump back into the courses you're taking."
+              : "Pick a course to see its topics and lessons."}
           </p>
         </motion.div>
 
         {isLoading ? (
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-56 animate-pulse rounded-2xl border border-border bg-card/60" />
+              <div
+                key={i}
+                className="h-56 animate-pulse rounded-2xl border border-border bg-card/60"
+              />
             ))}
           </div>
         ) : (

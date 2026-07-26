@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, Loader2, CheckCircle2, XCircle, RotateCcw, Trophy, Sparkles } from "lucide-react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,7 +26,7 @@ type Props = {
   topicId: string;
   userId: string;
   questions: AIQuizQuestion[];
-  onCompleted?: () => void;
+  onCompleted?: (attemptId: string) => void;
 };
 
 export function AIQuizDialog({
@@ -51,16 +51,22 @@ export function AIQuizDialog({
   const hasAnswer = selected !== undefined;
   const isLast = current === total - 1;
 
-  const score = questions.reduce(
-    (s, qq, i) => (answers[i] === qq.correctIndex ? s + 1 : s),
-    0,
-  );
+  const score = questions.reduce((s, qq, i) => (answers[i] === qq.correctIndex ? s + 1 : s), 0);
 
   const reset = () => {
     setCurrent(0);
     setAnswers({});
     setFinished(false);
   };
+
+  useEffect(() => {
+    if (!open) return;
+    setCurrent(0);
+    setAnswers({});
+    setFinished(false);
+    setConfirmOpen(false);
+    setSaving(false);
+  }, [open, topicId, questions]);
 
   const handleClose = () => {
     if (finished) {
@@ -82,7 +88,7 @@ export function AIQuizDialog({
   };
 
   const handleNext = async () => {
-    if (!hasAnswer) return;
+    if (!hasAnswer || saving || total === 0) return;
     if (!isLast) {
       setCurrent((c) => c + 1);
       return;
@@ -92,40 +98,45 @@ export function AIQuizDialog({
       (s, qq, i) => (answers[i] === qq.correctIndex ? s + 1 : s),
       0,
     );
-    const { error } = await supabase.from("quiz_attempts").insert({
-      user_id: userId,
-      topic_id: topicId,
-      score: finalScore,
-      total,
-      finished_at: new Date().toISOString(),
-    });
+    const { data: attempt, error } = await supabase
+      .from("quiz_attempts")
+      .insert({
+        user_id: userId,
+        topic_id: topicId,
+        score: finalScore,
+        total,
+        finished_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
     setSaving(false);
     if (error) {
       toast.error(error.message);
       return;
     }
+    if (!attempt) {
+      toast.error("Quiz saved, but the attempt id was not returned.");
+      return;
+    }
     toast.success("Quiz saved to your performance");
     setFinished(true);
-    onCompleted?.();
+    onCompleted?.(attempt.id);
   };
 
   return (
     <>
       <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-        <DialogContent
-          className="max-w-4xl gap-0 overflow-hidden p-0 sm:max-w-4xl [&>button]:hidden"
-        >
+        <DialogContent className="max-w-4xl gap-0 overflow-hidden p-0 sm:max-w-4xl [&>button]:hidden">
+          <DialogTitle className="sr-only">AI practice quiz for {moduleTitle}</DialogTitle>
           {/* Header */}
           <div className="border-b border-border">
             <div className="flex items-center justify-between px-6 py-4">
               <div className="flex min-w-0 items-center gap-2">
                 <div className="h-7 w-7 shrink-0 rounded-md bg-primary" />
                 <div className="min-w-0">
-                  <p className="truncate font-display text-base font-semibold">
-                    {courseTitle}
-                  </p>
+                  <p className="truncate font-display text-base font-semibold">{courseTitle}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    AI Practice Quiz · {moduleTitle}
+                    AI Practice Quiz - {moduleTitle}
                   </p>
                 </div>
               </div>
@@ -138,17 +149,23 @@ export function AIQuizDialog({
               </button>
             </div>
             <Progress
-              value={
-                finished
-                  ? 100
-                  : ((current + (hasAnswer ? 1 : 0)) / Math.max(total, 1)) * 100
-              }
+              value={finished ? 100 : ((current + (hasAnswer ? 1 : 0)) / Math.max(total, 1)) * 100}
               className="h-1 rounded-none bg-muted"
             />
           </div>
 
           {/* Body */}
-          {!finished ? (
+          {total === 0 ? (
+            <div className="flex flex-col items-center px-6 py-12 text-center">
+              <p className="font-display text-2xl font-semibold">No quiz questions returned</p>
+              <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                Try starting the quiz again in a moment.
+              </p>
+              <Button onClick={handleClose} className="mt-6 rounded-full">
+                Close
+              </Button>
+            </div>
+          ) : !finished ? (
             <div className="flex flex-col items-center px-6 py-10 sm:py-12">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -177,7 +194,9 @@ export function AIQuizDialog({
                     className="mx-auto mt-10 grid w-full max-w-2xl gap-3 sm:grid-cols-2"
                     initial="hidden"
                     animate="show"
-                    variants={{ show: { transition: { staggerChildren: 0.06, delayChildren: 0.08 } } }}
+                    variants={{
+                      show: { transition: { staggerChildren: 0.06, delayChildren: 0.08 } },
+                    }}
                   >
                     {q?.choices.map((c, ci) => {
                       const isSelected = selected === ci;
@@ -186,11 +205,15 @@ export function AIQuizDialog({
                           key={ci}
                           variants={{
                             hidden: { opacity: 0, y: 14 },
-                            show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] } },
+                            show: {
+                              opacity: 1,
+                              y: 0,
+                              transition: { duration: 0.3, ease: [0.22, 1, 0.36, 1] },
+                            },
                           }}
                           whileHover={{ y: -3 }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => setAnswers({ ...answers, [current]: ci })}
+                          onClick={() => setAnswers((prev) => ({ ...prev, [current]: ci }))}
                           className={`group flex min-h-[72px] items-center justify-center rounded-2xl border-2 px-5 py-4 text-center text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                             isSelected
                               ? "border-primary bg-primary/10 text-foreground shadow-md"
@@ -226,7 +249,7 @@ export function AIQuizDialog({
                   >
                     {saving ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
                       </>
                     ) : isLast ? (
                       "Finish Quiz"
@@ -240,7 +263,7 @@ export function AIQuizDialog({
           ) : (
             <div className="max-h-[70vh] overflow-y-auto px-6 py-8">
               {(() => {
-                const pct = Math.round((score / total) * 100);
+                const pct = total > 0 ? Math.round((score / total) * 100) : 0;
                 const passed = pct >= 70;
                 return (
                   <motion.div
@@ -277,7 +300,7 @@ export function AIQuizDialog({
                       {pct}%
                     </motion.p>
                     <p className="relative mt-1 text-sm text-muted-foreground">
-                      {score} of {total} correct · saved to your performance
+                      {score} of {total} correct - saved to your performance
                     </p>
                   </motion.div>
                 );
@@ -307,8 +330,8 @@ export function AIQuizDialog({
                               ci === qq.correctIndex
                                 ? "border-success/60 bg-success/10"
                                 : ci === sel
-                                ? "border-destructive/50 bg-destructive/10"
-                                : "border-border"
+                                  ? "border-destructive/50 bg-destructive/10"
+                                  : "border-border"
                             }`}
                           >
                             {c}
@@ -317,8 +340,7 @@ export function AIQuizDialog({
                       </div>
                       {qq.explanation && (
                         <p className="mt-3 rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground">
-                          <span className="font-medium text-foreground">Why:</span>{" "}
-                          {qq.explanation}
+                          <span className="font-medium text-foreground">Why:</span> {qq.explanation}
                         </p>
                       )}
                     </li>

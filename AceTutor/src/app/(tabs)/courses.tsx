@@ -77,7 +77,9 @@ export default function CoursesScreen() {
 
       {/* Enrolled */}
       <View style={{ gap: 12 }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <View
+          style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+        >
           <Txt variant="h3">Enrolled</Txt>
           <Txt variant="small">{learning.perCourse.length} active</Txt>
         </View>
@@ -102,9 +104,16 @@ export default function CoursesScreen() {
                     <Txt variant="title" numberOfLines={1}>
                       {course.title}
                     </Txt>
-                    <Txt variant="small">{course.total > 0 ? `${course.total} lessons` : "Lessons coming soon"}</Txt>
+                    <Txt variant="small">
+                      {course.total > 0 ? `${course.total} lessons` : "Lessons coming soon"}
+                    </Txt>
                   </View>
-                  <Ionicons name="arrow-up" size={18} color={c.textMuted} style={{ transform: [{ rotate: "45deg" }] }} />
+                  <Ionicons
+                    name="arrow-up"
+                    size={18}
+                    color={c.textMuted}
+                    style={{ transform: [{ rotate: "45deg" }] }}
+                  />
                 </View>
                 <ProgressBar value={course.pct} height={6} />
                 <Txt variant="small">{course.pct}% complete</Txt>
@@ -130,7 +139,13 @@ export default function CoursesScreen() {
           {explore.map((course) => (
             <Pressable key={course.id} onPress={() => router.push(`/course/${course.slug}`)}>
               <Card style={{ gap: 8 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}
+                >
                   <View
                     style={{
                       width: 40,

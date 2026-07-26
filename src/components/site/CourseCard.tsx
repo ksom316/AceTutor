@@ -69,7 +69,9 @@ export function CourseCard({
             {course.title}
           </h3>
         </Link>
-        {course.summary && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{course.summary}</p>}
+        {course.summary && (
+          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{course.summary}</p>
+        )}
 
         {/* Action row */}
         <div className="mt-4 flex items-center gap-2 pt-1">

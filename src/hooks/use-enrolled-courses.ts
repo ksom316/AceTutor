@@ -30,7 +30,9 @@ export function useEnrolledCourses() {
   const enroll = useMutation({
     mutationFn: async (courseId: string) => {
       if (!user) throw new Error("Sign in to enroll");
-      const { error } = await supabase.from("enrollments").insert({ user_id: user.id, course_id: courseId });
+      const { error } = await supabase
+        .from("enrollments")
+        .insert({ user_id: user.id, course_id: courseId });
       if (error) throw error;
       return courseId;
     },

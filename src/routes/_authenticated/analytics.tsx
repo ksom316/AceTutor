@@ -54,6 +54,25 @@ const CHART_COLORS = [
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+type AnalyticsCourse = { id: string; title: string; slug: string };
+type ProgressRow = {
+  watched_seconds: number | null;
+  completed_at: string | null;
+  updated_at: string | null;
+  lessons: {
+    title: string;
+    duration_sec: number | null;
+    topics: { title: string; courses: AnalyticsCourse | null } | null;
+  } | null;
+};
+type AttemptRow = {
+  score: number | null;
+  total: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  topics: { title: string; courses: AnalyticsCourse | null } | null;
+};
+
 function formatDuration(seconds: number): string {
   if (!seconds || seconds < 1) return "0m";
   const h = Math.floor(seconds / 3600);
@@ -188,19 +207,35 @@ function useAnalyticsData() {
 
 function AnalyticsPage() {
   const { progressQuery, attemptsQuery } = useAnalyticsData();
-  const progress = (progressQuery.data ?? []) as any[];
-  const attempts = (attemptsQuery.data ?? []) as any[];
+  // Memoize the fallbacks so the empty-array reference is stable across renders
+  // (otherwise every dependent useMemo re-runs on each render while loading).
+  const progress = useMemo(
+    () => (progressQuery.data ?? []) as unknown as ProgressRow[],
+    [progressQuery.data],
+  );
+  const attempts = useMemo(
+    () => (attemptsQuery.data ?? []) as unknown as AttemptRow[],
+    [attemptsQuery.data],
+  );
   const loading = progressQuery.isLoading || attemptsQuery.isLoading;
 
   /* ---- Derived datasets ---------------------------------------- */
 
   // Time spent per course (sum watched_seconds across lessons in course)
   const perCourse = useMemo(() => {
-    const map = new Map<string, { name: string; seconds: number; lessons: number; completed: number }>();
+    const map = new Map<
+      string,
+      { name: string; seconds: number; lessons: number; completed: number }
+    >();
     for (const row of progress) {
       const course = row.lessons?.topics?.courses;
       if (!course) continue;
-      const entry = map.get(course.id) ?? { name: course.title, seconds: 0, lessons: 0, completed: 0 };
+      const entry = map.get(course.id) ?? {
+        name: course.title,
+        seconds: 0,
+        lessons: 0,
+        completed: 0,
+      };
       entry.seconds += row.watched_seconds ?? 0;
       entry.lessons += 1;
       if (row.completed_at) entry.completed += 1;
@@ -211,12 +246,12 @@ function AnalyticsPage() {
 
   // Quiz performance per course (avg score %)
   const scorePerCourse = useMemo(() => {
-    const map = new Map<string, { name: string; pct: number[]; }>();
+    const map = new Map<string, { name: string; pct: number[] }>();
     for (const a of attempts) {
       const course = a.topics?.courses;
       if (!course || !a.total) continue;
       const entry = map.get(course.id) ?? { name: course.title, pct: [] as number[] };
-      entry.pct.push((a.score / a.total) * 100);
+      entry.pct.push(((a.score ?? 0) / a.total) * 100);
       map.set(course.id, entry);
     }
     return Array.from(map.values()).map((e) => ({
@@ -257,7 +292,7 @@ function AnalyticsPage() {
     return attempts.map((a, i) => ({
       idx: i + 1,
       label: a.finished_at ? dayKey(new Date(a.finished_at)) : `#${i + 1}`,
-      score: a.total ? Math.round((a.score / a.total) * 100) : 0,
+      score: a.total ? Math.round(((a.score ?? 0) / a.total) * 100) : 0,
       topic: a.topics?.title ?? "Quiz",
     }));
   }, [attempts]);
@@ -268,12 +303,15 @@ function AnalyticsPage() {
   const totalQuizzes = attempts.length;
   const avgScore = useMemo(() => {
     if (!attempts.length) return 0;
-    const sum = attempts.reduce((s, a) => s + (a.total ? (a.score / a.total) * 100 : 0), 0);
+    const sum = attempts.reduce((s, a) => s + (a.total ? ((a.score ?? 0) / a.total) * 100 : 0), 0);
     return Math.round(sum / attempts.length);
   }, [attempts]);
 
   // Study streak: count of distinct active days in last 14 with minutes > 0
-  const streak = useMemo(() => activity.filter((d) => d.minutes > 0 || d.sessions > 0).length, [activity]);
+  const streak = useMemo(
+    () => activity.filter((d) => d.minutes > 0 || d.sessions > 0).length,
+    [activity],
+  );
 
   const completionData = useMemo(() => {
     const totalLessons = perCourse.reduce((s, c) => s + c.lessons, 0);
@@ -283,11 +321,37 @@ function AnalyticsPage() {
   }, [perCourse]);
 
   const kpis = [
-    { label: "Total time learning", icon: Clock, value: totalSeconds, fmt: (n: number) => formatDuration(n), tint: "text-chart-1" },
-    { label: "Active courses", icon: BookOpen, value: activeCourses, fmt: (n: number) => `${Math.round(n)}` },
-    { label: "Quizzes completed", icon: Trophy, value: totalQuizzes, fmt: (n: number) => `${Math.round(n)}` },
-    { label: "Average score", icon: Target, value: avgScore, fmt: (n: number) => `${Math.round(n)}%` },
-    { label: "Active days (14d)", icon: Flame, value: streak, fmt: (n: number) => `${Math.round(n)}` },
+    {
+      label: "Total time learning",
+      icon: Clock,
+      value: totalSeconds,
+      fmt: (n: number) => formatDuration(n),
+      tint: "text-chart-1",
+    },
+    {
+      label: "Active courses",
+      icon: BookOpen,
+      value: activeCourses,
+      fmt: (n: number) => `${Math.round(n)}`,
+    },
+    {
+      label: "Quizzes completed",
+      icon: Trophy,
+      value: totalQuizzes,
+      fmt: (n: number) => `${Math.round(n)}`,
+    },
+    {
+      label: "Average score",
+      icon: Target,
+      value: avgScore,
+      fmt: (n: number) => `${Math.round(n)}%`,
+    },
+    {
+      label: "Active days (14d)",
+      icon: Flame,
+      value: streak,
+      fmt: (n: number) => `${Math.round(n)}`,
+    },
   ];
 
   const hasData = !loading && (progress.length > 0 || attempts.length > 0);
@@ -302,7 +366,9 @@ function AnalyticsPage() {
           </span>
           <div>
             <p className="text-sm text-muted-foreground">Your learning insights</p>
-            <h1 className="font-display text-4xl leading-tight md:text-5xl">Progress &amp; Analytics</h1>
+            <h1 className="font-display text-4xl leading-tight md:text-5xl">
+              Progress &amp; Analytics
+            </h1>
           </div>
         </div>
         <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
@@ -332,8 +398,8 @@ function AnalyticsPage() {
           <Activity className="mx-auto h-10 w-10 text-muted-foreground" />
           <h2 className="mt-4 font-display text-2xl">No activity yet</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            Start a lesson or take a quiz and your time spent, scores and usage analytics will appear
-            here automatically.
+            Start a lesson or take a quiz and your time spent, scores and usage analytics will
+            appear here automatically.
           </p>
         </motion.div>
       )}
@@ -465,7 +531,10 @@ function AnalyticsPage() {
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
-                    data={perCourse.map((c) => ({ name: c.name, minutes: Math.round(c.seconds / 60) }))}
+                    data={perCourse.map((c) => ({
+                      name: c.name,
+                      minutes: Math.round(c.seconds / 60),
+                    }))}
                     margin={{ left: -18, right: 8, top: 6 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -482,7 +551,11 @@ function AnalyticsPage() {
                       axisLine={false}
                       allowDecimals={false}
                     />
-                    <Tooltip {...tooltipStyle} cursor={{ fill: "var(--secondary)", opacity: 0.4 }} formatter={(v: number) => [`${v} min`, "Watched"]} />
+                    <Tooltip
+                      {...tooltipStyle}
+                      cursor={{ fill: "var(--secondary)", opacity: 0.4 }}
+                      formatter={(v: number) => [`${v} min`, "Watched"]}
+                    />
                     <Bar dataKey="minutes" radius={[6, 6, 0, 0]} animationDuration={900}>
                       {perCourse.map((_, i) => (
                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
@@ -494,7 +567,11 @@ function AnalyticsPage() {
             </ChartCard>
 
             {/* Overall completion — Radial */}
-            <ChartCard title="Lesson completion" subtitle="Lessons completed vs started" icon={Target}>
+            <ChartCard
+              title="Lesson completion"
+              subtitle="Lessons completed vs started"
+              icon={Target}
+            >
               <div className="relative h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadialBarChart
@@ -505,13 +582,21 @@ function AnalyticsPage() {
                     endAngle={-270}
                   >
                     <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                    <RadialBar background dataKey="value" cornerRadius={20} animationDuration={1100} />
+                    <RadialBar
+                      background
+                      dataKey="value"
+                      cornerRadius={20}
+                      animationDuration={1100}
+                    />
                   </RadialBarChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 grid place-items-center">
                   <div className="text-center">
                     <div className="font-display text-4xl">
-                      <Counter value={completionData[0].value} format={(n) => `${Math.round(n)}%`} />
+                      <Counter
+                        value={completionData[0].value}
+                        format={(n) => `${Math.round(n)}%`}
+                      />
                     </div>
                     <p className="text-xs text-muted-foreground">complete</p>
                   </div>
@@ -530,7 +615,11 @@ function AnalyticsPage() {
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={scoreTrend} margin={{ left: -18, right: 8, top: 6 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        vertical={false}
+                      />
                       <XAxis
                         dataKey="label"
                         tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
@@ -545,7 +634,10 @@ function AnalyticsPage() {
                       />
                       <Tooltip
                         {...tooltipStyle}
-                        formatter={(v: number, _n, p: any) => [`${v}%`, p?.payload?.topic ?? "Score"]}
+                        formatter={(v: number, _n, p: { payload?: { topic?: string } }) => [
+                          `${v}%`,
+                          p?.payload?.topic ?? "Score",
+                        ]}
                       />
                       <Line
                         type="monotone"
@@ -572,8 +664,16 @@ function AnalyticsPage() {
               >
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={scorePerCourse} margin={{ left: -18, right: 8, top: 6 }} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                    <BarChart
+                      data={scorePerCourse}
+                      margin={{ left: -18, right: 8, top: 6 }}
+                      layout="vertical"
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        horizontal={false}
+                      />
                       <XAxis
                         type="number"
                         domain={[0, 100]}
@@ -589,7 +689,11 @@ function AnalyticsPage() {
                         tickLine={false}
                         axisLine={false}
                       />
-                      <Tooltip {...tooltipStyle} cursor={{ fill: "var(--secondary)", opacity: 0.4 }} formatter={(v: number) => [`${v}%`, "Avg score"]} />
+                      <Tooltip
+                        {...tooltipStyle}
+                        cursor={{ fill: "var(--secondary)", opacity: 0.4 }}
+                        formatter={(v: number) => [`${v}%`, "Avg score"]}
+                      />
                       <Bar dataKey="avg" radius={[0, 6, 6, 0]} animationDuration={900}>
                         {scorePerCourse.map((_, i) => (
                           <Cell key={i} fill={CHART_COLORS[(i + 1) % CHART_COLORS.length]} />
@@ -646,7 +750,11 @@ function AnalyticsPage() {
                           initial={{ width: 0 }}
                           whileInView={{ width: `${pct}%` }}
                           viewport={{ once: true }}
-                          transition={{ delay: i * 0.05 + 0.2, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+                          transition={{
+                            delay: i * 0.05 + 0.2,
+                            duration: 0.7,
+                            ease: [0.22, 1, 0.36, 1],
+                          }}
                         />
                       </div>
                       <p className="mt-1 text-[11px] text-muted-foreground">

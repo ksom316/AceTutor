@@ -47,7 +47,10 @@ export default function ProfileScreen() {
   const saveName = async () => {
     if (!draft.trim() || !user) return;
     setSaving(true);
-    const { error } = await supabase.from("profiles").update({ full_name: draft.trim() }).eq("id", user.id);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ full_name: draft.trim() })
+      .eq("id", user.id);
     setSaving(false);
     if (error) {
       Alert.alert("Couldn't save", error.message);
@@ -98,7 +101,12 @@ export default function ProfileScreen() {
         <View style={{ flex: 1, gap: 6 }}>
           {editing ? (
             <View style={{ gap: 8 }}>
-              <TextField value={draft} onChangeText={setDraft} placeholder="Your full name" autoFocus />
+              <TextField
+                value={draft}
+                onChangeText={setDraft}
+                placeholder="Your full name"
+                autoFocus
+              />
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <Button label="Save" onPress={saveName} loading={saving} />
                 <Button label="Cancel" variant="ghost" onPress={() => setEditing(false)} />
@@ -127,11 +135,15 @@ export default function ProfileScreen() {
 
       {/* Stats */}
       <View style={{ flexDirection: "row", gap: 12 }}>
-        <StatTile icon="book-outline" label="Courses enrolled" value={String(enrolled?.length ?? 0)} />
+        <StatTile
+          icon="book-outline"
+          label="Courses enrolled"
+          value={String(enrolled?.length ?? 0)}
+        />
         <StatTile
           icon="school-outline"
           label="Learning style"
-          value={profile?.vark_primary ? VARK_LABEL[profile.vark_primary] ?? "Set" : "Not set"}
+          value={profile?.vark_primary ? (VARK_LABEL[profile.vark_primary] ?? "Set") : "Not set"}
         />
       </View>
 
@@ -182,13 +194,24 @@ export default function ProfileScreen() {
       </Card>
 
       {/* Danger zone */}
-      <Card style={{ gap: 12, borderColor: c.destructive + "55", backgroundColor: c.destructive + "0d" }}>
+      <Card
+        style={{
+          gap: 12,
+          borderColor: c.destructive + "55",
+          backgroundColor: c.destructive + "0d",
+        }}
+      >
         <Txt variant="h3" color={c.destructive}>
           Account
         </Txt>
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
           <Button label="Sign out" icon="log-out-outline" variant="outline" onPress={signOut} />
-          <Button label="Delete account" icon="trash-outline" variant="destructive" onPress={confirmDelete} />
+          <Button
+            label="Delete account"
+            icon="trash-outline"
+            variant="destructive"
+            onPress={confirmDelete}
+          />
         </View>
       </Card>
     </Screen>

@@ -63,13 +63,13 @@ const sections = [
     id: "liability",
     nav: "Limitation of Liability",
     title: "8. Limitation of Liability",
-    body: "AceTutor is provided on an \"as is\" and \"as available\" basis. To the fullest extent permitted by law, we are not liable for any indirect or consequential loss arising from your use of, or inability to use, the service.",
+    body: 'AceTutor is provided on an "as is" and "as available" basis. To the fullest extent permitted by law, we are not liable for any indirect or consequential loss arising from your use of, or inability to use, the service.',
   },
   {
     id: "changes",
     nav: "Changes to Terms",
     title: "9. Changes to These Terms",
-    body: "We may update these Terms & Conditions from time to time. When we do, we will revise the \"last updated\" date below. Your continued use of AceTutor after changes take effect means you accept the revised terms.",
+    body: 'We may update these Terms & Conditions from time to time. When we do, we will revise the "last updated" date below. Your continued use of AceTutor after changes take effect means you accept the revised terms.',
   },
   {
     id: "contact",
@@ -119,8 +119,8 @@ function TermsPage() {
             <h2 className="text-xl font-semibold tracking-tight">Questions about these terms?</h2>
           </div>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Reach out through the Contact link in the footer or your institution's AceTutor administrator and we'll be
-            happy to help clarify anything.
+            Reach out through the Contact link in the footer or your institution's AceTutor
+            administrator and we'll be happy to help clarify anything.
           </p>
         </motion.div>
       </div>

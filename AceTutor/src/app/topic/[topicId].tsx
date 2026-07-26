@@ -13,6 +13,21 @@ import { radius, useColors } from "@/theme";
 
 type Modality = "text" | "video" | "audio";
 
+type LessonDetail = {
+  id: string;
+  modality: Modality;
+  title: string;
+  body_md: string | null;
+  media_url: string | null;
+  duration_sec: number | null;
+};
+type TopicDetail = {
+  id: string;
+  title: string;
+  summary: string | null;
+  courses: { title: string; slug: string } | null;
+};
+
 const VARK_TO_MODALITY: Record<string, Modality> = {
   visual: "video",
   aural: "audio",
@@ -46,7 +61,10 @@ export default function TopicScreen() {
         .select("id, modality, title, body_md, media_url, duration_sec")
         .eq("topic_id", topicId)
         .order("order_index");
-      return { topic, lessons: lessons ?? [] };
+      return {
+        topic: (topic ?? null) as unknown as TopicDetail | null,
+        lessons: (lessons ?? []) as unknown as LessonDetail[],
+      };
     },
   });
 
@@ -54,7 +72,11 @@ export default function TopicScreen() {
     queryKey: ["profile-modality", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data } = await supabase.from("profiles").select("vark_primary").eq("id", user!.id).maybeSingle();
+      const { data } = await supabase
+        .from("profiles")
+        .select("vark_primary")
+        .eq("id", user!.id)
+        .maybeSingle();
       return data;
     },
   });
@@ -63,11 +85,21 @@ export default function TopicScreen() {
     if (profile?.vark_primary) setModality(VARK_TO_MODALITY[profile.vark_primary] ?? "text");
   }, [profile?.vark_primary]);
 
-  const lesson = useMemo(() => data?.lessons.find((l: any) => l.modality === modality), [data, modality]);
+  const lesson = useMemo(
+    () => data?.lessons.find((l) => l.modality === modality),
+    [data, modality],
+  );
 
   return (
     <Screen>
-      <Stack.Screen options={{ headerShown: true, title: "", headerTintColor: c.text, headerStyle: { backgroundColor: c.bg } }} />
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: "",
+          headerTintColor: c.text,
+          headerStyle: { backgroundColor: c.bg },
+        }}
+      />
 
       {isLoading ? (
         <Txt variant="muted">Loading…</Txt>
@@ -75,7 +107,7 @@ export default function TopicScreen() {
         <>
           {data?.topic && (
             <View style={{ gap: 6 }}>
-              <Txt variant="label">{(data.topic as any).courses?.title}</Txt>
+              <Txt variant="label">{data.topic.courses?.title}</Txt>
               <Txt variant="h1">{data.topic.title}</Txt>
               {data.topic.summary ? <Txt variant="muted">{data.topic.summary}</Txt> : null}
             </View>
@@ -93,7 +125,8 @@ export default function TopicScreen() {
           >
             {TABS.map(({ k, icon, label }) => {
               const active = modality === k;
-              const recommended = profile?.vark_primary && VARK_TO_MODALITY[profile.vark_primary] === k;
+              const recommended =
+                profile?.vark_primary && VARK_TO_MODALITY[profile.vark_primary] === k;
               return (
                 <Pressable
                   key={k}
@@ -109,10 +142,16 @@ export default function TopicScreen() {
                   }}
                 >
                   <Ionicons name={icon} size={15} color={active ? "#fff" : c.textMuted} />
-                  <Txt variant="small" color={active ? "#fff" : c.textMuted} style={{ fontWeight: "700" }}>
+                  <Txt
+                    variant="small"
+                    color={active ? "#fff" : c.textMuted}
+                    style={{ fontWeight: "700" }}
+                  >
                     {label}
                   </Txt>
-                  {recommended ? <Ionicons name="sparkles" size={11} color={active ? "#fff" : c.primary} /> : null}
+                  {recommended ? (
+                    <Ionicons name="sparkles" size={11} color={active ? "#fff" : c.primary} />
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -123,7 +162,9 @@ export default function TopicScreen() {
             {lesson ? (
               <>
                 <Txt variant="h3">{lesson.title}</Txt>
-                {lesson.modality === "text" && <Txt variant="body">{lesson.body_md ?? "No content."}</Txt>}
+                {lesson.modality === "text" && (
+                  <Txt variant="body">{lesson.body_md ?? "No content."}</Txt>
+                )}
                 {lesson.modality !== "text" && lesson.media_url ? (
                   <GradientButton
                     label={lesson.modality === "video" ? "Open video" : "Open audio"}
@@ -131,23 +172,36 @@ export default function TopicScreen() {
                     onPress={() => WebBrowser.openBrowserAsync(lesson.media_url!)}
                   />
                 ) : null}
-                {lesson.modality !== "text" && lesson.body_md ? <Txt variant="muted">{lesson.body_md}</Txt> : null}
+                {lesson.modality !== "text" && lesson.body_md ? (
+                  <Txt variant="muted">{lesson.body_md}</Txt>
+                ) : null}
               </>
             ) : (
               <View style={{ alignItems: "center", gap: 8, paddingVertical: 16 }}>
                 <Ionicons
-                  name={modality === "video" ? "play-circle-outline" : modality === "audio" ? "headset-outline" : "document-text-outline"}
+                  name={
+                    modality === "video"
+                      ? "play-circle-outline"
+                      : modality === "audio"
+                        ? "headset-outline"
+                        : "document-text-outline"
+                  }
                   size={28}
                   color={c.textMuted}
                 />
                 <Txt variant="muted" style={{ textAlign: "center" }}>
-                  No {modality === "text" ? "reading" : modality} lesson available for this topic yet. Try another format.
+                  No {modality === "text" ? "reading" : modality} lesson available for this topic
+                  yet. Try another format.
                 </Txt>
               </View>
             )}
           </Card>
 
-          <GradientButton label="Take the quiz" icon="arrow-forward" onPress={() => router.push(`/quiz/${topicId}`)} />
+          <GradientButton
+            label="Start quiz"
+            icon="arrow-forward"
+            onPress={() => router.push(`/quiz/${topicId}`)}
+          />
         </>
       )}
     </Screen>

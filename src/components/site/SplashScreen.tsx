@@ -54,12 +54,16 @@ export function SplashScreen() {
           <div
             aria-hidden
             className="pointer-events-none absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full blur-3xl"
-            style={{ background: "radial-gradient(circle, rgba(34,211,238,0.18), transparent 70%)" }}
+            style={{
+              background: "radial-gradient(circle, rgba(34,211,238,0.18), transparent 70%)",
+            }}
           />
           <div
             aria-hidden
             className="pointer-events-none absolute -bottom-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full blur-3xl"
-            style={{ background: "radial-gradient(circle, rgba(168,85,247,0.20), transparent 70%)" }}
+            style={{
+              background: "radial-gradient(circle, rgba(168,85,247,0.20), transparent 70%)",
+            }}
           />
 
           <motion.div

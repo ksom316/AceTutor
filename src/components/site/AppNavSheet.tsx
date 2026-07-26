@@ -34,7 +34,7 @@ const studentItems: NavItem[] = [
   { label: "My Courses", icon: BookOpen, to: "/my-courses" },
   { label: "Progress & Analytics", icon: BarChart3, to: "/analytics" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
-  { label: "Settings", icon: Settings, to: "/profile" },
+  { label: "Settings", icon: Settings, to: "/settings" },
   { label: "Contact", icon: Mail, to: "/contact" },
 ];
 
@@ -43,7 +43,7 @@ const lecturerItems: NavItem[] = [
   { label: "Course Management", icon: BookOpen, to: "/courses" },
   { label: "Student Analytics", icon: Users, to: "/analytics" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
-  { label: "Settings", icon: Settings, to: "/profile" },
+  { label: "Settings", icon: Settings, to: "/settings" },
   { label: "Contact", icon: Mail, to: "/contact" },
 ];
 
@@ -80,6 +80,9 @@ export function AppNavSheet({ user }: { user: User }) {
     queryKey: ["avatar-signed", profile?.avatar_url],
     enabled: !!profile?.avatar_url,
     queryFn: async () => {
+      // Google OAuth avatars are full https URLs — use directly; only
+      // storage paths need signing.
+      if (profile!.avatar_url!.startsWith("http")) return profile!.avatar_url!;
       const { data, error } = await supabase.storage
         .from("avatars")
         .createSignedUrl(profile!.avatar_url!, 60 * 60);
@@ -90,8 +93,7 @@ export function AppNavSheet({ user }: { user: User }) {
 
   const isLecturer = role === "lecturer" || role === "admin";
   const items = isLecturer ? lecturerItems : studentItems;
-  const displayName =
-    profile?.full_name || user.email?.split("@")[0] || "Learner";
+  const displayName = profile?.full_name || user.email?.split("@")[0] || "Learner";
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)
@@ -145,11 +147,7 @@ export function AppNavSheet({ user }: { user: User }) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5">
-          <Link
-            to="/"
-            className="flex items-center gap-2"
-            onClick={() => setOpen(false)}
-          >
+          <Link to="/" className="flex items-center gap-2" onClick={() => setOpen(false)}>
             <img src={logoAsset} alt="AceTutor" width={32} height={32} className="object-contain" />
             <span className="text-base font-bold tracking-tight">AceTutor</span>
           </Link>

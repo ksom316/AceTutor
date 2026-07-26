@@ -1,7 +1,8 @@
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/site/AppShell";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated")({
   component: AuthLayout,
@@ -10,8 +11,27 @@ export const Route = createFileRoute("/_authenticated")({
 function AuthLayout() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const redirectedRef = useRef(false);
+
   useEffect(() => {
-    if (!loading && !user) navigate({ to: "/login" });
+    // Skip while auth is still hydrating
+    if (loading) return;
+    // User is confirmed signed in
+    if (user) {
+      redirectedRef.current = false;
+      return;
+    }
+
+    // loading=false, user=null — the React context may not have caught
+    // up yet (SSR hydration race).  Check Supabase directly to be
+    // certain the user is genuinely unauthenticated before redirecting.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) return; // context will update on next auth event
+      if (redirectedRef.current) return;
+      redirectedRef.current = true;
+      const from = window.location.pathname + window.location.search;
+      navigate({ to: "/login", search: { redirect: from } });
+    });
   }, [user, loading, navigate]);
 
   if (loading || !user) {

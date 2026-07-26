@@ -32,7 +32,11 @@ export async function fetchProfile(uid: string) {
 }
 
 export async function fetchRole(uid: string) {
-  const { data } = await supabase.from("user_roles").select("role").eq("user_id", uid).maybeSingle();
+  const { data } = await supabase
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", uid)
+    .maybeSingle();
   return (data?.role as string | undefined) ?? "student";
 }
 
@@ -42,7 +46,8 @@ export async function fetchEnrollments() {
     .select("course_id, created_at, courses(id, slug, title, summary)")
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []).map((e: any) => e.courses).filter(Boolean) as Course[];
+  const rows = (data ?? []) as unknown as { courses: Course | null }[];
+  return rows.map((e) => e.courses).filter(Boolean) as Course[];
 }
 
 export async function fetchAllCourses() {
@@ -58,7 +63,7 @@ export async function fetchLessonsForCourses(courseIds: string[]) {
     .from("lessons")
     .select("id, topics!inner(course_id)")
     .in("topics.course_id", courseIds);
-  return (data ?? []) as any[];
+  return (data ?? []) as unknown as LessonRow[];
 }
 
 export async function fetchProgress(uid: string) {
@@ -66,21 +71,41 @@ export async function fetchProgress(uid: string) {
     .from("progress")
     .select("completed_at, watched_seconds, updated_at, lessons!inner(id, topics!inner(course_id))")
     .eq("user_id", uid);
-  return (data ?? []) as any[];
+  return (data ?? []) as unknown as ProgressRow[];
 }
 
 export async function fetchAttempts(uid: string, limit = 20) {
   const { data } = await supabase
     .from("quiz_attempts")
-    .select("id, score, total, finished_at, topic_id, topics(title, slug, courses(id, title, slug))")
+    .select(
+      "id, score, total, finished_at, topic_id, topics(title, slug, courses(id, title, slug))",
+    )
     .eq("user_id", uid)
     .not("finished_at", "is", null)
     .order("finished_at", { ascending: false })
     .limit(limit);
-  return (data ?? []) as any[];
+  return (data ?? []) as unknown as AttemptRow[];
 }
 
 export type Course = { id: string; slug: string; title: string; summary: string | null };
+
+/** Row shapes for the nested Supabase selects above (kept minimal to what screens read). */
+export type LessonRow = { id: string; topics: { course_id: string } | null };
+export type ProgressRow = {
+  completed_at: string | null;
+  watched_seconds: number | null;
+  updated_at: string | null;
+  lessons: { id: string; topics: { course_id: string } | null } | null;
+};
+export type AttemptCourse = { id: string; title: string; slug: string };
+export type AttemptRow = {
+  id: string;
+  score: number | null;
+  total: number | null;
+  finished_at: string | null;
+  topic_id: string;
+  topics: { title: string; slug: string; courses: AttemptCourse | null } | null;
+};
 export type Topic = {
   id: string;
   slug: string;

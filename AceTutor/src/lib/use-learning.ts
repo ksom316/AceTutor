@@ -82,7 +82,10 @@ export function useLearning() {
 
     const att = attempts.data ?? [];
     const avgScore = att.length
-      ? Math.round(att.reduce((s, a) => s + (a.total ? (a.score / a.total) * 100 : 0), 0) / att.length)
+      ? Math.round(
+          att.reduce((s, a) => s + (a.total ? ((a.score ?? 0) / a.total) * 100 : 0), 0) /
+            att.length,
+        )
       : 0;
 
     return { perCourse, totalSeconds, completedLessons, avgScore, quizzes: att.length };

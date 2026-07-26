@@ -180,7 +180,7 @@ function VarkOnboarding() {
     // Score
     const scores: Record<Style, number> = { visual: 0, aural: 0, read_write: 0, kinesthetic: 0 };
     updated.forEach((s) => (scores[s] += 1));
-    const primary = (Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0]) as Style;
+    const primary = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0] as Style;
 
     setSaving(true);
     await supabase.from("vark_responses").insert({
@@ -251,7 +251,12 @@ function VarkOnboarding() {
         </motion.div>
       </AnimatePresence>
 
-      <Button variant="ghost" className="mt-8" onClick={() => navigate({ to: "/dashboard" })} disabled={saving}>
+      <Button
+        variant="ghost"
+        className="mt-8"
+        onClick={() => navigate({ to: "/dashboard" })}
+        disabled={saving}
+      >
         Skip for now
       </Button>
     </main>

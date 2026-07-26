@@ -4,12 +4,22 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { GradientButton, ProgressBar, Txt } from "@/components/ui";
+import { Button, Card, GradientButton, ProgressBar, Txt } from "@/components/ui";
 import { supabase } from "@/integrations/supabase/client";
+import { generateQuizJson } from "@/lib/ai";
 import { useAuth } from "@/lib/auth";
 import { radius, useColors } from "@/theme";
 
-type Q = { id: string; prompt: string; choices: string[]; difficulty: number };
+// `correctIndex`/`explanation` only present for AI-generated questions (graded
+// locally). Bank questions are graded server-side via grade_quiz.
+type Q = {
+  id: string;
+  prompt: string;
+  choices: string[];
+  difficulty?: number;
+  correctIndex?: number;
+  explanation?: string;
+};
 
 export default function QuizRunner() {
   const c = useColors();
@@ -24,33 +34,87 @@ export default function QuizRunner() {
   const [current, setCurrent] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [topicTitle, setTopicTitle] = useState("");
+  // AI mode: no bank questions, so questions were generated and are graded
+  // locally (they aren't in the DB, so grade_quiz / the result screen can't
+  // handle them). Results are shown inline instead.
+  const [aiMode, setAiMode] = useState(false);
+  const [aiResult, setAiResult] = useState<{ score: number; total: number } | null>(null);
 
   useEffect(() => {
     if (!user) return;
     let active = true;
     (async () => {
       setLoading(true);
-      const { data: topic } = await supabase.from("topics").select("title").eq("id", topicId).maybeSingle();
+      const { data: topic } = await supabase
+        .from("topics")
+        .select("title, summary, courses(title, summary)")
+        .eq("id", topicId)
+        .maybeSingle();
       if (!active) return;
       setTopicTitle(topic?.title ?? "Quiz");
 
-      const { data: qs, error } = await supabase.rpc("get_quiz_questions", { _topic_id: topicId, _limit: 5 });
+      const { data: qs, error } = await supabase.rpc("get_quiz_questions", {
+        _topic_id: topicId,
+        _limit: 5,
+      });
       if (!active) return;
       if (error) {
         Alert.alert("Couldn't load questions", error.message);
         setLoading(false);
         return;
       }
-      setQuestions((qs ?? []) as Q[]);
 
-      const { data: attempt, error: aErr } = await supabase
-        .from("quiz_attempts")
-        .insert({ user_id: user.id, topic_id: topicId })
-        .select("id")
-        .single();
-      if (!active) return;
-      if (aErr) Alert.alert("Error", aErr.message);
-      else setAttemptId(attempt.id);
+      let loaded = (qs ?? []) as Q[];
+      let usingAi = false;
+
+      // No bank questions — fall back to an AI-generated quiz.
+      if (loaded.length === 0) {
+        const topicRow = topic as {
+          title?: string;
+          summary?: string;
+          courses?: { title?: string; summary?: string };
+        } | null;
+        const course = topicRow?.courses;
+        try {
+          const quiz = await generateQuizJson({
+            courseTitle: course?.title ?? topicRow?.title ?? "This course",
+            courseSummary: course?.summary,
+            moduleTitle: topicRow?.title,
+            moduleSummary: topicRow?.summary,
+          });
+          if (!active) return;
+          loaded = quiz.map((q, i) => ({
+            id: `ai-${i}`,
+            prompt: q.prompt,
+            choices: q.choices,
+            correctIndex: q.correctIndex,
+            explanation: q.explanation,
+          }));
+          usingAi = loaded.length > 0;
+        } catch (e) {
+          if (!active) return;
+          Alert.alert(
+            "Couldn't generate a quiz",
+            e instanceof Error ? e.message : "Please try again.",
+          );
+        }
+      }
+
+      setQuestions(loaded);
+      setAiMode(usingAi);
+
+      // Only open an attempt row when there's actually a quiz to take, so
+      // visiting a topic with no questions doesn't write empty attempt rows.
+      if (loaded.length > 0) {
+        const { data: attempt, error: aErr } = await supabase
+          .from("quiz_attempts")
+          .insert({ user_id: user.id, topic_id: topicId })
+          .select("id")
+          .single();
+        if (!active) return;
+        if (aErr) Alert.alert("Error", aErr.message);
+        else setAttemptId(attempt.id);
+      }
       setLoading(false);
     })();
     return () => {
@@ -61,7 +125,28 @@ export default function QuizRunner() {
   const submit = async () => {
     if (!attemptId) return;
     setSubmitting(true);
-    const { error } = await supabase.rpc("grade_quiz", { _attempt_id: attemptId, _answers: answers });
+
+    // AI mode: grade locally and persist the score on the attempt row.
+    if (aiMode) {
+      const score = questions.reduce((s, q) => (answers[q.id] === q.correctIndex ? s + 1 : s), 0);
+      const total = questions.length;
+      const { error } = await supabase
+        .from("quiz_attempts")
+        .update({ score, total, finished_at: new Date().toISOString() })
+        .eq("id", attemptId);
+      setSubmitting(false);
+      if (error) {
+        Alert.alert("Couldn't save", error.message);
+        return;
+      }
+      setAiResult({ score, total });
+      return;
+    }
+
+    const { error } = await supabase.rpc("grade_quiz", {
+      _attempt_id: attemptId,
+      _answers: answers,
+    });
     setSubmitting(false);
     if (error) {
       Alert.alert("Couldn't grade", error.message);
@@ -86,7 +171,15 @@ export default function QuizRunner() {
 
   if (loading) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, alignItems: "center", justifyContent: "center", gap: 12 }}>
+      <SafeAreaView
+        style={{
+          flex: 1,
+          backgroundColor: c.bg,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+        }}
+      >
         <Stack.Screen options={{ headerShown: false }} />
         <ActivityIndicator color={c.primary} />
         <Txt variant="muted">Preparing your quiz…</Txt>
@@ -94,9 +187,137 @@ export default function QuizRunner() {
     );
   }
 
+  // AI-mode result — graded locally, shown inline.
+  if (aiResult) {
+    const pct = aiResult.total ? Math.round((aiResult.score / aiResult.total) * 100) : 0;
+    const passed = pct >= 70;
+    const headline =
+      pct >= 90
+        ? "Outstanding!"
+        : pct >= 70
+          ? "Great work!"
+          : pct >= 50
+            ? "Good effort!"
+            : "Keep practicing!";
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
+          <View
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+          >
+            <Txt variant="h3" numberOfLines={1} style={{ flex: 1 }}>
+              {topicTitle}
+            </Txt>
+            <Pressable onPress={close} hitSlop={10}>
+              <Ionicons name="close" size={26} color={c.textMuted} />
+            </Pressable>
+          </View>
+
+          <Card style={{ alignItems: "center", gap: 8, paddingVertical: 28 }}>
+            <View
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 16,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: passed ? c.success + "22" : c.primarySoft,
+              }}
+            >
+              <Ionicons
+                name={passed ? "trophy" : "sparkles"}
+                size={28}
+                color={passed ? c.success : c.primary}
+              />
+            </View>
+            <Txt variant="label">AI practice quiz</Txt>
+            <Txt variant="h3">{headline}</Txt>
+            <Txt style={{ fontSize: 64, fontWeight: "800", color: c.primary }}>{pct}%</Txt>
+            <Txt variant="muted">
+              {aiResult.score} of {aiResult.total} correct · saved to your performance
+            </Txt>
+          </Card>
+
+          {questions.map((qq, i) => {
+            const sel = answers[qq.id];
+            const ok = sel === qq.correctIndex;
+            return (
+              <Card key={qq.id} style={{ gap: 10 }}>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <Txt variant="body" style={{ flex: 1, fontWeight: "600" }}>
+                    {i + 1}. {qq.prompt}
+                  </Txt>
+                  <Ionicons
+                    name={ok ? "checkmark-circle" : "close-circle"}
+                    size={20}
+                    color={ok ? c.success : c.destructive}
+                  />
+                </View>
+                <View style={{ gap: 6 }}>
+                  {qq.choices.map((choice, ci) => {
+                    const isCorrect = ci === qq.correctIndex;
+                    const isWrongPick = ci === sel && !isCorrect;
+                    return (
+                      <View
+                        key={ci}
+                        style={{
+                          padding: 10,
+                          borderRadius: radius.md,
+                          borderWidth: 1,
+                          borderColor: isCorrect
+                            ? c.success
+                            : isWrongPick
+                              ? c.destructive
+                              : c.border,
+                          backgroundColor: isCorrect
+                            ? c.success + "18"
+                            : isWrongPick
+                              ? c.destructive + "18"
+                              : "transparent",
+                        }}
+                      >
+                        <Txt variant="small">{choice}</Txt>
+                      </View>
+                    );
+                  })}
+                </View>
+                {qq.explanation ? (
+                  <Txt variant="muted" style={{ fontSize: 13 }}>
+                    Why: {qq.explanation}
+                  </Txt>
+                ) : null}
+              </Card>
+            );
+          })}
+
+          <GradientButton
+            label="Retry"
+            icon="refresh"
+            onPress={() => {
+              setAiResult(null);
+              setAnswers({});
+              setCurrent(0);
+            }}
+          />
+          <Button label="Back to dashboard" variant="ghost" onPress={close} />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (!q) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, alignItems: "center", justifyContent: "center", padding: 24, gap: 12 }}>
+      <SafeAreaView
+        style={{
+          flex: 1,
+          backgroundColor: c.bg,
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 24,
+          gap: 12,
+        }}
+      >
         <Stack.Screen options={{ headerShown: false }} />
         <Ionicons name="help-circle-outline" size={40} color={c.textMuted} />
         <Txt variant="h2" style={{ textAlign: "center" }}>
@@ -118,7 +339,9 @@ export default function QuizRunner() {
 
       {/* Header */}
       <View style={{ paddingHorizontal: 20, paddingTop: 8, gap: 12 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View
+          style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+        >
           <Txt variant="h3" numberOfLines={1} style={{ flex: 1 }}>
             {topicTitle}
           </Txt>
@@ -165,7 +388,11 @@ export default function QuizRunner() {
                     borderColor: c.border,
                   }}
                 >
-                  <Txt variant="small" color={isSel ? "#fff" : c.textMuted} style={{ fontWeight: "800" }}>
+                  <Txt
+                    variant="small"
+                    color={isSel ? "#fff" : c.textMuted}
+                    style={{ fontWeight: "800" }}
+                  >
                     {String.fromCharCode(65 + ci)}
                   </Txt>
                 </View>
@@ -185,7 +412,10 @@ export default function QuizRunner() {
             loading={submitting}
           />
           {current > 0 && !submitting && (
-            <Pressable onPress={() => setCurrent((n) => n - 1)} style={{ alignSelf: "center", padding: 8 }}>
+            <Pressable
+              onPress={() => setCurrent((n) => n - 1)}
+              style={{ alignSelf: "center", padding: 8 }}
+            >
               <Txt variant="small">← Previous question</Txt>
             </Pressable>
           )}

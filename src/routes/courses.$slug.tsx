@@ -32,17 +32,29 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { supabase } from "@/integrations/supabase/client";
-import { askCourse, type AIQuizQuestion } from "@/lib/course-chat.functions";
+import { askCourse } from "@/lib/course-chat.functions";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
-import { AIQuizDialog } from "@/components/course/AIQuizDialog";
+import { StartQuizButton } from "@/components/course/StartQuizButton";
 
 export const Route = createFileRoute("/courses/$slug")({
   component: CourseDetail,
 });
 
-type TopicRow = { id: string; slug: string; title: string; summary: string | null; order_index: number };
-type AttemptRow = { id: string; topic_id: string; score: number; total: number; finished_at: string | null };
+type TopicRow = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string | null;
+  order_index: number;
+};
+type AttemptRow = {
+  id: string;
+  topic_id: string;
+  score: number;
+  total: number;
+  finished_at: string | null;
+};
 
 function CourseDetail() {
   const { slug } = Route.useParams();
@@ -50,9 +62,7 @@ function CourseDetail() {
   const qc = useQueryClient();
   const ask = useServerFn(askCourse);
   const [input, setInput] = useState("");
-  const [provider, setProvider] = useState<"gemini" | "llama" | "deepseek">("gemini");
   const [activeModule, setActiveModule] = useState<TopicRow | null>(null);
-  const [aiQuiz, setAiQuiz] = useState<{ module: TopicRow; questions: AIQuizQuestion[] } | null>(null);
 
   const { data: course, isLoading } = useQuery({
     queryKey: ["course", slug],
@@ -124,14 +134,24 @@ function CourseDetail() {
       const pct = m && m.total > 0 ? Math.round((m.score / m.total) * 100) : null;
       return { topic: t, accuracy: pct, attempts: m?.count ?? 0 };
     });
-    const scored = perTopic.filter((p) => p.accuracy !== null) as { topic: TopicRow; accuracy: number; attempts: number }[];
+    const scored = perTopic.filter((p) => p.accuracy !== null) as {
+      topic: TopicRow;
+      accuracy: number;
+      attempts: number;
+    }[];
     const totalScore = finished.reduce((s, a) => s + a.score, 0);
     const totalQ = finished.reduce((s, a) => s + a.total, 0);
     const overall = totalQ > 0 ? Math.round((totalScore / totalQ) * 100) : 0;
     const completed = perTopic.filter((p) => p.attempts > 0).length;
     const progress = topics.length > 0 ? Math.round((completed / topics.length) * 100) : 0;
-    const weak = [...scored].sort((a, b) => a.accuracy - b.accuracy).slice(0, 3).filter((p) => p.accuracy < 70);
-    const strong = [...scored].sort((a, b) => b.accuracy - a.accuracy).slice(0, 3).filter((p) => p.accuracy >= 70);
+    const weak = [...scored]
+      .sort((a, b) => a.accuracy - b.accuracy)
+      .slice(0, 3)
+      .filter((p) => p.accuracy < 70);
+    const strong = [...scored]
+      .sort((a, b) => b.accuracy - a.accuracy)
+      .slice(0, 3)
+      .filter((p) => p.accuracy >= 70);
     const nextTopic = topics.find((t) => !byTopic.has(t.id)) ?? topics[0];
     return { perTopic, overall, progress, completed, weak, strong, nextTopic };
   }, [attempts, topics]);
@@ -151,7 +171,9 @@ function CourseDetail() {
   const enroll = useMutation({
     mutationFn: async () => {
       if (!user || !course) throw new Error("Sign in to enroll");
-      const { error } = await supabase.from("enrollments").insert({ user_id: user.id, course_id: course.id });
+      const { error } = await supabase
+        .from("enrollments")
+        .insert({ user_id: user.id, course_id: course.id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -171,13 +193,20 @@ function CourseDetail() {
       moduleTitle?: string;
       moduleSummary?: string;
     }) => {
+      if (!user) throw new Error("Please sign in to use the AI tutor.");
       if (!course) throw new Error("Course not loaded");
+
+      // Check if session is still valid before making the request
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        throw new Error("Your session has expired. Please refresh the page and sign in again.");
+      }
+
       return ask({
         data: {
           courseTitle: course.title,
           courseSummary: course.summary ?? undefined,
           mode: vars.mode,
-          provider,
           question: vars.question,
           moduleTitle: vars.moduleTitle,
           moduleSummary: vars.moduleSummary,
@@ -185,32 +214,23 @@ function CourseDetail() {
         },
       });
     },
-  });
-
-  const generateQuiz = useMutation({
-    mutationFn: async (module: TopicRow) => {
-      if (!course) throw new Error("Course not loaded");
-      const res = await ask({
-        data: {
-          courseTitle: course.title,
-          courseSummary: course.summary ?? undefined,
-          mode: "quiz_json",
-          provider,
-          moduleTitle: module.title,
-          moduleSummary: module.summary ?? undefined,
-          performanceSummary,
-        },
-      });
-      if (!res.quiz || res.quiz.length === 0) throw new Error("No quiz returned");
-      return { module, questions: res.quiz };
+    onError: (error: Error) => {
+      if (error.message.includes("Session expired") || error.message.includes("session has expired")) {
+        toast.error("Your session has expired", {
+          description: "Please refresh the page and sign in again to continue.",
+          action: {
+            label: "Refresh",
+            onClick: () => window.location.reload(),
+          },
+        });
+      } else {
+        toast.error(error.message);
+      }
     },
-    onSuccess: (data) => setAiQuiz(data),
-    onError: (e: Error) => toast.error(e.message),
   });
-
 
   const recommendations = useQuery({
-    queryKey: ["course-recs", course?.id, performanceSummary, provider],
+    queryKey: ["course-recs", course?.id, performanceSummary],
     enabled: !!course && !!user && attempts.length > 0,
     queryFn: async () => {
       const res = await ask({
@@ -218,7 +238,6 @@ function CourseDetail() {
           courseTitle: course!.title,
           courseSummary: course!.summary ?? undefined,
           mode: "recommend",
-          provider,
           performanceSummary,
         },
       });
@@ -241,7 +260,9 @@ function CourseDetail() {
   if (isLoading || !course) {
     return (
       <PageShell>
-        <main className="container mx-auto max-w-6xl px-4 py-12 text-sm text-muted-foreground">Loading…</main>
+        <main className="container mx-auto max-w-6xl px-4 py-12 text-sm text-muted-foreground">
+          Loading…
+        </main>
       </PageShell>
     );
   }
@@ -252,7 +273,9 @@ function CourseDetail() {
     <PageShell>
       <main className="container mx-auto max-w-6xl px-4 py-10">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          <Link to="/courses" className="hover:underline">Courses</Link>
+          <Link to="/courses" className="hover:underline">
+            Courses
+          </Link>
         </p>
 
         {/* HEADER */}
@@ -261,21 +284,26 @@ function CourseDetail() {
             <div className="flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-display text-3xl md:text-5xl">{course.title}</h1>
-                {user && (
-                  isEnrolled ? (
-                    <Badge className="ml-1"><Check className="mr-1 h-3 w-3" /> Enrolled</Badge>
+                {user &&
+                  (isEnrolled ? (
+                    <Badge className="ml-1">
+                      <Check className="mr-1 h-3 w-3" /> Enrolled
+                    </Badge>
                   ) : (
                     <Badge variant="outline">Not enrolled</Badge>
-                  )
-                )}
+                  ))}
               </div>
-              {course.summary && <p className="mt-3 max-w-2xl text-muted-foreground">{course.summary}</p>}
+              {course.summary && (
+                <p className="mt-3 max-w-2xl text-muted-foreground">{course.summary}</p>
+              )}
 
               {user && isEnrolled && topics.length > 0 && (
                 <div className="mt-6 max-w-md">
                   <div className="mb-1.5 flex items-center justify-between text-xs text-muted-foreground">
                     <span>Course progress</span>
-                    <span>{analytics.completed}/{topics.length} modules · {analytics.progress}%</span>
+                    <span>
+                      {analytics.completed}/{topics.length} modules · {analytics.progress}%
+                    </span>
                   </div>
                   <Progress value={analytics.progress} />
                 </div>
@@ -297,7 +325,11 @@ function CourseDetail() {
                   disabled={enroll.isPending}
                   className="h-12 rounded-full px-6 text-base"
                 >
-                  {enroll.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />}
+                  {enroll.isPending ? (
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  ) : (
+                    <Plus className="mr-2 h-5 w-5" />
+                  )}
                   Enroll in this course
                 </Button>
               )}
@@ -333,32 +365,6 @@ function CourseDetail() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {/* AI model selector */}
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="text-xs font-medium text-muted-foreground">AI model</span>
-                  <div className="inline-flex rounded-full border border-border bg-background p-0.5">
-                    {([
-                      { id: "gemini", label: "Gemini" },
-                      { id: "llama", label: "Llama 3.3" },
-                      { id: "deepseek", label: "DeepSeek" },
-                    ] as const).map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => setProvider(p.id)}
-                        aria-pressed={provider === p.id ? "true" : "false"}
-                        className={
-                          "rounded-full px-3 py-1 text-xs font-medium transition-colors " +
-                          (provider === p.id
-                            ? "bg-primary text-primary-foreground"
-                            : "text-muted-foreground hover:text-foreground")
-                        }
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -379,11 +385,55 @@ function CourseDetail() {
                       placeholder="Ask anything about this course (e.g. explain Week 3, generate quiz, summarize notes...)"
                       className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
                     />
-                    <Button type="submit" size="icon" disabled={!input.trim() || tutor.isPending} className="h-9 w-9 shrink-0 rounded-full" aria-label="Send">
-                      {tutor.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+                    <Button
+                      type="submit"
+                      size="icon"
+                      disabled={!input.trim() || tutor.isPending}
+                      className="h-9 w-9 shrink-0 rounded-full"
+                      aria-label="Send"
+                    >
+                      {tutor.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowUp className="h-4 w-4" />
+                      )}
                     </Button>
                   </div>
                 </form>
+
+                {(tutor.isPending || tutor.data || tutor.isError) && (
+                  <div className="mt-3 rounded-xl border border-border bg-background/50 p-5">
+                    {tutor.isPending && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
+                      </div>
+                    )}
+                    {tutor.isError && (
+                      <p className="text-sm text-destructive">
+                        Couldn't get a response: {(tutor.error as Error).message}
+                      </p>
+                    )}
+                    {tutor.data?.related === false && (
+                      <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                        <div>
+                          <p className="font-medium text-foreground">
+                            That doesn't look related to {course.title}.
+                          </p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {tutor.data.reason ||
+                              `Try asking something specific to ${course.title}.`}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {tutor.data?.related !== false && tutor.data?.answer && (
+                      <div className="prose-lesson max-w-none text-foreground">
+                        <ReactMarkdown>{tutor.data.answer}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   {[
@@ -409,28 +459,17 @@ function CourseDetail() {
                       {label}
                     </Button>
                   ))}
-                  <Button
+                  <StartQuizButton
                     type="button"
                     variant="outline"
                     size="sm"
                     className="rounded-full"
-                    disabled={generateQuiz.isPending || topics.length === 0}
-                    onClick={() => {
-                      const mod = activeModule ?? topics[0];
-                      if (!mod) {
-                        toast.error("No module available");
-                        return;
-                      }
-                      generateQuiz.mutate(mod);
-                    }}
+                    disabled={topics.length === 0}
+                    topicId={(activeModule ?? topics[0])?.id}
+                    icon={<Brain className="mr-1.5 h-3.5 w-3.5" />}
                   >
-                    {generateQuiz.isPending ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Brain className="mr-1.5 h-3.5 w-3.5" />
-                    )}
                     Generate Quiz
-                  </Button>
+                  </StartQuizButton>
                   <Button
                     type="button"
                     variant="ghost"
@@ -442,35 +481,6 @@ function CourseDetail() {
                     General overview
                   </Button>
                 </div>
-
-                {(tutor.isPending || tutor.data || tutor.isError) && (
-                  <div className="mt-6 rounded-xl border border-border bg-background/50 p-5">
-                    {tutor.isPending && (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
-                      </div>
-                    )}
-                    {tutor.isError && (
-                      <p className="text-sm text-destructive">Couldn't get a response: {(tutor.error as Error).message}</p>
-                    )}
-                    {tutor.data?.related === false && (
-                      <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                        <div>
-                          <p className="font-medium text-foreground">That doesn't look related to {course.title}.</p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {tutor.data.reason || `Try asking something specific to ${course.title}.`}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    {tutor.data?.related !== false && tutor.data?.answer && (
-                      <div className="prose-lesson max-w-none text-foreground">
-                        <ReactMarkdown>{tutor.data.answer}</ReactMarkdown>
-                      </div>
-                    )}
-                  </div>
-                )}
               </CardContent>
             </Card>
 
@@ -491,16 +501,22 @@ function CourseDetail() {
                           <AccordionTrigger className="hover:no-underline">
                             <div className="flex flex-1 items-center justify-between gap-4 pr-4">
                               <div className="text-left">
-                                <p className="text-xs uppercase tracking-wider text-muted-foreground">Module {idx + 1}</p>
+                                <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                                  Module {idx + 1}
+                                </p>
                                 <p className="font-medium">{t.title}</p>
                               </div>
                               {stat?.accuracy !== null && stat?.accuracy !== undefined && (
-                                <Badge variant={stat.accuracy >= 70 ? "default" : "secondary"}>{stat.accuracy}%</Badge>
+                                <Badge variant={stat.accuracy >= 70 ? "default" : "secondary"}>
+                                  {stat.accuracy}%
+                                </Badge>
                               )}
                             </div>
                           </AccordionTrigger>
                           <AccordionContent>
-                            {t.summary && <p className="text-sm text-muted-foreground">{t.summary}</p>}
+                            {t.summary && (
+                              <p className="text-sm text-muted-foreground">{t.summary}</p>
+                            )}
                             <div className="mt-4 flex flex-wrap gap-2">
                               <Link to="/topic/$topicId" params={{ topicId: t.id }}>
                                 <Button size="sm" variant="outline" className="rounded-full">
@@ -518,20 +534,15 @@ function CourseDetail() {
                               >
                                 <Sparkles className="mr-1.5 h-4 w-4" /> Ask AI about this module
                               </Button>
-                              <Button
+                              <StartQuizButton
                                 size="sm"
                                 variant="outline"
                                 className="rounded-full"
-                                disabled={generateQuiz.isPending}
-                                onClick={() => generateQuiz.mutate(t)}
+                                topicId={t.id}
+                                icon={<Brain className="mr-1.5 h-4 w-4" />}
                               >
-                                {generateQuiz.isPending ? (
-                                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Brain className="mr-1.5 h-4 w-4" />
-                                )}
                                 Generate quiz
-                              </Button>
+                              </StartQuizButton>
                             </div>
                           </AccordionContent>
                         </AccordionItem>
@@ -556,7 +567,9 @@ function CourseDetail() {
                   ) : (
                     <div className="grid gap-6 md:grid-cols-3">
                       <div className="rounded-xl border border-border p-4">
-                        <p className="text-xs uppercase tracking-wider text-muted-foreground">Overall accuracy</p>
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                          Overall accuracy
+                        </p>
                         <p className="mt-1 font-display text-3xl">{analytics.overall}%</p>
                         <Progress value={analytics.overall} className="mt-3" />
                       </div>
@@ -565,7 +578,9 @@ function CourseDetail() {
                           <TrendingDown className="h-3.5 w-3.5" /> Weak topics
                         </p>
                         {analytics.weak.length === 0 ? (
-                          <p className="mt-2 text-sm text-muted-foreground">Nothing weak yet — nice.</p>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            Nothing weak yet — nice.
+                          </p>
                         ) : (
                           <ul className="mt-2 space-y-1.5 text-sm">
                             {analytics.weak.map((w) => (
@@ -582,7 +597,9 @@ function CourseDetail() {
                           <TrendingUp className="h-3.5 w-3.5" /> Strong topics
                         </p>
                         {analytics.strong.length === 0 ? (
-                          <p className="mt-2 text-sm text-muted-foreground">Keep practicing to build strengths.</p>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            Keep practicing to build strengths.
+                          </p>
                         ) : (
                           <ul className="mt-2 space-y-1.5 text-sm">
                             {analytics.strong.map((w) => (
@@ -634,12 +651,19 @@ function CourseDetail() {
               <CardContent className="space-y-2">
                 {analytics.nextTopic ? (
                   <>
-                    <Link to="/quiz/$topicId" params={{ topicId: analytics.nextTopic.id }} className="block">
-                      <Button variant="outline" className="w-full justify-start rounded-lg">
-                        <ClipboardList className="mr-2 h-4 w-4" /> Start quiz
-                      </Button>
-                    </Link>
-                    <Link to="/topic/$topicId" params={{ topicId: analytics.nextTopic.id }} className="block">
+                    <StartQuizButton
+                      variant="outline"
+                      className="w-full justify-start rounded-lg"
+                      topicId={analytics.nextTopic.id}
+                      icon={<ClipboardList className="mr-2 h-4 w-4" />}
+                    >
+                      Start quiz
+                    </StartQuizButton>
+                    <Link
+                      to="/topic/$topicId"
+                      params={{ topicId: analytics.nextTopic.id }}
+                      className="block"
+                    >
                       <Button variant="outline" className="w-full justify-start rounded-lg">
                         <Play className="mr-2 h-4 w-4" /> Continue learning
                       </Button>
@@ -681,7 +705,9 @@ function CourseDetail() {
                           <span className="truncate">{p.topic.title}</span>
                         </span>
                         {p.accuracy !== null && (
-                          <span className="shrink-0 text-xs text-muted-foreground">{p.accuracy}%</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {p.accuracy}%
+                          </span>
                         )}
                       </li>
                     ))}
@@ -692,23 +718,6 @@ function CourseDetail() {
           </aside>
         </div>
       </main>
-      {aiQuiz && user && (
-        <AIQuizDialog
-          open={!!aiQuiz}
-          onClose={() => setAiQuiz(null)}
-          courseTitle={course.title}
-          moduleTitle={aiQuiz.module.title}
-          topicId={aiQuiz.module.id}
-          userId={user.id}
-          questions={aiQuiz.questions}
-          onCompleted={() => {
-            qc.invalidateQueries({ queryKey: ["course-attempts", user.id, course.id] });
-            // Keep the dashboard / home quiz widgets in sync with the new attempt.
-            qc.invalidateQueries({ queryKey: ["dash-attempts", user.id] });
-            qc.invalidateQueries({ queryKey: ["dash-progress", user.id] });
-          }}
-        />
-      )}
     </PageShell>
   );
 }

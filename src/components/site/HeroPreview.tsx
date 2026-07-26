@@ -1,5 +1,13 @@
 import { motion } from "framer-motion";
-import { BookOpen, GraduationCap, LayoutDashboard, Play, Search, Sparkles, Target } from "lucide-react";
+import {
+  BookOpen,
+  GraduationCap,
+  LayoutDashboard,
+  Play,
+  Search,
+  Sparkles,
+  Target,
+} from "lucide-react";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 
 /**
@@ -90,7 +98,10 @@ export function HeroPreview() {
                 variants={staggerItem}
                 className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-4 text-primary-foreground"
               >
-                <div aria-hidden className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/15 blur-xl" />
+                <div
+                  aria-hidden
+                  className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white/15 blur-xl"
+                />
                 <p className="text-[10px] font-medium uppercase tracking-widest text-primary-foreground/80">
                   Continue learning
                 </p>
@@ -131,12 +142,23 @@ export function HeroPreview() {
             {/* Course tiles */}
             <motion.div variants={staggerItem} className="grid grid-cols-2 gap-3">
               {tiles.map((t) => (
-                <div key={t.title} className="overflow-hidden rounded-2xl border border-border bg-card">
-                  <div className="h-10 w-full" style={{ background: `linear-gradient(120deg, ${t.hue}, color-mix(in oklab, ${t.hue} 55%, white))` }} />
+                <div
+                  key={t.title}
+                  className="overflow-hidden rounded-2xl border border-border bg-card"
+                >
+                  <div
+                    className="h-10 w-full"
+                    style={{
+                      background: `linear-gradient(120deg, ${t.hue}, color-mix(in oklab, ${t.hue} 55%, white))`,
+                    }}
+                  />
                   <div className="p-2.5">
                     <p className="truncate text-[11px] font-semibold">{t.title}</p>
                     <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-secondary">
-                      <div className="h-full rounded-full" style={{ width: `${t.pct}%`, background: t.hue }} />
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${t.pct}%`, background: t.hue }}
+                      />
                     </div>
                     <p className="mt-1 text-[9px] text-muted-foreground">{t.pct}% complete</p>
                   </div>

@@ -9,7 +9,8 @@ export const Route = createFileRoute("/privacy")({
       { title: "Privacy — AceTutor" },
       {
         name: "description",
-        content: "Privacy tips and good practices to keep your AceTutor account and personal data safe.",
+        content:
+          "Privacy tips and good practices to keep your AceTutor account and personal data safe.",
       },
     ],
   }),
@@ -77,7 +78,10 @@ function PrivacyPage() {
       titlePlain="Privacy"
       titleAccent="Matters"
       intro="Here are some tips to take note of to keep your account and personal information safe while you learn with AceTutor."
-      toc={[...tips.map((t) => ({ id: t.id, label: t.nav })), { id: "data-control", label: "Your data, your control" }]}
+      toc={[
+        ...tips.map((t) => ({ id: t.id, label: t.nav })),
+        { id: "data-control", label: "Your data, your control" },
+      ]}
       lastUpdated="June 2026"
     >
       {/* Tips grid */}
@@ -117,9 +121,9 @@ function PrivacyPage() {
           <h2 className="text-xl font-semibold tracking-tight">Your data, your control</h2>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          You can review or update your profile information at any time from your account settings. If you'd like to
-          request deletion of your data or have any privacy concerns, reach out through the Contact link in the footer
-          or your institution's AceTutor administrator.
+          You can review or update your profile information at any time from your account settings.
+          If you'd like to request deletion of your data or have any privacy concerns, reach out
+          through the Contact link in the footer or your institution's AceTutor administrator.
         </p>
       </motion.div>
     </LegalShell>

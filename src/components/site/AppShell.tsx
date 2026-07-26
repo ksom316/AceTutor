@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, Moon, Sun } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
+import { ArrowLeft, Bell, Moon, Sun } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { useTheme } from "@/hooks/use-theme";
 import { AppSidebar } from "@/components/site/AppSidebar";
@@ -8,8 +9,17 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 
 function TopBar() {
   const { theme, toggle } = useTheme();
+  const router = useRouter();
   return (
     <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-xl">
+      <button
+        type="button"
+        onClick={() => router.history.back()}
+        aria-label="Go back"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+      </button>
       <SidebarTrigger className="text-muted-foreground" />
       <SearchBar />
       <div className="ml-auto flex items-center gap-1.5">

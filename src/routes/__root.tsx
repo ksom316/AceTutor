@@ -98,8 +98,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "Adaptive multimodal tutoring that matches text, video, and audio lessons to your VARK learning style, with quizzes and instant feedback.",
       },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/24d2bd84-8cb0-4a98-8f25-9e4ebb9bd3e2/id-preview-e94ed467--e06e4945-6e15-44f0-b5e7-c19bbe07b5f8.lovable.app-1778507642832.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/24d2bd84-8cb0-4a98-8f25-9e4ebb9bd3e2/id-preview-e94ed467--e06e4945-6e15-44f0-b5e7-c19bbe07b5f8.lovable.app-1778507642832.png" },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/24d2bd84-8cb0-4a98-8f25-9e4ebb9bd3e2/id-preview-e94ed467--e06e4945-6e15-44f0-b5e7-c19bbe07b5f8.lovable.app-1778507642832.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/24d2bd84-8cb0-4a98-8f25-9e4ebb9bd3e2/id-preview-e94ed467--e06e4945-6e15-44f0-b5e7-c19bbe07b5f8.lovable.app-1778507642832.png",
+      },
     ],
     links: [
       { rel: "icon", type: "image/jpeg", href: "/ace-logo.jpg" },

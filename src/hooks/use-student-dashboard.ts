@@ -15,6 +15,21 @@ export type PerCourse = {
 
 export type DonutDatum = { name: "Completed" | "In Progress" | "Not Started"; value: number };
 
+type EnrolledCourse = { id: string; slug: string; title: string; summary: string | null };
+type LessonRow = { id: string; topics: { course_id: string } | null };
+type ProgressRow = {
+  completed_at: string | null;
+  watched_seconds: number | null;
+  lessons: { id: string; topics: { course_id: string } | null } | null;
+};
+type AttemptRow = {
+  id: string;
+  score: number | null;
+  total: number | null;
+  finished_at: string | null;
+  topics: { title: string; courses: { title: string; slug: string } | null } | null;
+};
+
 /**
  * Shared student-dashboard data + derived stats, used by both the logged-in
  * home page (src/routes/index.tsx) and the /dashboard route so the two surfaces
@@ -40,10 +55,13 @@ export function useStudentDashboard(userId: string | undefined) {
   });
 
   const enrolledCourses = useMemo(
-    () => (enrollments ?? []).map((e: any) => e.courses).filter(Boolean),
+    () =>
+      ((enrollments ?? []) as unknown as { courses: EnrolledCourse | null }[])
+        .map((e) => e.courses)
+        .filter(Boolean) as EnrolledCourse[],
     [enrollments],
   );
-  const enrolledIds = useMemo(() => enrolledCourses.map((c: any) => c.id), [enrolledCourses]);
+  const enrolledIds = useMemo(() => enrolledCourses.map((c) => c.id), [enrolledCourses]);
 
   // All lessons that belong to the user's enrolled courses (for totals).
   const { data: courseLessons } = useQuery({
@@ -54,7 +72,7 @@ export function useStudentDashboard(userId: string | undefined) {
         .from("lessons")
         .select("id, topics!inner(course_id)")
         .in("topics.course_id", enrolledIds);
-      return (data ?? []) as any[];
+      return (data ?? []) as unknown as LessonRow[];
     },
   });
 
@@ -67,7 +85,7 @@ export function useStudentDashboard(userId: string | undefined) {
         .from("progress")
         .select("completed_at, watched_seconds, lessons!inner(id, topics!inner(course_id))")
         .eq("user_id", userId!);
-      return (data ?? []) as any[];
+      return (data ?? []) as unknown as ProgressRow[];
     },
   });
 
@@ -81,7 +99,7 @@ export function useStudentDashboard(userId: string | undefined) {
         .not("finished_at", "is", null)
         .order("finished_at", { ascending: false })
         .limit(6);
-      return (data ?? []) as any[];
+      return (data ?? []) as unknown as AttemptRow[];
     },
   });
 
@@ -118,7 +136,7 @@ export function useStudentDashboard(userId: string | undefined) {
     const notStarted = Math.max(0, totalLessons - completedLessons - inProgressLessons);
     const overallPct = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
 
-    const perCourse: PerCourse[] = enrolledCourses.map((c: any) => {
+    const perCourse: PerCourse[] = enrolledCourses.map((c) => {
       const total = totalByCourse.get(c.id) ?? 0;
       const done = completedByCourse.get(c.id) ?? 0;
       const touched = touchedByCourse.get(c.id) ?? 0;
@@ -128,7 +146,10 @@ export function useStudentDashboard(userId: string | undefined) {
 
     const att = attempts ?? [];
     const avgScore = att.length
-      ? Math.round(att.reduce((s, a) => s + (a.total ? (a.score / a.total) * 100 : 0), 0) / att.length)
+      ? Math.round(
+          att.reduce((s, a) => s + (a.total ? ((a.score ?? 0) / a.total) * 100 : 0), 0) /
+            att.length,
+        )
       : 0;
 
     return {
@@ -153,9 +174,9 @@ export function useStudentDashboard(userId: string | undefined) {
 
   const recommended = useMemo(
     () =>
-      enrolledCourses.filter(
-        (c: any) => !stats.perCourse.find((p) => p.id === c.id && p.touched > 0),
-      ).slice(0, 3),
+      enrolledCourses
+        .filter((c) => !stats.perCourse.find((p) => p.id === c.id && p.touched > 0))
+        .slice(0, 3),
     [enrolledCourses, stats.perCourse],
   );
 

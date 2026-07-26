@@ -35,7 +35,7 @@ export async function signInWithGoogle() {
 
 function parseUrl(url: string) {
   // Supabase returns tokens in the URL fragment (#access_token=...&refresh_token=...)
-  const fragment = url.includes("#") ? url.split("#")[1] : url.split("?")[1] ?? "";
+  const fragment = url.includes("#") ? url.split("#")[1] : (url.split("?")[1] ?? "");
   const params: Record<string, string> = {};
   for (const pair of fragment.split("&")) {
     const [k, v] = pair.split("=");
