@@ -5,6 +5,7 @@ import logoAsset from "@/assets/ace-logo.jpg";
 import {
   BarChart3,
   BookOpen,
+  Gamepad2,
   Home,
   LayoutDashboard,
   LogOut,
@@ -33,6 +34,7 @@ const studentItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "My Courses", icon: BookOpen, to: "/my-courses" },
   { label: "Progress & Analytics", icon: BarChart3, to: "/analytics" },
+  { label: "Games", icon: Gamepad2, to: "/games" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/settings" },
   { label: "Contact", icon: Mail, to: "/contact" },
@@ -42,6 +44,7 @@ const lecturerItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "Course Management", icon: BookOpen, to: "/courses" },
   { label: "Student Analytics", icon: Users, to: "/analytics" },
+  { label: "Games", icon: Gamepad2, to: "/games" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/settings" },
   { label: "Contact", icon: Mail, to: "/contact" },

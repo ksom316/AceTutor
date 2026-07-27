@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { sanitizeClues, type CrosswordClue } from "@/lib/crossword";
 
 const schema = z.object({
   courseTitle: z.string().min(1).max(200),
@@ -11,6 +12,7 @@ const schema = z.object({
     "explain",
     "quiz",
     "quiz_json",
+    "crossword_json",
     "summarize",
     "test",
     "recommend",
@@ -19,6 +21,10 @@ const schema = z.object({
   moduleTitle: z.string().max(200).optional(),
   moduleSummary: z.string().max(2000).optional(),
   performanceSummary: z.string().max(2000).optional(),
+  // crossword_json only: how many answer/clue pairs to generate, and the
+  // course's real module titles so the vocabulary stays on-syllabus.
+  wordCount: z.number().int().min(4).max(20).optional(),
+  topicTitles: z.array(z.string().max(120)).max(30).optional(),
 });
 
 // The tutor is served — for free — through OpenRouter's OpenAI-compatible
@@ -112,6 +118,16 @@ function randomizeQuiz(questions: AIQuizQuestion[]): AIQuizQuestion[] {
     }),
   );
 }
+
+// Same idea as QUIZ_ANGLES — keeps repeat puzzles for one course from drawing
+// the same handful of terms every time.
+const CROSSWORD_ANGLES = [
+  "core terminology and definitions",
+  "tools, technologies, and techniques used in the field",
+  "processes, methods, and workflows",
+  "roles, artifacts, and deliverables",
+  "principles, patterns, and best practices",
+];
 
 // A random angle is injected into the quiz prompt so the model doesn't
 // regenerate the same 5 questions for the same module every time.
@@ -240,6 +256,56 @@ export const askCourse = createServerFn({ method: "POST" })
       } catch {
         throw new Error("Could not generate quiz. Please try again.");
       }
+    }
+
+    if (data.mode === "crossword_json") {
+      const wordCount = data.wordCount ?? 12;
+      const angle = CROSSWORD_ANGLES[Math.floor(Math.random() * CROSSWORD_ANGLES.length)];
+      const moduleList =
+        data.topicTitles && data.topicTitles.length > 0
+          ? `\n\nThe course covers these modules — draw vocabulary from them:\n${data.topicTitles.map((t) => `- ${t}`).join("\n")}`
+          : "";
+      // Ask for extras: sanitizing drops anything with spaces, digits, or a
+      // bad length, so a bare `wordCount` request often comes back short.
+      const requested = Math.min(wordCount + 6, 20);
+      const prompt = `${fullCtx}${moduleList}\n\nGenerate ${requested} crossword entries for a vocabulary puzzle on this course. This round, emphasize ${angle}.
+
+Rules for every entry:
+- "answer": ONE single word, 3 to 12 letters, English letters only. No spaces, hyphens, digits, abbreviations, acronyms, or proper nouns. It must be a real term a student of this course would learn.
+- "clue": a crossword-style clue for that answer — one short line, never containing the answer itself or any word sharing its root.
+- "hint": a shorter, more direct nudge for a stuck student — mention the category and the first letter, but still never write the answer out.
+- Vary answer lengths, and prefer terms that share common letters so they can interlock.
+- Never mention or hint at where the material came from.
+
+Respond ONLY with strict JSON in this shape, no prose:
+{ "words": [ { "answer": string, "clue": string, "hint": string } ] }`;
+
+      const raw = await callAI(
+        [
+          {
+            role: "system",
+            content:
+              "You output ONLY valid JSON matching the requested schema. No markdown fences.",
+          },
+          { role: "user", content: prompt },
+        ],
+        { jsonObject: true },
+      );
+
+      let cleaned: CrosswordClue[] = [];
+      try {
+        const start = raw.indexOf("{");
+        const end = raw.lastIndexOf("}");
+        const jsonText = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
+        const parsed = JSON.parse(jsonText);
+        cleaned = sanitizeClues(parsed?.words, wordCount);
+      } catch {
+        throw new Error("Could not generate a crossword. Please try again.");
+      }
+      // Too few words can't interlock into a puzzle worth solving; the caller
+      // falls back to course-derived terms when this throws.
+      if (cleaned.length < 4) throw new Error("Could not generate a crossword. Please try again.");
+      return { related: true as const, crossword: cleaned, answer: "" };
     }
 
     let userPrompt = "";

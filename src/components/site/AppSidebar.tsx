@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   BookOpen,
+  Gamepad2,
   GraduationCap,
   Home,
   LayoutDashboard,
@@ -41,6 +42,7 @@ const studentItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "My Courses", icon: BookOpen, to: "/my-courses" },
   { label: "Progress & Analytics", icon: BarChart3, to: "/analytics" },
+  { label: "Games", icon: Gamepad2, to: "/games" },
 ];
 
 const lecturerItems: NavItem[] = [
@@ -48,6 +50,7 @@ const lecturerItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "Course Management", icon: BookOpen, to: "/courses" },
   { label: "Student Analytics", icon: Users, to: "/analytics" },
+  { label: "Games", icon: Gamepad2, to: "/games" },
 ];
 
 const accountItems: NavItem[] = [
