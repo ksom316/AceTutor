@@ -461,15 +461,15 @@ export function CrosswordBoard({
                         // direction toggle still sees the previously active cell.
                         onPointerDown={() => selectCell(r, c)}
                         className={cn(
-                          "h-full w-full rounded-[3px] border text-center text-sm font-semibold uppercase caret-transparent outline-none transition-colors sm:text-base",
+                          "h-full w-full rounded-[2px] text-center text-sm font-bold uppercase caret-transparent outline-none transition-colors sm:text-base",
                           wrong
-                            ? "border-destructive bg-destructive/15 text-destructive"
+                            ? "bg-destructive/25 text-destructive"
                             : revealed.has(key)
-                              ? "border-border bg-success/10 text-success"
+                              ? "bg-success/25 text-success-foreground"
                               : inActiveWord
-                                ? "border-primary/40 bg-primary/10 text-foreground"
-                                : "border-border bg-background text-foreground",
-                          isActiveCell && "ring-2 ring-primary ring-offset-1 ring-offset-card",
+                                ? "bg-primary/20 text-foreground"
+                                : "bg-white text-neutral-900 dark:bg-neutral-100",
+                          isActiveCell && "ring-2 ring-inset ring-primary",
                         )}
                       />
                     </div>
