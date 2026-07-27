@@ -406,7 +406,7 @@ export function CrosswordBoard({
             <div
               role="grid"
               aria-label={`Crossword puzzle for ${courseLabel}`}
-              className="mx-auto grid w-max gap-[2px] rounded-lg border-2 border-foreground/25 bg-foreground/25 p-[2px]"
+              className="mx-auto grid w-max gap-[2px] rounded-lg border-2 border-neutral-800 bg-neutral-800 p-[2px]"
               style={{ gridTemplateColumns: `repeat(${puzzle.cols}, minmax(0, 1fr))` }}
             >
               {puzzle.grid.map((row, r) =>
@@ -417,7 +417,7 @@ export function CrosswordBoard({
                       <div
                         key={key}
                         aria-hidden
-                        className="h-8 w-8 rounded-[2px] bg-foreground/75 sm:h-9 sm:w-9"
+                        className="h-8 w-8 rounded-[2px] bg-neutral-800 sm:h-9 sm:w-9"
                       />
                     );
                   }
@@ -431,7 +431,7 @@ export function CrosswordBoard({
                   return (
                     <div key={key} className="relative h-8 w-8 sm:h-9 sm:w-9">
                       {number !== undefined && (
-                        <span className="pointer-events-none absolute left-[2px] top-0 z-10 text-[9px] font-bold leading-tight text-foreground/70">
+                        <span className="pointer-events-none absolute left-[2px] top-0 z-10 text-[9px] font-bold leading-tight text-neutral-500">
                           {number}
                         </span>
                       )}
@@ -462,13 +462,15 @@ export function CrosswordBoard({
                         onPointerDown={() => selectCell(r, c)}
                         className={cn(
                           "h-full w-full rounded-[2px] text-center text-sm font-bold uppercase caret-transparent outline-none transition-colors sm:text-base",
+                          // The board keeps a paper-white surface in both themes
+                          // so letters and blocked squares always read clearly.
                           wrong
-                            ? "bg-destructive/25 text-destructive"
+                            ? "bg-red-100 text-red-700"
                             : revealed.has(key)
-                              ? "bg-success/25 text-success-foreground"
+                              ? "bg-emerald-100 text-emerald-800"
                               : inActiveWord
-                                ? "bg-primary/20 text-foreground"
-                                : "bg-white text-neutral-900 dark:bg-neutral-100",
+                                ? "bg-violet-100 text-neutral-900"
+                                : "bg-white text-neutral-900",
                           isActiveCell && "ring-2 ring-inset ring-primary",
                         )}
                       />
@@ -492,7 +494,7 @@ export function CrosswordBoard({
         </div>
 
         {/* Clues */}
-        <div className="space-y-4 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
+        <div className="space-y-4 lg:max-h-160 lg:overflow-y-auto lg:pr-1">
           <ClueList
             title="Across"
             words={across}

@@ -28,12 +28,21 @@ import {
   BookOpen,
   Clock,
   Flame,
+  Lightbulb,
+  Puzzle,
   Target,
+  Timer,
   TrendingUp,
   Trophy,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  DEFAULT_STATS,
+  formatDuration as formatClock,
+  loadStats,
+  type GameStats,
+} from "@/lib/game-stats";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 
 export const Route = createFileRoute("/_authenticated/analytics")({
@@ -148,6 +157,25 @@ function ChartCard({
   );
 }
 
+/* Compact stat tile used inside the game summary card. */
+function GameTile({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-3">
+      <Icon className="h-4 w-4 text-primary" />
+      <p className="mt-1.5 font-display text-xl leading-none">{value}</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
 /* Shared recharts tooltip styling. */
 const tooltipStyle = {
   contentStyle: {
@@ -201,12 +229,28 @@ function useAnalyticsData() {
   return { progressQuery, attemptsQuery };
 }
 
+/**
+ * Crossword results are kept per-user in localStorage (see src/lib/game-stats.ts),
+ * so they're read on the client after mount rather than fetched.
+ */
+function useGameStats(): GameStats {
+  const { user } = useAuth();
+  const [stats, setStats] = useState<GameStats>(DEFAULT_STATS);
+
+  useEffect(() => {
+    if (user) setStats(loadStats(user.id));
+  }, [user]);
+
+  return stats;
+}
+
 /* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
 
 function AnalyticsPage() {
   const { progressQuery, attemptsQuery } = useAnalyticsData();
+  const gameStats = useGameStats();
   // Memoize the fallbacks so the empty-array reference is stable across renders
   // (otherwise every dependent useMemo re-runs on each render while loading).
   const progress = useMemo(
@@ -297,6 +341,37 @@ function AnalyticsPage() {
     }));
   }, [attempts]);
 
+  // Crossword solves, oldest first, for the time-trend chart.
+  const gameTrend = useMemo(
+    () =>
+      [...gameStats.history].reverse().map((h, i) => ({
+        idx: i + 1,
+        label: dayKey(new Date(h.at)),
+        seconds: h.seconds,
+        minutes: Math.round((h.seconds / 60) * 10) / 10,
+        hints: h.hints,
+        course: h.course,
+      })),
+    [gameStats.history],
+  );
+
+  // Best crossword time per course.
+  const gameBest = useMemo(
+    () =>
+      Object.entries(gameStats.best)
+        .map(([name, seconds]) => ({ name, seconds }))
+        .sort((a, b) => a.seconds - b.seconds),
+    [gameStats.best],
+  );
+
+  const gameAvgSeconds = useMemo(() => {
+    if (gameStats.history.length === 0) return 0;
+    const sum = gameStats.history.reduce((s, h) => s + h.seconds, 0);
+    return Math.round(sum / gameStats.history.length);
+  }, [gameStats.history]);
+
+  const hasGameData = gameStats.solved > 0;
+
   /* ---- KPIs ----------------------------------------------------- */
   const totalSeconds = useMemo(() => perCourse.reduce((s, c) => s + c.seconds, 0), [perCourse]);
   const activeCourses = perCourse.length;
@@ -352,9 +427,15 @@ function AnalyticsPage() {
       value: streak,
       fmt: (n: number) => `${Math.round(n)}`,
     },
+    {
+      label: "Puzzles solved",
+      icon: Puzzle,
+      value: gameStats.solved,
+      fmt: (n: number) => `${Math.round(n)}`,
+    },
   ];
 
-  const hasData = !loading && (progress.length > 0 || attempts.length > 0);
+  const hasData = !loading && (progress.length > 0 || attempts.length > 0 || hasGameData);
 
   return (
     <main className="container mx-auto max-w-6xl px-4 py-12">
@@ -398,8 +479,8 @@ function AnalyticsPage() {
           <Activity className="mx-auto h-10 w-10 text-muted-foreground" />
           <h2 className="mt-4 font-display text-2xl">No activity yet</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            Start a lesson or take a quiz and your time spent, scores and usage analytics will
-            appear here automatically.
+            Start a lesson, take a quiz, or solve a crossword in Games — your time spent, scores and
+            usage analytics will appear here automatically.
           </p>
         </motion.div>
       )}
@@ -411,7 +492,7 @@ function AnalyticsPage() {
             variants={staggerContainer}
             initial="hidden"
             animate="show"
-            className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5"
+            className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6"
           >
             {kpis.map((k) => {
               const Icon = k.icon;
@@ -705,6 +786,113 @@ function AnalyticsPage() {
               </ChartCard>
             )}
           </motion.div>
+
+          {/* Word games */}
+          {hasGameData && (
+            <motion.div
+              variants={staggerContainer}
+              initial="hidden"
+              whileInView="show"
+              viewport={viewportOnce}
+              className="mt-6 grid gap-6 lg:grid-cols-3"
+            >
+              {/* Solve-time trend */}
+              <ChartCard
+                title="Crossword solve times"
+                subtitle="How quickly you finish each puzzle"
+                icon={Puzzle}
+                className="lg:col-span-2"
+              >
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={gameTrend} margin={{ left: -18, right: 8, top: 6 }}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                        unit="m"
+                      />
+                      <Tooltip
+                        {...tooltipStyle}
+                        formatter={(
+                          _v: number,
+                          _n,
+                          p: { payload?: { seconds?: number; course?: string } },
+                        ) => [formatClock(p?.payload?.seconds ?? 0), p?.payload?.course ?? "Solve"]}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="minutes"
+                        stroke="var(--chart-3)"
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: "var(--chart-3)" }}
+                        activeDot={{ r: 6 }}
+                        animationDuration={1000}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </ChartCard>
+
+              {/* Game summary */}
+              <ChartCard title="Game summary" subtitle="Your crossword record so far" icon={Trophy}>
+                <div className="grid grid-cols-2 gap-3">
+                  <GameTile icon={Puzzle} label="Solved" value={String(gameStats.solved)} />
+                  <GameTile
+                    icon={Timer}
+                    label="Best time"
+                    value={gameBest.length > 0 ? formatClock(gameBest[0].seconds) : "—"}
+                  />
+                  <GameTile
+                    icon={Clock}
+                    label="Average"
+                    value={gameAvgSeconds ? formatClock(gameAvgSeconds) : "—"}
+                  />
+                  <GameTile
+                    icon={Lightbulb}
+                    label="Hints used"
+                    value={String(gameStats.hintsUsed)}
+                  />
+                </div>
+                {gameBest.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Best time by course
+                    </p>
+                    {gameBest.slice(0, 4).map((g, i) => (
+                      <div
+                        key={g.name}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2 text-sm"
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span
+                            className="h-6 w-1.5 shrink-0 rounded-full"
+                            style={{ background: CHART_COLORS[i % CHART_COLORS.length] }}
+                          />
+                          <span className="truncate">{g.name}</span>
+                        </span>
+                        <span className="shrink-0 font-semibold text-primary">
+                          {formatClock(g.seconds)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </ChartCard>
+            </motion.div>
+          )}
 
           {/* Per-course breakdown table */}
           <motion.section
