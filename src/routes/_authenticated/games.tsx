@@ -3,9 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Flame, Gamepad2, Lightbulb, Loader2, Puzzle, Sparkles, Timer, Trophy } from "lucide-react";
+import {
+  Flame,
+  Gamepad2,
+  Grid3x3,
+  Lightbulb,
+  Loader2,
+  Puzzle,
+  Sparkles,
+  Timer,
+  Trophy,
+} from "lucide-react";
 import { toast } from "sonner";
 import { CrosswordBoard } from "@/components/games/CrosswordBoard";
+import { WordSearchBoard } from "@/components/games/WordSearchBoard";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,7 +28,15 @@ import {
   type CrosswordClue,
   type Puzzle as CrosswordPuzzle,
 } from "@/lib/crossword";
-import { formatDuration, loadStats, recordSolve, DEFAULT_STATS } from "@/lib/game-stats";
+import { buildWordSearch, type WordSearch } from "@/lib/wordsearch";
+import {
+  formatDuration,
+  loadStats,
+  recordSolve,
+  DEFAULT_STATS,
+  GAME_LABELS,
+  type GameKind,
+} from "@/lib/game-stats";
 import { fadeUp, staggerContainer, staggerItem } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -30,10 +49,60 @@ type TopicRow = { id: string; title: string; summary: string | null; course_id: 
 
 type Difficulty = "easy" | "medium" | "hard";
 
-const DIFFICULTIES: { key: Difficulty; label: string; words: number; maxSize: number }[] = [
-  { key: "easy", label: "Easy", words: 8, maxSize: 11 },
-  { key: "medium", label: "Medium", words: 12, maxSize: 13 },
-  { key: "hard", label: "Hard", words: 16, maxSize: 15 },
+const DIFFICULTIES: {
+  key: Difficulty;
+  label: string;
+  words: number;
+  /** Crossword grid cap. */
+  maxSize: number;
+  /** Word-search grid edge. */
+  searchSize: number;
+  /** Word search: harder settings hide words diagonally and backwards. */
+  diagonals: boolean;
+  reverse: boolean;
+}[] = [
+  {
+    key: "easy",
+    label: "Easy",
+    words: 8,
+    maxSize: 11,
+    searchSize: 10,
+    diagonals: false,
+    reverse: false,
+  },
+  {
+    key: "medium",
+    label: "Medium",
+    words: 12,
+    maxSize: 13,
+    searchSize: 12,
+    diagonals: true,
+    reverse: false,
+  },
+  {
+    key: "hard",
+    label: "Hard",
+    words: 16,
+    maxSize: 15,
+    searchSize: 14,
+    diagonals: true,
+    reverse: true,
+  },
+];
+
+const GAMES: { key: GameKind; label: string; blurb: string; icon: typeof Puzzle }[] = [
+  {
+    key: "crossword",
+    label: GAME_LABELS.crossword,
+    blurb: "Solve clues to fill an interlocking grid of course terms.",
+    icon: Puzzle,
+  },
+  {
+    key: "wordsearch",
+    label: GAME_LABELS.wordsearch,
+    blurb: "Hunt course keywords hidden in a letter grid.",
+    icon: Grid3x3,
+  },
 ];
 
 const ALL_COURSES = "__all__";
@@ -70,9 +139,13 @@ function GamesPage() {
   const { user } = useAuth();
   const ask = useServerFn(askCourse);
 
+  const [game, setGame] = useState<GameKind>("crossword");
   const [courseId, setCourseId] = useState<string>(ALL_COURSES);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [puzzle, setPuzzle] = useState<CrosswordPuzzle | null>(null);
+  const [wordSearch, setWordSearch] = useState<WordSearch | null>(null);
+  /** The game the on-screen puzzle belongs to (state can change behind it). */
+  const [activeGame, setActiveGame] = useState<GameKind>("crossword");
   const [puzzleLabel, setPuzzleLabel] = useState(ALL_COURSES_LABEL);
   const [mixed, setMixed] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -138,6 +211,7 @@ function GamesPage() {
     setGenerating(true);
     setError(null);
     setPuzzle(null);
+    setWordSearch(null);
 
     try {
       const courseTitleById = new Map(selected.map((c) => [c.id, c.title]));
@@ -187,37 +261,57 @@ function GamesPage() {
 
       if (clues.length < 4) {
         setError(
-          "There isn't enough course material to build a crossword yet. Try another course, or come back once more modules are published.",
+          "There isn't enough course material to build a puzzle yet. Try another course, or come back once more modules are published.",
         );
         return;
       }
 
-      const built = buildCrossword(shuffle(clues).slice(0, config.words), {
-        maxSize: config.maxSize,
-      });
-      if (built.words.length < 3) {
-        setError("Those words wouldn't interlock into a grid. Try generating another puzzle.");
-        return;
+      const picked = shuffle(clues).slice(0, config.words);
+
+      if (game === "wordsearch") {
+        const search = buildWordSearch(picked, {
+          size: config.searchSize,
+          diagonals: config.diagonals,
+          reverse: config.reverse,
+        });
+        if (search.words.length < 3) {
+          setError("Those words wouldn't fit the grid. Try generating another puzzle.");
+          return;
+        }
+        setWordSearch(search);
+      } else {
+        const built = buildCrossword(picked, { maxSize: config.maxSize });
+        if (built.words.length < 3) {
+          setError("Those words wouldn't interlock into a grid. Try generating another puzzle.");
+          return;
+        }
+        setPuzzle(built);
       }
 
-      setPuzzle(built);
+      setActiveGame(game);
       setPuzzleLabel(label);
       setMixed(isMix && selected.length > 1);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not build a crossword.");
+      setError(e instanceof Error ? e.message : "Could not build a puzzle.");
     } finally {
       setGenerating(false);
     }
-  }, [ask, courseId, courses, difficulty]);
+  }, [ask, courseId, courses, difficulty, game]);
 
   const handleSolved = useCallback(
     ({ seconds, hints }: { seconds: number; hints: number }) => {
       if (!user) return;
-      setStats(recordSolve(user.id, { course: puzzleLabel, seconds, hints }));
+      setStats(recordSolve(user.id, { game: activeGame, course: puzzleLabel, seconds, hints }));
       toast.success(`Solved in ${formatDuration(seconds)}!`);
     },
-    [user, puzzleLabel],
+    [user, puzzleLabel, activeGame],
   );
+
+  const clearPuzzle = useCallback(() => {
+    setPuzzle(null);
+    setWordSearch(null);
+    setError(null);
+  }, []);
 
   const bestTime = useMemo(() => {
     const times = Object.values(stats.best);
@@ -225,6 +319,9 @@ function GamesPage() {
   }, [stats.best]);
 
   const activeDifficulty = DIFFICULTIES.find((d) => d.key === difficulty)!;
+  // The hero reflects the puzzle on screen, or the pending choice in setup.
+  const heroGame = puzzle || wordSearch ? activeGame : game;
+  const activeGameMeta = GAMES.find((g) => g.key === heroGame)!;
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">
@@ -255,15 +352,15 @@ function GamesPage() {
               <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-end">
                 <div className="min-w-0">
                   <h2 className="mt-2 font-display text-2xl leading-tight md:text-3xl">
-                    Course crossword
+                    {activeGameMeta.label} · course keywords
                   </h2>
                   <p className="mt-1 max-w-lg text-sm text-primary-foreground/80">
-                    Every answer is a term from your courses, and every clue comes with a hint when
+                    Every word comes from the courses you're learning, with a hint on hand whenever
                     you get stuck.
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur">
-                  <Puzzle className="h-4 w-4" />
+                  <activeGameMeta.icon className="h-4 w-4" />
                   {puzzleLabel} · {activeDifficulty.label}
                 </div>
               </div>
@@ -278,10 +375,16 @@ function GamesPage() {
               courseLabel={puzzleLabel}
               showSources={mixed}
               onSolved={handleSolved}
-              onNewPuzzle={() => {
-                setPuzzle(null);
-                setError(null);
-              }}
+              onNewPuzzle={clearPuzzle}
+            />
+          ) : wordSearch ? (
+            <WordSearchBoard
+              key={`${puzzleLabel}-${difficulty}-${wordSearch.words.length}-${wordSearch.size}`}
+              puzzle={wordSearch}
+              courseLabel={puzzleLabel}
+              showSources={mixed}
+              onSolved={handleSolved}
+              onNewPuzzle={clearPuzzle}
             />
           ) : (
             <motion.section
@@ -295,10 +398,54 @@ function GamesPage() {
                   <Gamepad2 className="h-5 w-5" />
                 </span>
                 <div>
-                  <h2 className="font-display text-xl">New crossword</h2>
+                  <h2 className="font-display text-xl">New puzzle</h2>
                   <p className="text-sm text-muted-foreground">
-                    Pick what to revise, then start solving.
+                    Pick a game and what to revise, then start solving.
                   </p>
+                </div>
+              </div>
+
+              {/* Game picker */}
+              <div className="mt-6">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Game
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {GAMES.map((g) => {
+                    const Icon = g.icon;
+                    const selected = game === g.key;
+                    return (
+                      <button
+                        key={g.key}
+                        type="button"
+                        onClick={() => setGame(g.key)}
+                        aria-pressed={selected}
+                        className={cn(
+                          "flex items-start gap-3 rounded-2xl border p-3 text-left transition-colors",
+                          selected
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/40 hover:bg-secondary/50",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "grid h-9 w-9 shrink-0 place-items-center rounded-xl",
+                            selected
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-secondary text-muted-foreground",
+                          )}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium">{g.label}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {g.blurb}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -309,7 +456,7 @@ function GamesPage() {
                 </p>
                 {courses.length === 0 ? (
                   <p className="mt-3 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                    Enroll in a course to unlock crossword puzzles.
+                    Enroll in a course to unlock word puzzles.
                   </p>
                 ) : (
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -355,7 +502,22 @@ function GamesPage() {
                   ))}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Up to {activeDifficulty.words} words on a {activeDifficulty.maxSize}-square grid.
+                  {game === "wordsearch" ? (
+                    <>
+                      Up to {activeDifficulty.words} words on a {activeDifficulty.searchSize}×
+                      {activeDifficulty.searchSize} grid
+                      {activeDifficulty.reverse
+                        ? ", hidden in any direction including backwards."
+                        : activeDifficulty.diagonals
+                          ? ", including diagonals."
+                          : ", across and down only."}
+                    </>
+                  ) : (
+                    <>
+                      Up to {activeDifficulty.words} words on a {activeDifficulty.maxSize}-square
+                      grid.
+                    </>
+                  )}
                 </p>
               </div>
 
@@ -424,7 +586,8 @@ function GamesPage() {
                     <span className="min-w-0">
                       <span className="block truncate font-medium">{h.course}</span>
                       <span className="block text-[11px] text-muted-foreground">
-                        {h.hints} hint{h.hints === 1 ? "" : "s"}
+                        {GAME_LABELS[h.game ?? "crossword"]} · {h.hints} hint
+                        {h.hints === 1 ? "" : "s"}
                       </span>
                     </span>
                     <span className="shrink-0 font-semibold text-primary">
@@ -441,15 +604,27 @@ function GamesPage() {
             className="rounded-3xl border border-border bg-card p-5 shadow-sm"
           >
             <h3 className="font-display text-base">How to play</h3>
-            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-              <li>Click a cell to start typing; click it again to switch across/down.</li>
-              <li>Arrow keys move around the grid, Backspace clears.</li>
-              <li>
-                Stuck? Tap the <Lightbulb className="inline h-3.5 w-3.5 text-primary" /> beside any
-                clue for a hint on that word.
-              </li>
-              <li>Check, reveal a letter, or reveal a word from the toolbar.</li>
-            </ul>
+            {heroGame === "wordsearch" ? (
+              <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                <li>Drag across a word in the grid, or tap its first and last letter.</li>
+                <li>Words hide across, down, diagonally and backwards as difficulty rises.</li>
+                <li>
+                  Tap the <Lightbulb className="inline h-3.5 w-3.5 text-primary" /> beside a word to
+                  see what it means — good revision while you hunt.
+                </li>
+                <li>Really stuck? The wand reveals where a word sits, and counts as a hint.</li>
+              </ul>
+            ) : (
+              <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                <li>Click a cell to start typing; click it again to switch across/down.</li>
+                <li>Arrow keys move around the grid, Backspace clears.</li>
+                <li>
+                  Stuck? Tap the <Lightbulb className="inline h-3.5 w-3.5 text-primary" /> beside
+                  any clue for a hint on that word.
+                </li>
+                <li>Check, reveal a letter, or reveal a word from the toolbar.</li>
+              </ul>
+            )}
           </motion.div>
         </motion.aside>
       </div>

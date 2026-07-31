@@ -40,6 +40,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   DEFAULT_STATS,
   formatDuration as formatClock,
+  GAME_LABELS,
   loadStats,
   type GameStats,
 } from "@/lib/game-stats";
@@ -341,7 +342,7 @@ function AnalyticsPage() {
     }));
   }, [attempts]);
 
-  // Crossword solves, oldest first, for the time-trend chart.
+  // Puzzle solves, oldest first, for the time-trend chart.
   const gameTrend = useMemo(
     () =>
       [...gameStats.history].reverse().map((h, i) => ({
@@ -350,12 +351,19 @@ function AnalyticsPage() {
         seconds: h.seconds,
         minutes: Math.round((h.seconds / 60) * 10) / 10,
         hints: h.hints,
-        course: h.course,
+        course: `${h.course} · ${GAME_LABELS[h.game ?? "crossword"]}`,
       })),
     [gameStats.history],
   );
 
-  // Best crossword time per course.
+  // Solves split by game, so the summary can show what's been played.
+  const solvesByGame = useMemo(() => {
+    const counts = { crossword: 0, wordsearch: 0 };
+    for (const h of gameStats.history) counts[h.game ?? "crossword"] += 1;
+    return counts;
+  }, [gameStats.history]);
+
+  // Best time per course *and* game — the stored key already reads as a label.
   const gameBest = useMemo(
     () =>
       Object.entries(gameStats.best)
@@ -479,7 +487,7 @@ function AnalyticsPage() {
           <Activity className="mx-auto h-10 w-10 text-muted-foreground" />
           <h2 className="mt-4 font-display text-2xl">No activity yet</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            Start a lesson, take a quiz, or solve a crossword in Games — your time spent, scores and
+            Start a lesson, take a quiz, or solve a puzzle in Games — your time spent, scores and
             usage analytics will appear here automatically.
           </p>
         </motion.div>
@@ -798,8 +806,8 @@ function AnalyticsPage() {
             >
               {/* Solve-time trend */}
               <ChartCard
-                title="Crossword solve times"
-                subtitle="How quickly you finish each puzzle"
+                title="Puzzle solve times"
+                subtitle="How quickly you finish each crossword and word search"
                 icon={Puzzle}
                 className="lg:col-span-2"
               >
@@ -847,7 +855,7 @@ function AnalyticsPage() {
               </ChartCard>
 
               {/* Game summary */}
-              <ChartCard title="Game summary" subtitle="Your crossword record so far" icon={Trophy}>
+              <ChartCard title="Game summary" subtitle="Your puzzle record so far" icon={Trophy}>
                 <div className="grid grid-cols-2 gap-3">
                   <GameTile icon={Puzzle} label="Solved" value={String(gameStats.solved)} />
                   <GameTile
@@ -866,10 +874,15 @@ function AnalyticsPage() {
                     value={String(gameStats.hintsUsed)}
                   />
                 </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {solvesByGame.crossword} crossword
+                  {solvesByGame.crossword === 1 ? "" : "s"} · {solvesByGame.wordsearch} word search
+                  {solvesByGame.wordsearch === 1 ? "" : "es"}
+                </p>
                 {gameBest.length > 0 && (
                   <div className="mt-4 space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Best time by course
+                      Best time by course &amp; game
                     </p>
                     {gameBest.slice(0, 4).map((g, i) => (
                       <div

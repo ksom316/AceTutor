@@ -4,7 +4,16 @@
  * src/routes/_authenticated/notifications.tsx.
  */
 
+export type GameKind = "crossword" | "wordsearch";
+
+export const GAME_LABELS: Record<GameKind, string> = {
+  crossword: "Crossword",
+  wordsearch: "Word search",
+};
+
 export type GameResult = {
+  /** Which game was played. Absent on results saved before word search existed. */
+  game?: GameKind;
   /** Course title, or "All my courses" for a mixed puzzle. */
   course: string;
   seconds: number;
@@ -13,6 +22,9 @@ export type GameResult = {
   at: string;
 };
 
+/** Best times are tracked per game *and* course, and the key doubles as its label. */
+export const bestKey = (game: GameKind, course: string) => `${course} · ${GAME_LABELS[game]}`;
+
 export type GameStats = {
   solved: number;
   hintsUsed: number;
@@ -20,7 +32,7 @@ export type GameStats = {
   streak: number;
   /** ISO date (YYYY-MM-DD) of the most recent solve. */
   lastPlayed: string | null;
-  /** Best time in seconds, keyed by course label. */
+  /** Best time in seconds, keyed by `bestKey(game, course)`. */
   best: Record<string, number>;
   /** Most recent solves, newest first. */
   history: GameResult[];
@@ -60,7 +72,7 @@ export function loadStats(userId: string): GameStats {
 /** Record a solved puzzle and return the updated stats. */
 export function recordSolve(
   userId: string,
-  result: { course: string; seconds: number; hints: number },
+  result: { game: GameKind; course: string; seconds: number; hints: number },
 ): GameStats {
   const prev = loadStats(userId);
   const now = new Date();
@@ -77,7 +89,8 @@ export function recordSolve(
     streak = prev.lastPlayed === dayOf(yesterday) ? prev.streak + 1 : 1;
   }
 
-  const previousBest = prev.best[result.course];
+  const key = bestKey(result.game, result.course);
+  const previousBest = prev.best[key];
   const entry: GameResult = { ...result, at: now.toISOString() };
 
   const next: GameStats = {
@@ -87,8 +100,7 @@ export function recordSolve(
     lastPlayed: today,
     best: {
       ...prev.best,
-      [result.course]:
-        previousBest === undefined ? result.seconds : Math.min(previousBest, result.seconds),
+      [key]: previousBest === undefined ? result.seconds : Math.min(previousBest, result.seconds),
     },
     history: [entry, ...prev.history].slice(0, HISTORY_LIMIT),
   };
