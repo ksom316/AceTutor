@@ -34,6 +34,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { askCourse } from "@/lib/course-chat.functions";
 import { useAuth } from "@/hooks/use-auth";
+import { useStudyCourse } from "@/hooks/use-study-time";
 import { toast } from "sonner";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
 
@@ -77,6 +78,9 @@ function CourseDetail() {
       return data;
     },
   });
+
+  // Time spent on this page counts towards this course.
+  useStudyCourse(course?.id);
 
   const { data: topics = [] } = useQuery({
     queryKey: ["course-topics", course?.id],
@@ -215,7 +219,10 @@ function CourseDetail() {
       });
     },
     onError: (error: Error) => {
-      if (error.message.includes("Session expired") || error.message.includes("session has expired")) {
+      if (
+        error.message.includes("Session expired") ||
+        error.message.includes("session has expired")
+      ) {
         toast.error("Your session has expired", {
           description: "Please refresh the page and sign in again to continue.",
           action: {

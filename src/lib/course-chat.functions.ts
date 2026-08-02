@@ -48,7 +48,15 @@ const MODELS = [
 // so a thin or missing extract never blocks an answer or a quiz.
 const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
 
-async function wikiGet(params: Record<string, string>): Promise<any> {
+/** The slices of the MediaWiki response we actually read. */
+type WikiResponse = {
+  query?: {
+    search?: { title?: string }[];
+    pages?: Record<string, { title?: string; extract?: string }>;
+  };
+};
+
+async function wikiGet(params: Record<string, string>): Promise<WikiResponse | null> {
   const qs = new URLSearchParams({ format: "json", origin: "*", ...params });
   const res = await fetch(`${WIKIPEDIA_API}?${qs}`, {
     headers: { "User-Agent": "AceTutor/1.0 (course tutor)" },
@@ -60,10 +68,15 @@ async function wikiGet(params: Record<string, string>): Promise<any> {
 async function fetchWikipediaContext(query: string): Promise<string> {
   try {
     // 1) Find the most relevant article titles for the query.
-    const search = await wikiGet({ action: "query", list: "search", srsearch: query, srlimit: "3" });
+    const search = await wikiGet({
+      action: "query",
+      list: "search",
+      srsearch: query,
+      srlimit: "3",
+    });
     const titles: string[] = (search?.query?.search ?? [])
-      .map((r: { title?: string }) => r?.title)
-      .filter((t: unknown): t is string => typeof t === "string");
+      .map((r) => r?.title)
+      .filter((t): t is string => typeof t === "string");
     if (titles.length === 0) return "";
 
     // 2) Pull plain-text intro extracts for those articles. (exintro +
@@ -76,10 +89,7 @@ async function fetchWikipediaContext(query: string): Promise<string> {
       exintro: "1",
       exlimit: "max",
     });
-    const pages = Object.values(extracts?.query?.pages ?? {}) as {
-      title?: string;
-      extract?: string;
-    }[];
+    const pages = Object.values(extracts?.query?.pages ?? {});
     return pages
       .filter((p) => p.title && p.extract)
       .map((p) => `### Reference: "${p.title}"\n${p.extract}`)

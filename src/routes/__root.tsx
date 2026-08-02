@@ -12,6 +12,7 @@ import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { AuthProvider } from "@/hooks/use-auth";
+import { StudyTimeProvider } from "@/hooks/use-study-time";
 import { SplashScreen } from "@/components/site/SplashScreen";
 
 const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'){document.documentElement.classList.add('dark');}}catch(e){}})();`;
@@ -149,9 +150,11 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
-          <Outlet />
-          <Toaster />
-          <SplashScreen />
+          <StudyTimeProvider>
+            <Outlet />
+            <Toaster />
+            <SplashScreen />
+          </StudyTimeProvider>
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

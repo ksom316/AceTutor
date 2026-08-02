@@ -17,6 +17,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
+import { secondsByCourse, type StudySessionRow } from "@/lib/study-time";
 
 export const Route = createFileRoute("/_authenticated/my-courses")({
   component: MyCoursesPage,
@@ -111,6 +112,20 @@ function MyCoursesPage() {
     },
   });
 
+  // Active learning time, recorded by the study-time tracker.
+  const { data: sessionRows } = useQuery({
+    queryKey: ["dash-study-sessions", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("study_sessions")
+        .select("course_id, surface, started_at, seconds")
+        .eq("user_id", user!.id)
+        .gt("seconds", 0);
+      return (data ?? []) as unknown as StudySessionRow[];
+    },
+  });
+
   const stats = useMemo(() => {
     const lessons = courseLessons ?? [];
     const prog = progressRows ?? [];
@@ -123,11 +138,9 @@ function MyCoursesPage() {
 
     const completedByCourse = new Map<string, number>();
     const touchedByCourse = new Map<string, number>();
-    let totalSeconds = 0;
     let completedLessons = 0;
     for (const p of prog) {
       const cid = p.lessons?.topics?.course_id;
-      totalSeconds += p.watched_seconds ?? 0;
       if (cid) {
         touchedByCourse.set(cid, (touchedByCourse.get(cid) ?? 0) + 1);
         if (p.completed_at) {
@@ -137,12 +150,17 @@ function MyCoursesPage() {
       }
     }
 
+    // Hours learned mirrors the Analytics page: real active time, not lesson metadata.
+    const sessions = sessionRows ?? [];
+    const secondsPerCourse = secondsByCourse(sessions);
+    const totalSeconds = sessions.reduce((s, r) => s + r.seconds, 0);
+
     const perCourse = enrolledCourses.map((c) => {
       const total = totalByCourse.get(c.id) ?? 0;
       const done = completedByCourse.get(c.id) ?? 0;
       const touched = touchedByCourse.get(c.id) ?? 0;
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      return { ...c, total, done, touched, pct };
+      return { ...c, total, done, touched, pct, seconds: secondsPerCourse.get(c.id) ?? 0 };
     });
 
     const att = attempts ?? [];
@@ -154,7 +172,7 @@ function MyCoursesPage() {
       : 0;
 
     return { perCourse, totalSeconds, completedLessons, avgScore, quizzes: att.length };
-  }, [courseLessons, progressRows, enrolledCourses, attempts]);
+  }, [courseLessons, progressRows, sessionRows, enrolledCourses, attempts]);
 
   const continueCourse = useMemo(() => {
     const touched = stats.perCourse.filter((c) => c.touched > 0).sort((a, b) => b.pct - a.pct);

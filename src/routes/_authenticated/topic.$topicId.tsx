@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useStudyCourse } from "@/hooks/use-study-time";
 import { fadeUp } from "@/lib/motion";
 
 type Modality = "text" | "video" | "audio";
@@ -24,6 +25,7 @@ type TopicDetail = {
   id: string;
   title: string;
   summary: string | null;
+  course_id: string;
   courses: { title: string; slug: string } | null;
 };
 
@@ -51,7 +53,7 @@ function TopicPage() {
     queryFn: async () => {
       const { data: topic } = await supabase
         .from("topics")
-        .select("id, title, summary, courses(title, slug)")
+        .select("id, title, summary, course_id, courses(title, slug)")
         .eq("id", topicId)
         .maybeSingle();
       const { data: lessons } = await supabase
@@ -65,6 +67,9 @@ function TopicPage() {
       };
     },
   });
+
+  // Study time on a module belongs to its course.
+  useStudyCourse(data?.topic?.course_id);
 
   const { data: profile } = useQuery({
     queryKey: ["profile-modality", user?.id],

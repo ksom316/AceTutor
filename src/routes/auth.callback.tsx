@@ -167,11 +167,12 @@ async function syncProfileAndNavigate(
   const storedRedirect = sessionStorage.getItem("oauth_redirect");
   sessionStorage.removeItem("oauth_redirect");
 
-  const redirectTarget = storedRedirect && storedRedirect.startsWith("/")
-    ? storedRedirect
-    : searchRedirect?.startsWith("/")
-      ? searchRedirect
-      : undefined;
+  const redirectTarget =
+    storedRedirect && storedRedirect.startsWith("/")
+      ? storedRedirect
+      : searchRedirect?.startsWith("/")
+        ? searchRedirect
+        : undefined;
 
   // First-time (no VARK yet) → onboarding; returning user → redirect/dashboard.
   const fallback = profile?.vark_primary ? "/dashboard" : "/onboarding/vark";

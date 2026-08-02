@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { secondsByCourse, type StudySessionRow } from "@/lib/study-time";
 
 export type PerCourse = {
   id: string;
@@ -11,6 +12,8 @@ export type PerCourse = {
   done: number;
   touched: number;
   pct: number;
+  /** Active learning seconds recorded for this course. */
+  seconds: number;
 };
 
 export type DonutDatum = { name: "Completed" | "In Progress" | "Not Started"; value: number };
@@ -89,6 +92,20 @@ export function useStudentDashboard(userId: string | undefined) {
     },
   });
 
+  // Active learning time, recorded by the study-time tracker.
+  const { data: sessionRows } = useQuery({
+    queryKey: ["dash-study-sessions", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("study_sessions")
+        .select("course_id, surface, started_at, seconds")
+        .eq("user_id", userId!)
+        .gt("seconds", 0);
+      return (data ?? []) as unknown as StudySessionRow[];
+    },
+  });
+
   const { data: attempts } = useQuery({
     queryKey: ["dash-attempts", userId],
     enabled: !!userId,
@@ -115,12 +132,10 @@ export function useStudentDashboard(userId: string | undefined) {
 
     const completedByCourse = new Map<string, number>();
     const touchedByCourse = new Map<string, number>();
-    let totalSeconds = 0;
     let completedLessons = 0;
     let inProgressLessons = 0;
     for (const p of prog) {
       const cid = p.lessons?.topics?.course_id;
-      totalSeconds += p.watched_seconds ?? 0;
       if (cid) {
         touchedByCourse.set(cid, (touchedByCourse.get(cid) ?? 0) + 1);
         if (p.completed_at) {
@@ -136,12 +151,18 @@ export function useStudentDashboard(userId: string | undefined) {
     const notStarted = Math.max(0, totalLessons - completedLessons - inProgressLessons);
     const overallPct = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
 
+    // Time learned comes from the study-time tracker, not lesson progress —
+    // it's the same source the Analytics page reports.
+    const sessions = sessionRows ?? [];
+    const secondsPerCourse = secondsByCourse(sessions);
+    const totalSeconds = sessions.reduce((s, r) => s + r.seconds, 0);
+
     const perCourse: PerCourse[] = enrolledCourses.map((c) => {
       const total = totalByCourse.get(c.id) ?? 0;
       const done = completedByCourse.get(c.id) ?? 0;
       const touched = touchedByCourse.get(c.id) ?? 0;
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      return { ...c, total, done, touched, pct };
+      return { ...c, total, done, touched, pct, seconds: secondsPerCourse.get(c.id) ?? 0 };
     });
 
     const att = attempts ?? [];
@@ -164,7 +185,7 @@ export function useStudentDashboard(userId: string | undefined) {
       avgScore,
       quizzes: att.length,
     };
-  }, [courseLessons, progressRows, enrolledCourses, attempts]);
+  }, [courseLessons, progressRows, sessionRows, enrolledCourses, attempts]);
 
   // "Continue learning": furthest-along touched course, else most recent enrollment.
   const continueCourse = useMemo(() => {

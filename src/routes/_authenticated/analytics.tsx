@@ -45,6 +45,7 @@ import {
   type GameStats,
 } from "@/lib/game-stats";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
+import { secondsBySurface, studyStreak, SURFACE_LABELS } from "@/lib/study-time";
 
 export const Route = createFileRoute("/_authenticated/analytics")({
   component: AnalyticsPage,
@@ -64,6 +65,10 @@ const CHART_COLORS = [
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Bucket key for study time that isn't tied to a course (e.g. a mixed word game). */
+const OTHER_STUDY = "__other__";
+const OTHER_STUDY_LABEL = "Other study time";
+
 type AnalyticsCourse = { id: string; title: string; slug: string };
 type ProgressRow = {
   watched_seconds: number | null;
@@ -81,6 +86,13 @@ type AttemptRow = {
   started_at: string | null;
   finished_at: string | null;
   topics: { title: string; courses: AnalyticsCourse | null } | null;
+};
+type SessionRow = {
+  course_id: string | null;
+  surface: string;
+  started_at: string;
+  seconds: number;
+  courses: AnalyticsCourse | null;
 };
 
 function formatDuration(seconds: number): string {
@@ -227,7 +239,24 @@ function useAnalyticsData() {
     },
   });
 
-  return { progressQuery, attemptsQuery };
+  // Active time spent on learning surfaces, recorded by the study-time tracker
+  // (see src/hooks/use-study-time.tsx).
+  const sessionsQuery = useQuery({
+    queryKey: ["analytics-study-sessions", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("study_sessions")
+        .select("course_id, surface, started_at, seconds, courses(id, title, slug)")
+        .eq("user_id", user!.id)
+        .gt("seconds", 0)
+        .order("started_at", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  return { progressQuery, attemptsQuery, sessionsQuery };
 }
 
 /**
@@ -250,7 +279,7 @@ function useGameStats(): GameStats {
 /* ------------------------------------------------------------------ */
 
 function AnalyticsPage() {
-  const { progressQuery, attemptsQuery } = useAnalyticsData();
+  const { progressQuery, attemptsQuery, sessionsQuery } = useAnalyticsData();
   const gameStats = useGameStats();
   // Memoize the fallbacks so the empty-array reference is stable across renders
   // (otherwise every dependent useMemo re-runs on each render while loading).
@@ -262,32 +291,57 @@ function AnalyticsPage() {
     () => (attemptsQuery.data ?? []) as unknown as AttemptRow[],
     [attemptsQuery.data],
   );
-  const loading = progressQuery.isLoading || attemptsQuery.isLoading;
+  const sessions = useMemo(
+    () => (sessionsQuery.data ?? []) as unknown as SessionRow[],
+    [sessionsQuery.data],
+  );
+  const loading = progressQuery.isLoading || attemptsQuery.isLoading || sessionsQuery.isLoading;
 
   /* ---- Derived datasets ---------------------------------------- */
 
-  // Time spent per course (sum watched_seconds across lessons in course)
+  // Per course: lessons touched/completed from progress, time actually spent
+  // from the study-time tracker. Time on course-agnostic surfaces (a mixed
+  // word game, say) lands under "Other study time".
   const perCourse = useMemo(() => {
     const map = new Map<
       string,
       { name: string; seconds: number; lessons: number; completed: number }
     >();
+    const entryFor = (id: string, name: string) => {
+      const existing = map.get(id);
+      if (existing) return existing;
+      const created = { name, seconds: 0, lessons: 0, completed: 0 };
+      map.set(id, created);
+      return created;
+    };
+
     for (const row of progress) {
       const course = row.lessons?.topics?.courses;
       if (!course) continue;
-      const entry = map.get(course.id) ?? {
-        name: course.title,
-        seconds: 0,
-        lessons: 0,
-        completed: 0,
-      };
-      entry.seconds += row.watched_seconds ?? 0;
+      const entry = entryFor(course.id, course.title);
       entry.lessons += 1;
       if (row.completed_at) entry.completed += 1;
-      map.set(course.id, entry);
     }
-    return Array.from(map.values()).sort((a, b) => b.seconds - a.seconds);
-  }, [progress]);
+
+    for (const row of sessions) {
+      const entry = entryFor(row.course_id ?? OTHER_STUDY, row.courses?.title ?? OTHER_STUDY_LABEL);
+      entry.seconds += row.seconds;
+    }
+
+    return Array.from(map.values())
+      .filter((c) => c.seconds > 0 || c.lessons > 0)
+      .sort((a, b) => b.seconds - a.seconds);
+  }, [progress, sessions]);
+
+  // Where the time went: modules, course pages, quizzes, games.
+  const perSurface = useMemo(
+    () =>
+      secondsBySurface(sessions).map(({ surface, seconds }) => ({
+        name: SURFACE_LABELS[surface],
+        seconds,
+      })),
+    [sessions],
+  );
 
   // Quiz performance per course (avg score %)
   const scorePerCourse = useMemo(() => {
@@ -306,31 +360,33 @@ function AnalyticsPage() {
     }));
   }, [attempts]);
 
-  // Study activity over the last 14 days (active lessons touched + minutes)
+  // Minutes actually studied per day over the last 14 days.
   const activity = useMemo(() => {
-    const days: { key: string; minutes: number; sessions: number }[] = [];
+    const days: string[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const buckets = new Map<string, { minutes: number; sessions: number }>();
+    const buckets = new Map<string, { seconds: number; sessions: number }>();
     for (let i = 13; i >= 0; i--) {
-      const d = new Date(today.getTime() - i * DAY_MS);
-      const key = dayKey(d);
-      buckets.set(key, { minutes: 0, sessions: 0 });
-      days.push({ key, minutes: 0, sessions: 0 });
+      const key = dayKey(new Date(today.getTime() - i * DAY_MS));
+      buckets.set(key, { seconds: 0, sessions: 0 });
+      days.push(key);
     }
-    for (const row of progress) {
-      if (!row.updated_at) continue;
-      const d = new Date(row.updated_at);
-      d.setHours(0, 0, 0, 0);
-      const key = dayKey(d);
-      const b = buckets.get(key);
-      if (b) {
-        b.minutes += Math.round((row.watched_seconds ?? 0) / 60);
-        b.sessions += 1;
-      }
+    for (const row of sessions) {
+      const bucket = buckets.get(dayKey(new Date(row.started_at)));
+      if (!bucket) continue;
+      bucket.seconds += row.seconds;
+      bucket.sessions += 1;
     }
-    return days.map((d) => ({ key: d.key, ...buckets.get(d.key)! }));
-  }, [progress]);
+    return days.map((key) => {
+      const bucket = buckets.get(key)!;
+      return {
+        key,
+        minutes: Math.round((bucket.seconds / 60) * 10) / 10,
+        seconds: bucket.seconds,
+        sessions: bucket.sessions,
+      };
+    });
+  }, [sessions]);
 
   // Quiz score trend over time
   const scoreTrend = useMemo(() => {
@@ -381,8 +437,10 @@ function AnalyticsPage() {
   const hasGameData = gameStats.solved > 0;
 
   /* ---- KPIs ----------------------------------------------------- */
-  const totalSeconds = useMemo(() => perCourse.reduce((s, c) => s + c.seconds, 0), [perCourse]);
-  const activeCourses = perCourse.length;
+  const totalSeconds = useMemo(() => sessions.reduce((s, r) => s + r.seconds, 0), [sessions]);
+  const sessionCount = sessions.length;
+  const avgSessionSeconds = sessionCount ? Math.round(totalSeconds / sessionCount) : 0;
+  const activeCourses = perCourse.filter((c) => c.name !== OTHER_STUDY_LABEL).length;
   const totalQuizzes = attempts.length;
   const avgScore = useMemo(() => {
     if (!attempts.length) return 0;
@@ -390,11 +448,10 @@ function AnalyticsPage() {
     return Math.round(sum / attempts.length);
   }, [attempts]);
 
-  // Study streak: count of distinct active days in last 14 with minutes > 0
-  const streak = useMemo(
-    () => activity.filter((d) => d.minutes > 0 || d.sessions > 0).length,
-    [activity],
-  );
+  // Days out of the last 14 with any study time recorded.
+  const activeDays = useMemo(() => activity.filter((d) => d.seconds > 0).length, [activity]);
+  // Consecutive days studied, up to today.
+  const streak = useMemo(() => studyStreak(sessions), [sessions]);
 
   const completionData = useMemo(() => {
     const totalLessons = perCourse.reduce((s, c) => s + c.lessons, 0);
@@ -418,6 +475,12 @@ function AnalyticsPage() {
       fmt: (n: number) => `${Math.round(n)}`,
     },
     {
+      label: "Typical session",
+      icon: Timer,
+      value: avgSessionSeconds,
+      fmt: (n: number) => (n ? formatDuration(n) : "—"),
+    },
+    {
       label: "Quizzes completed",
       icon: Trophy,
       value: totalQuizzes,
@@ -430,9 +493,15 @@ function AnalyticsPage() {
       fmt: (n: number) => `${Math.round(n)}%`,
     },
     {
-      label: "Active days (14d)",
+      label: "Day streak",
       icon: Flame,
       value: streak,
+      fmt: (n: number) => `${Math.round(n)}`,
+    },
+    {
+      label: "Active days (14d)",
+      icon: Activity,
+      value: activeDays,
       fmt: (n: number) => `${Math.round(n)}`,
     },
     {
@@ -443,7 +512,8 @@ function AnalyticsPage() {
     },
   ];
 
-  const hasData = !loading && (progress.length > 0 || attempts.length > 0 || hasGameData);
+  const hasData =
+    !loading && (progress.length > 0 || attempts.length > 0 || hasGameData || sessions.length > 0);
 
   return (
     <main className="container mx-auto max-w-6xl px-4 py-12">
@@ -613,7 +683,7 @@ function AnalyticsPage() {
             {/* Time per course — Column */}
             <ChartCard
               title="Minutes by course"
-              subtitle="Total minutes watched per course"
+              subtitle="Active learning minutes recorded per course"
               icon={BarChart3}
               className="lg:col-span-2"
             >
@@ -643,7 +713,7 @@ function AnalyticsPage() {
                     <Tooltip
                       {...tooltipStyle}
                       cursor={{ fill: "var(--secondary)", opacity: 0.4 }}
-                      formatter={(v: number) => [`${v} min`, "Watched"]}
+                      formatter={(v: number) => [`${v} min`, "Studied"]}
                     />
                     <Bar dataKey="minutes" radius={[6, 6, 0, 0]} animationDuration={900}>
                       {perCourse.map((_, i) => (
@@ -692,6 +762,59 @@ function AnalyticsPage() {
                 </div>
               </div>
             </ChartCard>
+
+            {/* Where the time goes — Column */}
+            {perSurface.length > 0 && (
+              <ChartCard
+                title="Where your time goes"
+                subtitle="Active minutes by part of the app"
+                icon={Activity}
+              >
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={perSurface.map((s) => ({
+                        name: s.name,
+                        minutes: Math.round(s.seconds / 60),
+                      }))}
+                      margin={{ left: -18, right: 8, top: 6 }}
+                      layout="vertical"
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        horizontal={false}
+                      />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={110}
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <Tooltip
+                        {...tooltipStyle}
+                        cursor={{ fill: "var(--secondary)", opacity: 0.4 }}
+                        formatter={(v: number) => [`${v} min`, "Studied"]}
+                      />
+                      <Bar dataKey="minutes" radius={[0, 6, 6, 0]} animationDuration={900}>
+                        {perSurface.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[(i + 2) % CHART_COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </ChartCard>
+            )}
 
             {/* Quiz score trend — Line */}
             {scoreTrend.length > 0 && (

@@ -225,6 +225,8 @@ function ResetAccountButton() {
       if (attemptsDel.error) throw attemptsDel.error;
       const progressDel = await supabase.from("progress").delete().eq("user_id", uid);
       if (progressDel.error) throw progressDel.error;
+      const sessionsDel = await supabase.from("study_sessions").delete().eq("user_id", uid);
+      if (sessionsDel.error) throw sessionsDel.error;
       const enrollDel = await supabase.from("enrollments").delete().eq("user_id", uid);
       if (enrollDel.error) throw enrollDel.error;
       const varkDel = await supabase.from("vark_responses").delete().eq("user_id", uid);
@@ -258,9 +260,9 @@ function ResetAccountButton() {
         <AlertDialogHeader>
           <AlertDialogTitle>Reset your account data?</AlertDialogTitle>
           <AlertDialogDescription>
-            This permanently clears your course enrollments, lesson progress, quiz history and
-            learning-style result. Your name, profile details and password will not be changed. This
-            can't be undone.
+            This permanently clears your course enrollments, lesson progress, recorded study time,
+            quiz history and learning-style result. Your name, profile details and password will not
+            be changed. This can't be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

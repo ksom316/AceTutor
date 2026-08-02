@@ -288,6 +288,44 @@ export type Database = {
           },
         ];
       };
+      study_sessions: {
+        Row: {
+          course_id: string | null;
+          id: string;
+          last_seen_at: string;
+          seconds: number;
+          started_at: string;
+          surface: string;
+          user_id: string;
+        };
+        Insert: {
+          course_id?: string | null;
+          id?: string;
+          last_seen_at?: string;
+          seconds?: number;
+          started_at?: string;
+          surface?: string;
+          user_id: string;
+        };
+        Update: {
+          course_id?: string | null;
+          id?: string;
+          last_seen_at?: string;
+          seconds?: number;
+          started_at?: string;
+          surface?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "study_sessions_course_id_fkey";
+            columns: ["course_id"];
+            isOneToOne: false;
+            referencedRelation: "courses";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       topics: {
         Row: {
           course_id: string;
