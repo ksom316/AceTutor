@@ -42,61 +42,132 @@ const MODELS = [
   process.env.OPENROUTER_MODEL ?? "openrouter/free",
 ];
 
+
+/** Abort signal that trips after `ms`, so a stalled upstream can't hang a request. */
+function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  // Don't let a pending timer hold the process open once the work is done.
+  (timer as unknown as { unref?: () => void }).unref?.();
+  return controller.signal;
+}
+
+/** Cancellable sleep — used for the hedge timer, which usually gets torn down early. */
+function delay(ms: number) {
+  let cancel = () => {};
+  const promise = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    cancel = () => clearTimeout(timer);
+  });
+  return { promise, cancel };
+}
+
+/** Small TTL + LRU cache. Keeps repeat lookups off the network entirely. */
+function createTtlCache<T>(ttlMs: number, max: number) {
+  const entries = new Map<string, { value: T; expires: number }>();
+  return {
+    get(key: string): T | undefined {
+      const hit = entries.get(key);
+      if (!hit) return undefined;
+      if (hit.expires <= Date.now()) {
+        entries.delete(key);
+        return undefined;
+      }
+      entries.delete(key); // re-insert so this key counts as most recently used
+      entries.set(key, hit);
+      return hit.value;
+    },
+    set(key: string, value: T) {
+      if (entries.size >= max) {
+        const oldest = entries.keys().next().value;
+        if (oldest !== undefined) entries.delete(oldest);
+      }
+      entries.set(key, { value, expires: Date.now() + ttlMs });
+    },
+  };
+}
+
 // Wikipedia supplements the tutor's knowledge: we search the MediaWiki API
 // for relevant articles and pass plain-text extracts as reference material.
 // The model may also draw on its own knowledge for anything course-related,
 // so a thin or missing extract never blocks an answer or a quiz.
 const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
 
+// This lookup sits in front of every AI call, so it is budgeted tightly: one
+// round trip, a shared cache, and two separate deadlines. The soft deadline is
+// how long a request will wait for the material before giving up on it; the
+// hard one caps the fetch itself. Missing material costs nothing — the model
+// just answers from its own knowledge instead.
+const WIKI_SOFT_DEADLINE_MS = 1200;
+const WIKI_TIMEOUT_MS = 5000;
+const WIKI_TTL_MS = 6 * 60 * 60 * 1000;
+/** Per-article and total caps — a long prompt costs prefill time on every call. */
+const WIKI_EXTRACT_CHARS = 1200;
+const WIKI_TOTAL_CHARS = 3600;
+
 /** The slices of the MediaWiki response we actually read. */
 type WikiResponse = {
-  query?: {
-    search?: { title?: string }[];
-    pages?: Record<string, { title?: string; extract?: string }>;
-  };
+  query?: { pages?: Record<string, { title?: string; extract?: string }> };
 };
 
-async function wikiGet(params: Record<string, string>): Promise<WikiResponse | null> {
-  const qs = new URLSearchParams({ format: "json", origin: "*", ...params });
+const wikiCache = createTtlCache<string>(WIKI_TTL_MS, 200);
+const wikiInflight = new Map<string, Promise<string>>();
+
+async function loadWikipediaContext(query: string): Promise<string> {
+  // generator=search feeds the search hits straight into prop=extracts, so
+  // this is a single request rather than the search-then-fetch pair it takes
+  // to do the same thing in two steps.
+  const qs = new URLSearchParams({
+    format: "json",
+    origin: "*",
+    action: "query",
+    generator: "search",
+    gsrsearch: query,
+    gsrlimit: "3",
+    prop: "extracts",
+    explaintext: "1",
+    exintro: "1",
+    exlimit: "max",
+  });
   const res = await fetch(`${WIKIPEDIA_API}?${qs}`, {
     headers: { "User-Agent": "AceTutor/1.0 (course tutor)" },
+    signal: timeoutSignal(WIKI_TIMEOUT_MS),
   });
-  if (!res.ok) return null;
-  return res.json();
+  if (!res.ok) return "";
+  const json = (await res.json()) as WikiResponse;
+  return Object.values(json?.query?.pages ?? {})
+    .filter((p) => p.title && p.extract)
+    .map((p) => `### Reference: "${p.title}"\n${p.extract!.slice(0, WIKI_EXTRACT_CHARS)}`)
+    .join("\n\n")
+    .slice(0, WIKI_TOTAL_CHARS);
 }
 
-async function fetchWikipediaContext(query: string): Promise<string> {
-  try {
-    // 1) Find the most relevant article titles for the query.
-    const search = await wikiGet({
-      action: "query",
-      list: "search",
-      srsearch: query,
-      srlimit: "3",
-    });
-    const titles: string[] = (search?.query?.search ?? [])
-      .map((r) => r?.title)
-      .filter((t): t is string => typeof t === "string");
-    if (titles.length === 0) return "";
+function fetchWikipediaContext(query: string): Promise<string> {
+  const key = query.trim().toLowerCase();
+  if (!key) return Promise.resolve("");
 
-    // 2) Pull plain-text intro extracts for those articles. (exintro +
-    // exlimit=max returns all pages; exchars would only fill the first.)
-    const extracts = await wikiGet({
-      action: "query",
-      prop: "extracts",
-      titles: titles.join("|"),
-      explaintext: "1",
-      exintro: "1",
-      exlimit: "max",
-    });
-    const pages = Object.values(extracts?.query?.pages ?? {});
-    return pages
-      .filter((p) => p.title && p.extract)
-      .map((p) => `### Reference: "${p.title}"\n${p.extract}`)
-      .join("\n\n");
-  } catch {
-    return "";
+  const cached = wikiCache.get(key);
+  if (cached !== undefined) return Promise.resolve(cached);
+
+  // Concurrent callers — the games page fires several generations at once —
+  // share one lookup instead of each paying for its own round trip.
+  let pending = wikiInflight.get(key);
+  if (!pending) {
+    pending = loadWikipediaContext(key)
+      .catch(() => "")
+      .then((text) => {
+        wikiCache.set(key, text);
+        wikiInflight.delete(key);
+        return text;
+      });
+    wikiInflight.set(key, pending);
   }
+
+  // Reference material is a bonus, never a blocker. A slow lookup is dropped
+  // and the model starts without it, but the fetch is left running so the
+  // result still lands in the cache for the next request on this topic.
+  const soft = delay(WIKI_SOFT_DEADLINE_MS);
+  return Promise.race([pending, soft.promise.then(() => "")]).finally(() => soft.cancel());
 }
 
 export type AIQuizQuestion = {
@@ -150,10 +221,60 @@ const QUIZ_ANGLES = [
   "examples and scenario-based reasoning",
 ];
 
+// Free-tier models are frequently slow or rate-limited, so attempts are hedged
+// rather than run strictly one after another: the primary model gets a head
+// start, and if it hasn't answered by the hedge deadline the next model is
+// started alongside it. The first usable answer wins and the rest are aborted.
+// A model that fails fast (a 429, say) hands over immediately — no waiting.
+const REQUEST_TIMEOUT_MS = 25_000;
+const HEDGE_AFTER_MS = 2_500;
+
+/**
+ * Race sentinel meaning "nobody has answered yet — widen the field". A real
+ * answer is always a non-empty string, so null is unambiguous here.
+ */
+const HEDGE = null;
+
+type CallOpts = { jsonObject?: boolean; maxTokens?: number };
+
+async function callModel(
+  model: string,
+  messages: { role: string; content: string }[],
+  apiKey: string,
+  opts: CallOpts | undefined,
+  signal: AbortSignal,
+): Promise<string> {
+  const body: Record<string, unknown> = { model, messages };
+  if (opts?.jsonObject) body.response_format = { type: "json_object" };
+  // Capping the output is the single biggest lever on time-to-last-token.
+  if (opts?.maxTokens) body.max_tokens = opts.maxTokens;
+
+  const res = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      // Optional OpenRouter attribution headers (safe to leave as defaults).
+      "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://acetutor.app",
+      "X-Title": "AceTutor",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`(${res.status}) ${text.slice(0, 300)}`);
+  }
+  const json = await res.json();
+  const content = (json.choices?.[0]?.message?.content ?? "") as string;
+  if (!content.trim()) throw new Error("returned an empty response");
+  return content;
+}
+
 async function callAI(
   messages: { role: string; content: string }[],
-  opts?: { jsonObject?: boolean },
-) {
+  opts?: CallOpts,
+): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -161,36 +282,87 @@ async function callAI(
     );
   }
 
-  let lastError = "";
-  for (const model of MODELS) {
-    const body: Record<string, unknown> = { model, messages };
-    if (opts?.jsonObject) body.response_format = { type: "json_object" };
-    try {
-      const res = await fetch(OPENROUTER_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          // Optional OpenRouter attribution headers (safe to leave as defaults).
-          "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://acetutor.app",
-          "X-Title": "AceTutor",
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        lastError = `(${res.status}) ${text.slice(0, 300)}`;
-        continue; // model unavailable / rate-limited — try the next one
+  const errors: string[] = [];
+  const controllers: AbortController[] = [];
+  const live: Promise<string>[] = [];
+
+  const launch = (model: string) => {
+    const controller = new AbortController();
+    controllers.push(controller);
+    const deadline = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const attempt = callModel(model, messages, apiKey, opts, controller.signal)
+      .catch((e: unknown) => {
+        errors.push(`${model} → ${e instanceof Error ? e.message : String(e)}`);
+        throw e;
+      })
+      .finally(() => clearTimeout(deadline));
+    // Promise.any inspects this rejection later; mark it handled now so it
+    // can't surface as an unhandled rejection while the hedge timer runs.
+    attempt.catch(() => {});
+    live.push(attempt);
+  };
+
+  try {
+    for (let i = 0; i < MODELS.length; i++) {
+      launch(MODELS[i]);
+
+      // Last model: nothing left to hedge with, so just wait it out.
+      if (i === MODELS.length - 1) return await Promise.any(live);
+
+      const hedge = delay(HEDGE_AFTER_MS);
+      // Widen the field when the hedge timer fires, or as soon as every
+      // attempt so far has failed — whichever happens first.
+      const exhausted = Promise.allSettled(live).then(() => HEDGE);
+      try {
+        const winner = await Promise.any([...live, hedge.promise.then(() => HEDGE), exhausted]);
+        if (winner !== HEDGE) return winner;
+      } finally {
+        hedge.cancel();
       }
-      const json = await res.json();
-      const content = (json.choices?.[0]?.message?.content ?? "") as string;
-      if (content.trim()) return content;
-      lastError = `model ${model} returned an empty response`;
-    } catch (e) {
-      lastError = e instanceof Error ? e.message : String(e);
     }
+  } catch {
+    // Promise.any rejected — every model failed. Fall through to the throw.
+  } finally {
+    // Whether we won or lost, no attempt still in flight is of any use.
+    for (const c of controllers) c.abort();
   }
-  throw new Error(`AI tutor error: all models failed. Last error: ${lastError}`);
+
+  throw new Error(`AI tutor error: all models failed. ${errors.join(" | ")}`);
+}
+
+// Output caps per mode. Tutor answers are meant to be short and scannable, so
+// these are set to what a good answer actually needs rather than left open.
+const MAX_TOKENS: Record<string, number> = {
+  general: 900,
+  ask: 900,
+  explain: 900,
+  summarize: 700,
+  test: 600,
+  recommend: 700,
+  quiz: 1600,
+};
+const QUIZ_JSON_MAX_TOKENS = 2200;
+const CROSSWORD_JSON_MAX_TOKENS = 1800;
+
+// Prose answers to the same question about the same course/module are stable
+// enough to reuse for a while, so a repeat ask returns instantly. Quiz and
+// crossword generation deliberately varies every run and is never cached.
+const ANSWER_TTL_MS = 30 * 60 * 1000;
+const CACHEABLE_MODES = new Set(["general", "ask", "explain", "summarize", "recommend"]);
+const answerCache = createTtlCache<string>(ANSWER_TTL_MS, 300);
+const answerInflight = new Map<string, Promise<string>>();
+
+/** Split a raw model answer into the shape the client expects. */
+function formatAnswer(raw: string) {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("NOT_RELATED:")) {
+    return {
+      answer: "",
+      related: false as const,
+      reason: trimmed.replace(/^NOT_RELATED:\s*/, ""),
+    };
+  }
+  return { answer: raw, related: true as const };
 }
 
 export const askCourse = createServerFn({ method: "POST" })
@@ -200,6 +372,24 @@ export const askCourse = createServerFn({ method: "POST" })
     const system =
       "You are AceTutor, an AI course tutor embedded in a learning dashboard. You help with the specific course the student is currently studying — including its modules, prerequisites, adjacent concepts, tools, and real-world applications. Prefer the REFERENCE MATERIAL in the prompt when it covers the topic, but when it is thin or missing, answer confidently from your own knowledge of the subject — a student should always get a tangible, useful answer to a course-related question. NEVER mention, cite, name, or hint at where any material comes from; present everything as course knowledge in your own words, with no citations, source names, or article titles. Use Markdown with short paragraphs, bullet points, and concrete examples.";
 
+    // Repeat asks short-circuit before the reference lookup and the model call.
+    const cacheKey = CACHEABLE_MODES.has(data.mode)
+      ? JSON.stringify([
+          data.mode,
+          data.courseTitle,
+          data.moduleTitle ?? "",
+          data.question ?? "",
+          data.performanceSummary ?? "",
+        ])
+      : null;
+    if (cacheKey) {
+      const cached = answerCache.get(cacheKey);
+      if (cached !== undefined) return formatAnswer(cached);
+      // An identical request is already running — ride along with it.
+      const existing = answerInflight.get(cacheKey);
+      if (existing) return formatAnswer(await existing);
+    }
+
     const courseCtx = `Course: "${data.courseTitle}"${data.courseSummary ? `\nCourse summary: ${data.courseSummary}` : ""}`;
     const moduleCtx = data.moduleTitle
       ? `\nFocused module: "${data.moduleTitle}"${data.moduleSummary ? ` — ${data.moduleSummary}` : ""}`
@@ -208,7 +398,9 @@ export const askCourse = createServerFn({ method: "POST" })
       ? `\nStudent performance:\n${data.performanceSummary}`
       : "";
 
-    // Retrieve reference material from Wikipedia only.
+    // Retrieve reference material from Wikipedia only. Recommendations are
+    // derived purely from the student's own performance data, so a lookup
+    // there would be pure latency — skip it.
     const wikiQuery = [
       data.moduleTitle ?? data.courseTitle,
       data.mode === "ask" ? data.question : "",
@@ -216,7 +408,7 @@ export const askCourse = createServerFn({ method: "POST" })
       .filter(Boolean)
       .join(" ")
       .slice(0, 300);
-    const wikiCtx = await fetchWikipediaContext(wikiQuery);
+    const wikiCtx = data.mode === "recommend" ? "" : await fetchWikipediaContext(wikiQuery);
     const sourceCtx = wikiCtx
       ? `\n\n--- REFERENCE MATERIAL (prefer this when it covers the topic; supplement freely with your own knowledge of the subject — never reveal or name where it comes from) ---\n${wikiCtx}\n--- END OF REFERENCE MATERIAL ---`
       : `\n\n(No reference material could be retrieved for this topic. Answer from your own knowledge of the subject instead — do NOT mention any external source or the absence of material.)`;
@@ -234,7 +426,7 @@ export const askCourse = createServerFn({ method: "POST" })
           },
           { role: "user", content: prompt },
         ],
-        { jsonObject: true },
+        { jsonObject: true, maxTokens: QUIZ_JSON_MAX_TOKENS },
       );
       try {
         // Models sometimes wrap the JSON in ```json fences or add stray prose
@@ -299,7 +491,7 @@ Respond ONLY with strict JSON in this shape, no prose:
           },
           { role: "user", content: prompt },
         ],
-        { jsonObject: true },
+        { jsonObject: true, maxTokens: CROSSWORD_JSON_MAX_TOKENS },
       );
 
       let cleaned: CrosswordClue[] = [];
@@ -352,17 +544,25 @@ ${data.question}`;
         break;
     }
 
-    const answer = await callAI([
-      { role: "system", content: system },
-      { role: "user", content: userPrompt },
-    ]);
-    const trimmed = answer.trim();
-    if (trimmed.startsWith("NOT_RELATED:")) {
-      return {
-        answer: "",
-        related: false as const,
-        reason: trimmed.replace(/^NOT_RELATED:\s*/, ""),
-      };
-    }
-    return { answer, related: true as const };
+    const running = callAI(
+      [
+        { role: "system", content: system },
+        { role: "user", content: userPrompt },
+      ],
+      { maxTokens: MAX_TOKENS[data.mode] ?? 900 },
+    );
+
+    if (!cacheKey) return formatAnswer(await running);
+
+    const pending = running
+      .then((value) => {
+        answerCache.set(cacheKey, value);
+        return value;
+      })
+      .finally(() => answerInflight.delete(cacheKey));
+    // A failure is surfaced to this caller below; keep it off the global
+    // unhandled-rejection path for any caller that rode along and left.
+    pending.catch(() => {});
+    answerInflight.set(cacheKey, pending);
+    return formatAnswer(await pending);
   });
