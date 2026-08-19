@@ -144,7 +144,7 @@
 //           qc.invalidateQueries({ queryKey: ["dash-progress", user!.id] });
 //         }}
 //       />
-//     </main>
+//     </main> 
 //   );
 // }
 
@@ -184,7 +184,7 @@ function QuizRunner() {
       const { data: topic } = await supabase.from("topics").select("title").eq("id", topicId).maybeSingle();
       setTopicTitle(topic?.title ?? "");
 
-      const { data: qs, error } = await supabase.rpc("get_quiz_questions", { _topic_id: topicId, _limit: 5 });
+      const { data: qs, error } = await supabase.rpc("get_quiz_questions", { _topic_id: topicId, _limit: 30 });
       if (error) {
         toast.error("Could not load questions");
         return;

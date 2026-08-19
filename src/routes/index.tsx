@@ -115,9 +115,9 @@ function VisitorHome() {
               transition={{ duration: 0.6 }}
               className="text-center lg:text-left"
             >
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              {/* <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
                 <Sparkles className="h-3 w-3" /> Next-Gen Adaptive Tutor
-              </span>
+              </span> */}
               <h1 className="mt-6 text-5xl font-bold leading-[1.02] tracking-tight md:text-7xl">
                 One Tutor. <span className="text-primary">Three Ways</span> to Learn.
               </h1>
