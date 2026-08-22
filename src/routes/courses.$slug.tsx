@@ -160,17 +160,25 @@ function CourseDetail() {
     return { perTopic, overall, progress, completed, weak, strong, nextTopic };
   }, [attempts, topics]);
 
-  const performanceSummary = useMemo(() => {
-    if (analytics.perTopic.length === 0) return "No quiz attempts yet.";
-    const lines = [
-      `Overall accuracy: ${analytics.overall}%`,
-      `Modules completed: ${analytics.completed}/${topics.length}`,
-      ...analytics.perTopic
-        .filter((p) => p.accuracy !== null)
-        .map((p) => `- ${p.topic.title}: ${p.accuracy}% (${p.attempts} attempts)`),
-    ];
-    return lines.join("\n");
-  }, [analytics, topics.length]);
+const performanceSummary = useMemo(() => {
+  if (analytics.perTopic.length === 0) return "";
+
+  const lines = [
+    `Overall accuracy: ${analytics.overall}%`,
+    `Modules completed: ${analytics.completed}/${topics.length}`,
+    "",
+    "Available course modules and student performance:",
+    ...analytics.perTopic.map((p) => {
+      if (p.accuracy === null) {
+        return `- ${p.topic.title}: Not attempted`;
+      }
+
+      return `- ${p.topic.title}: ${p.accuracy}% (${p.attempts} attempt${p.attempts === 1 ? "" : "s"})`;
+    }),
+  ];
+
+  return lines.join("\n");
+}, [analytics, topics.length]);
 
   const enroll = useMutation({
     mutationFn: async () => {
@@ -236,22 +244,27 @@ function CourseDetail() {
     },
   });
 
-  const recommendations = useQuery({
-    queryKey: ["course-recs", course?.id, performanceSummary],
-    enabled: !!course && !!user && attempts.length > 0,
-    queryFn: async () => {
-      const res = await ask({
-        data: {
-          courseTitle: course!.title,
-          courseSummary: course!.summary ?? undefined,
-          mode: "recommend",
-          performanceSummary,
-        },
-      });
-      return res.related === false ? "" : res.answer;
-    },
-    staleTime: 1000 * 60 * 10,
-  });
+const recommendations = useQuery({
+  queryKey: ["course-recs", course?.id, performanceSummary],
+  enabled:
+    !!course &&
+    !!user &&
+    attempts.length > 0 &&
+    !!performanceSummary.trim(),
+  queryFn: async () => {
+    const res = await ask({
+      data: {
+        courseTitle: course!.title,
+        courseSummary: course!.summary ?? undefined,
+        mode: "recommend",
+        performanceSummary,
+      },
+    });
+
+    return res.related === false ? "" : res.answer;
+  },
+  staleTime: 1000 * 60 * 10,
+});
 
   const submit = () => {
     const q = input.trim();
@@ -466,7 +479,7 @@ function CourseDetail() {
                       {label}
                     </Button>
                   ))}
-                  <StartQuizButton
+                  {/* <StartQuizButton
                     type="button"
                     variant="outline"
                     size="sm"
@@ -476,7 +489,7 @@ function CourseDetail() {
                     icon={<Brain className="mr-1.5 h-3.5 w-3.5" />}
                   >
                     Generate Quiz
-                  </StartQuizButton>
+                  </StartQuizButton> */}
                   <Button
                     type="button"
                     variant="ghost"
@@ -548,7 +561,7 @@ function CourseDetail() {
                                 topicId={t.id}
                                 icon={<Brain className="mr-1.5 h-4 w-4" />}
                               >
-                                Generate quiz
+                                Take quiz
                               </StartQuizButton>
                             </div>
                           </AccordionContent>
@@ -658,14 +671,14 @@ function CourseDetail() {
               <CardContent className="space-y-2">
                 {analytics.nextTopic ? (
                   <>
-                    <StartQuizButton
+                    {/* <StartQuizButton
                       variant="outline"
                       className="w-full justify-start rounded-lg"
                       topicId={analytics.nextTopic.id}
                       icon={<ClipboardList className="mr-2 h-4 w-4" />}
                     >
                       Start quiz
-                    </StartQuizButton>
+                    </StartQuizButton> */}
                     <Link
                       to="/topic/$topicId"
                       params={{ topicId: analytics.nextTopic.id }}

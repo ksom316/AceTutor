@@ -372,6 +372,14 @@ export const askCourse = createServerFn({ method: "POST" })
     const system =
       "You are AceTutor, an AI course tutor embedded in a learning dashboard. You help with the specific course the student is currently studying — including its modules, prerequisites, adjacent concepts, tools, and real-world applications. Prefer the REFERENCE MATERIAL in the prompt when it covers the topic, but when it is thin or missing, answer confidently from your own knowledge of the subject — a student should always get a tangible, useful answer to a course-related question. NEVER mention, cite, name, or hint at where any material comes from; present everything as course knowledge in your own words, with no citations, source names, or article titles. Use Markdown with short paragraphs, bullet points, and concrete examples.";
 
+    // Prevent recommendations when there is no quiz performance data.
+    if (data.mode === "recommend" && !data.performanceSummary?.trim()) {
+      return {
+        related: true as const,
+        answer: "",
+      };
+    }
+
     // Repeat asks short-circuit before the reference lookup and the model call.
     const cacheKey = CACHEABLE_MODES.has(data.mode)
       ? JSON.stringify([
@@ -528,7 +536,18 @@ Respond ONLY with strict JSON in this shape, no prose:
         userPrompt = `${fullCtx}\n\nAsk the student 5 progressively harder open-ended questions to test their knowledge of ${data.moduleTitle ?? "this course"}. Do NOT give the answers — invite them to attempt first.`;
         break;
       case "recommend":
-        userPrompt = `${fullCtx}\n\nBased ONLY on the student's performance data above, give 3-5 personalized study recommendations. For each: state the weak area, what to revise (reference a module if possible), and which quiz to attempt next. Be concrete and supportive. Use Markdown bullet points.`;
+        userPrompt = `${fullCtx}
+
+      Based on the student's performance data, give 3-5 personalized study recommendations.
+
+      - Prioritize the student's weakest modules.
+      - Only recommend modules listed above; never invent modules or quizzes.
+      - Explain why each module needs attention and what the student should review.
+      - After recommending a weak module, tell the student to retake its quiz after studying to check their improvement.
+      - If a module has not been attempted, do not call it weak; it can be recommended as the next module to study.
+      - If the student is performing well, recommend an appropriate next module or continued practice.
+      - Be concrete, concise, and supportive.
+      - Use Markdown bullet points.`;
         break;
       case "ask":
       default:
