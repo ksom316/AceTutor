@@ -18,21 +18,31 @@ const schema = z.object({
   password: z.string().min(6, "At least 6 characters").max(72),
 });
 
+type SignupSearch = {
+  redirect?: string;
+};
+
 export const Route = createFileRoute("/signup")({
+  validateSearch: (search: Record<string, unknown>): SignupSearch => ({
+    redirect: typeof search.redirect === "string" ? search.redirect : undefined,
+  }),
   component: SignupPage,
 });
 
 function SignupPage() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
+const { user } = useAuth();
+const { redirect } = Route.useSearch();
+const navigate = useNavigate();
+
+const target = redirect?.startsWith("/") ? redirect : "/onboarding/vark";
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (user) navigate({ to: "/onboarding/vark" });
-  }, [user, navigate]);
+useEffect(() => {
+  if (user) navigate({ to: target });
+}, [user, navigate, target]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +56,7 @@ function SignupPage() {
       email: parsed.data.email,
       password: parsed.data.password,
       options: {
-        emailRedirectTo: window.location.origin + "/onboarding/vark",
+        emailRedirectTo: window.location.origin + target,
         data: { full_name: parsed.data.fullName },
       },
     });
@@ -56,7 +66,7 @@ function SignupPage() {
       return;
     }
     toast.success("Account created — let's get started!");
-    navigate({ to: "/onboarding/vark" });
+    navigate({ to: target });
   };
 
   return (
@@ -173,7 +183,7 @@ function SignupPage() {
           <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
             <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
           </div>
-          <GoogleAuthButton label="Sign up with Google" redirect="/onboarding/vark" />
+         <GoogleAuthButton label="Sign up with Google" redirect={target} />
         </motion.div>
 
         <motion.p variants={staggerItem} className="mt-6 text-center text-sm text-muted-foreground">

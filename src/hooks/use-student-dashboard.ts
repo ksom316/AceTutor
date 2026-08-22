@@ -50,9 +50,10 @@ export function useStudentDashboard(userId: string | undefined) {
     enabled: !!userId,
     queryFn: async () => {
       const { data } = await supabase
-        .from("enrollments")
-        .select("course_id, created_at, courses(id, slug, title, summary)")
-        .order("created_at", { ascending: false });
+      .from("enrollments")
+      .select("course_id, created_at, courses(id, slug, title, summary)")
+      .eq("user_id", userId!)
+      .order("created_at", { ascending: false });
       return data ?? [];
     },
   });
