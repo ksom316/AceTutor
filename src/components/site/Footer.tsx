@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import logoAsset from "@/assets/ace-logo.jpg";
 
 const links = [
-  { label: "Teachers", to: "/" },
+  { label: "Teachers", to: "/teachers" },
   { label: "Privacy", to: "/privacy" },
   { label: "Terms", to: "/terms" },
   { label: "Contact", to: "/contact" },
