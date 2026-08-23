@@ -150,6 +150,38 @@ export type Database = {
           },
         ];
       };
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          course_id: string;
+          kind: string;
+          title: string;
+          message: string;
+          created_at: string;
+          read_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          course_id: string;
+          kind: string;
+          title: string;
+          message: string;
+          created_at?: string;
+          read_at?: string | null;
+        };
+        Update: { read_at?: string | null };
+        Relationships: [
+          {
+            foreignKeyName: "notifications_course_id_fkey";
+            columns: ["course_id"];
+            isOneToOne: false;
+            referencedRelation: "courses";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       profiles: {
         Row: {
           avatar_url: string | null;
@@ -433,9 +465,17 @@ export type Database = {
         };
         Returns: boolean;
       };
+      publish_teacher_note: {
+        Args: { _body_md: string; _course_id: string; _lesson_title: string; _topic_title: string };
+        Returns: string;
+      };
+      publish_teacher_quiz: {
+        Args: { _course_id: string; _questions: Json; _quiz_title: string; _topic_title: string };
+        Returns: string;
+      };
     };
     Enums: {
-      app_role: "student" | "admin";
+      app_role: "student" | "teacher" | "admin";
       modality: "text" | "video" | "audio";
       vark_style: "visual" | "aural" | "read_write" | "kinesthetic";
     };

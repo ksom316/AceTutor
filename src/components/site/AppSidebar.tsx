@@ -102,7 +102,7 @@ export function AppSidebar({ user }: { user: User }) {
     },
   });
 
-  const isLecturer = role === "lecturer" || role === "admin";
+  const isLecturer = role === "teacher" || role === "admin";
   const items = isLecturer ? lecturerItems : studentItems;
   const displayName = profile?.full_name || user.email?.split("@")[0] || "Learner";
   const initials = displayName
@@ -150,7 +150,7 @@ export function AppSidebar({ user }: { user: User }) {
               AceTutor
             </span>
             <span className="truncate text-[11px] text-muted-foreground">
-              {isLecturer ? "Lecturer workspace" : "Student workspace"}
+              {isLecturer ? "Teacher workspace" : "Student workspace"}
             </span>
           </div>
         </Link>
@@ -190,7 +190,7 @@ export function AppSidebar({ user }: { user: User }) {
           <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
             <div className="truncate text-xs font-semibold">{displayName}</div>
             <div className="truncate text-[11px] capitalize text-muted-foreground">
-              {isLecturer ? "Lecturer" : "Student"}
+              {isLecturer ? "Teacher" : "Student"}
             </div>
           </div>
           <button

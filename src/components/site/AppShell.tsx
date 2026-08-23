@@ -26,6 +26,7 @@ function TopBar() {
         <button
           type="button"
           aria-label="Notifications"
+          onClick={() => router.navigate({ to: "/notifications" })}
           className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           <Bell className="h-4 w-4" />

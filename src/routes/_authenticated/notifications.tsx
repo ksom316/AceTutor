@@ -1,11 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Bell } from "lucide-react";
+import { Bell, BookOpen, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { Switch } from "@/components/ui/switch";
 import { fadeUp, staggerContainer, staggerItem } from "@/lib/motion";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/notifications")({
   component: NotificationsPage,
@@ -56,6 +58,20 @@ const storageKey = (userId: string) => `acetutor:notif-prefs:${userId}`;
 function NotificationsPage() {
   const { user } = useAuth();
   const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>(DEFAULTS);
+
+  const { data: notifications = [] } = useQuery({
+    queryKey: ["notifications", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("id, kind, title, message, created_at, read_at, courses(title, slug)")
+        .order("created_at", { ascending: false })
+        .limit(25);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
 
   // Preferences are stored locally per user (no schema change required).
   useEffect(() => {
@@ -127,6 +143,27 @@ function NotificationsPage() {
           </motion.label>
         ))}
       </motion.div>
+
+      <section className="mt-8">
+        <h2 className="font-display text-2xl">From your teachers</h2>
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-card">
+          {notifications.length > 0 ? notifications.map((notification) => {
+            const course = Array.isArray(notification.courses) ? notification.courses[0] : notification.courses;
+            const Icon = notification.kind === "quiz" ? ClipboardList : BookOpen;
+            return (
+              <div key={notification.id} className={`flex gap-3 border-b border-border p-4 last:border-b-0 ${notification.read_at ? "" : "bg-primary/5"}`}>
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Icon className="h-4 w-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">{notification.title}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{notification.message}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{new Date(notification.created_at).toLocaleString()}</p>
+                </div>
+                {course?.slug && <Link to="/courses/$slug" params={{ slug: course.slug }} className="self-center text-xs font-semibold text-primary hover:underline">Open course</Link>}
+              </div>
+            );
+          }) : <p className="p-5 text-sm text-muted-foreground">New notes and quizzes from your teachers will appear here.</p>}
+        </div>
+      </section>
 
       <p className="mt-4 px-1 text-xs text-muted-foreground">
         These preferences are saved on this device.

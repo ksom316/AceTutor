@@ -18,6 +18,7 @@ import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
+import { Route as TeachersAuthRouteImport } from './routes/teachers.auth'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as AuthGoogleRouteImport } from './routes/auth.google'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
@@ -78,6 +79,11 @@ const CoursesIndexRoute = CoursesIndexRouteImport.update({
   id: '/courses/',
   path: '/courses/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const TeachersAuthRoute = TeachersAuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => TeachersRoute,
 } as any)
 const CoursesSlugRoute = CoursesSlugRouteImport.update({
   id: '/courses/$slug',
@@ -171,7 +177,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/privacy': typeof PrivacyRoute
   '/signup': typeof SignupRoute
-  '/teachers': typeof TeachersRoute
+  '/teachers': typeof TeachersRouteWithChildren
   '/terms': typeof TermsRoute
   '/about': typeof AuthenticatedAboutRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
@@ -185,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/teachers/auth': typeof TeachersAuthRoute
   '/courses/': typeof CoursesIndexRoute
   '/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
@@ -197,7 +204,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/privacy': typeof PrivacyRoute
   '/signup': typeof SignupRoute
-  '/teachers': typeof TeachersRoute
+  '/teachers': typeof TeachersRouteWithChildren
   '/terms': typeof TermsRoute
   '/about': typeof AuthenticatedAboutRoute
   '/analytics': typeof AuthenticatedAnalyticsRoute
@@ -211,6 +218,7 @@ export interface FileRoutesByTo {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/teachers/auth': typeof TeachersAuthRoute
   '/courses': typeof CoursesIndexRoute
   '/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
@@ -225,7 +233,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/privacy': typeof PrivacyRoute
   '/signup': typeof SignupRoute
-  '/teachers': typeof TeachersRoute
+  '/teachers': typeof TeachersRouteWithChildren
   '/terms': typeof TermsRoute
   '/_authenticated/about': typeof AuthenticatedAboutRoute
   '/_authenticated/analytics': typeof AuthenticatedAnalyticsRoute
@@ -239,6 +247,7 @@ export interface FileRoutesById {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/teachers/auth': typeof TeachersAuthRoute
   '/courses/': typeof CoursesIndexRoute
   '/_authenticated/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/_authenticated/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
@@ -267,6 +276,7 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/google'
     | '/courses/$slug'
+    | '/teachers/auth'
     | '/courses/'
     | '/onboarding/vark'
     | '/quiz/$topicId'
@@ -293,6 +303,7 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/google'
     | '/courses/$slug'
+    | '/teachers/auth'
     | '/courses'
     | '/onboarding/vark'
     | '/quiz/$topicId'
@@ -320,6 +331,7 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/google'
     | '/courses/$slug'
+    | '/teachers/auth'
     | '/courses/'
     | '/_authenticated/onboarding/vark'
     | '/_authenticated/quiz/$topicId'
@@ -334,7 +346,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   PrivacyRoute: typeof PrivacyRoute
   SignupRoute: typeof SignupRoute
-  TeachersRoute: typeof TeachersRoute
+  TeachersRoute: typeof TeachersRouteWithChildren
   TermsRoute: typeof TermsRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthGoogleRoute: typeof AuthGoogleRoute
@@ -406,6 +418,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/courses/'
       preLoaderRoute: typeof CoursesIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/teachers/auth': {
+      id: '/teachers/auth'
+      path: '/auth'
+      fullPath: '/teachers/auth'
+      preLoaderRoute: typeof TeachersAuthRouteImport
+      parentRoute: typeof TeachersRoute
     }
     '/courses/$slug': {
       id: '/courses/$slug'
@@ -558,6 +577,18 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
   AuthenticatedRouteChildren,
 )
 
+interface TeachersRouteChildren {
+  TeachersAuthRoute: typeof TeachersAuthRoute
+}
+
+const TeachersRouteChildren: TeachersRouteChildren = {
+  TeachersAuthRoute: TeachersAuthRoute,
+}
+
+const TeachersRouteWithChildren = TeachersRoute._addFileChildren(
+  TeachersRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
@@ -565,7 +596,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   PrivacyRoute: PrivacyRoute,
   SignupRoute: SignupRoute,
-  TeachersRoute: TeachersRoute,
+  TeachersRoute: TeachersRouteWithChildren,
   TermsRoute: TermsRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthGoogleRoute: AuthGoogleRoute,

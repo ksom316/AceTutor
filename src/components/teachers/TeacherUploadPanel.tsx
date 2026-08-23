@@ -73,20 +73,34 @@ async function readTextFile(file: File) {
   return file.text();
 }
 
-function parseQuizPreview(text: string, fileName: string) {
-  const lower = fileName.toLowerCase();
-  if (lower.endsWith(".json")) {
+function parseQuizQuestions(text: string, fileName: string) {
+  if (fileName.toLowerCase().endsWith(".json")) {
     const parsed = JSON.parse(text) as unknown;
     if (!Array.isArray(parsed)) throw new Error("Quiz JSON must be an array of questions.");
-    return parsed.length;
+    return parsed.map((question) => {
+      const item = question as { prompt?: string; choices?: string[]; correct_index?: number; explanation?: string; difficulty?: number };
+      if (!item.prompt || !Array.isArray(item.choices) || typeof item.correct_index !== "number") {
+        throw new Error("Each question needs a prompt, choices, and correct_index.");
+      }
+      return item;
+    });
   }
 
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-  if (lines.length <= 1) return 0;
-  return Math.max(lines.length - 1, 0);
+  const [header, ...rows] = text.split(/\r?\n/).filter((line) => line.trim());
+  const columns = header.split(",").map((column) => column.trim());
+  const index = (name: string) => columns.indexOf(name);
+  return rows.map((row) => {
+    const values = row.split(",").map((value) => value.trim());
+    const prompt = values[index("prompt")];
+    const choices = ["choice1", "choice2", "choice3", "choice4"]
+      .map((name) => values[index(name)])
+      .filter(Boolean);
+    const correctIndex = Number(values[index("correct_index")]);
+    if (!prompt || choices.length < 2 || !Number.isInteger(correctIndex)) {
+      throw new Error("CSV questions need prompt, choices, and correct_index columns.");
+    }
+    return { prompt, choices, correct_index: correctIndex, explanation: values[index("explanation")] ?? null };
+  });
 }
 
 export function TeacherUploadPanel({ authed = false }: { authed?: boolean }) {
@@ -99,6 +113,21 @@ export function TeacherUploadPanel({ authed = false }: { authed?: boolean }) {
   const [notesFile, setNotesFile] = useState<File | null>(null);
   const [quizFile, setQuizFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const { data: role, isLoading: roleLoading } = useQuery({
+    queryKey: ["teacher-role", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user!.id)
+        .eq("role", "teacher")
+        .maybeSingle();
+      if (error) throw error;
+      return data?.role;
+    },
+  });
 
   const { data: courses } = useQuery({
     queryKey: ["courses"],
@@ -165,7 +194,7 @@ export function TeacherUploadPanel({ authed = false }: { authed?: boolean }) {
     };
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     toast.info("Sign in to publish your materials");
-    navigate({ to: "/login", search: { redirect: "/teachers" } });
+    navigate({ to: "/teachers/auth", search: { redirect: "/teachers" } });
   };
 
   const publish = async () => {
@@ -175,19 +204,38 @@ export function TeacherUploadPanel({ authed = false }: { authed?: boolean }) {
       requireAuth();
       return;
     }
+    if (role !== "teacher") {
+      toast.error("Only teacher accounts can publish materials.");
+      return;
+    }
 
     setSubmitting(true);
     try {
       const text = await readTextFile(activeFile);
       if (tab === "quiz") {
-        const count = parseQuizPreview(text, activeFile.name);
+        const questions = parseQuizQuestions(text, activeFile.name);
+        const count = questions.length;
         if (count === 0) throw new Error("No quiz questions found in that file.");
+        const { error } = await supabase.rpc("publish_teacher_quiz", {
+          _course_id: courseId,
+          _topic_title: topicTitle.trim(),
+          _quiz_title: title.trim(),
+          _questions: questions,
+        });
+        if (error) throw error;
         toast.success(`${count} question${count === 1 ? "" : "s"} ready for "${selectedCourse?.title}"`);
       } else {
+        const { error } = await supabase.rpc("publish_teacher_note", {
+          _course_id: courseId,
+          _topic_title: topicTitle.trim(),
+          _lesson_title: title.trim(),
+          _body_md: text,
+        });
+        if (error) throw error;
         toast.success(`Notes "${title.trim()}" submitted for "${selectedCourse?.title}"`);
       }
 
-      toast.message("Your upload is queued for review and will appear in the course catalog soon.");
+      toast.message("Published. Enrolled students have been notified.");
 
       setTopicTitle("");
       setTitle("");
@@ -199,6 +247,18 @@ export function TeacherUploadPanel({ authed = false }: { authed?: boolean }) {
       setSubmitting(false);
     }
   };
+
+  if (user && !roleLoading && role !== "teacher") {
+    return (
+      <main className="container mx-auto max-w-2xl px-4 py-20 text-center">
+        <h1 className="font-display text-4xl font-bold">Teacher access required</h1>
+        <p className="mt-3 text-muted-foreground">This workspace is available to teacher accounts only.</p>
+        <Button asChild className="mt-6 rounded-full">
+          <Link to="/teachers/auth">Use teacher sign in</Link>
+        </Button>
+      </main>
+    );
+  }
 
   return (
     <main className="relative overflow-hidden">
@@ -297,7 +357,7 @@ export function TeacherUploadPanel({ authed = false }: { authed?: boolean }) {
                 size="lg"
                 className="relative mt-8 h-11 rounded-full bg-white px-5 text-sm font-semibold text-primary hover:bg-white/90"
               >
-                <Link to="/signup" search={{ redirect: "/teachers" }}>
+                <Link to="/teachers/auth" search={{ redirect: "/teachers", mode: "signup" }}>
                   <FileUp className="mr-2 h-4 w-4" /> Create teacher account
                 </Link>
               </Button>
@@ -422,7 +482,7 @@ export function TeacherUploadPanel({ authed = false }: { authed?: boolean }) {
                 {!user && (
                   <p className="text-center text-xs text-muted-foreground">
                     You can prepare uploads now — sign in when you&apos;re ready to publish.{" "}
-                    <Link to="/signup" search={{ redirect: "/teachers" }} className="text-primary hover:underline">
+                    <Link to="/teachers/auth" search={{ redirect: "/teachers", mode: "signup" }} className="text-primary hover:underline">
                       Create an account
                     </Link>
                   </p>
