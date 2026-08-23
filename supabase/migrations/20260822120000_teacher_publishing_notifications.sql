@@ -145,3 +145,64 @@ revoke execute on function public.publish_teacher_note(uuid, text, text, text) f
 revoke execute on function public.publish_teacher_quiz(uuid, text, text, jsonb) from public, anon;
 grant execute on function public.publish_teacher_note(uuid, text, text, text) to authenticated;
 grant execute on function public.publish_teacher_quiz(uuid, text, text, jsonb) to authenticated;
+
+create or replace function public.grade_quiz(_attempt_id uuid, _answers jsonb)
+returns table (question_id uuid, is_correct boolean, correct_index int, explanation text)
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_user uuid;
+  v_topic_id uuid;
+  v_lesson_id uuid;
+  v_total int := 0;
+  v_score int := 0;
+  rec record;
+  v_sel int;
+begin
+  select user_id, topic_id into v_user, v_topic_id
+    from public.quiz_attempts where id = _attempt_id;
+  if v_user is null or v_user <> auth.uid() then
+    raise exception 'forbidden';
+  end if;
+
+  for rec in
+    select q.id, q.correct_index, q.explanation
+    from public.questions q
+    where q.id::text in (select jsonb_object_keys(_answers))
+  loop
+    v_sel := (_answers ->> rec.id::text)::int;
+    v_total := v_total + 1;
+    if v_sel = rec.correct_index then
+      v_score := v_score + 1;
+      insert into public.attempt_answers (attempt_id, question_id, selected_index, is_correct)
+      values (_attempt_id, rec.id, v_sel, true);
+    else
+      insert into public.attempt_answers (attempt_id, question_id, selected_index, is_correct)
+      values (_attempt_id, rec.id, v_sel, false);
+    end if;
+
+    question_id := rec.id;
+    is_correct := (v_sel = rec.correct_index);
+    correct_index := rec.correct_index;
+    explanation := rec.explanation;
+    return next;
+  end loop;
+
+  update public.quiz_attempts
+    set score = v_score, total = v_total, finished_at = now()
+    where id = _attempt_id;
+
+  select id into v_lesson_id from public.lessons
+    where topic_id = v_topic_id order by order_index, id limit 1;
+  if v_lesson_id is not null then
+    insert into public.progress (user_id, lesson_id, watched_seconds, completed_at, updated_at)
+    values (v_user, v_lesson_id, 0, now(), now())
+    on conflict (user_id, lesson_id) do update
+      set completed_at = coalesce(public.progress.completed_at, excluded.completed_at),
+          updated_at = now();
+  end if;
+end;
+$$;
+
+revoke execute on function public.grade_quiz(uuid, jsonb) from public, anon;
+grant execute on function public.grade_quiz(uuid, jsonb) to authenticated;
