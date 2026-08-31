@@ -24,18 +24,22 @@ export const Route = createFileRoute("/lecturer/performance")({
 });
 
 /**
- * One row from get_course_quiz_performance() — one module-quiz attempt in the
- * lecturer's own course. The RPC is SECURITY DEFINER and derives the course from
- * current_lecturer_course(); it never accepts a course id and never returns
- * email / VARK. General Course Quiz attempts (topic_id NULL) are excluded by the
- * RPC's join, so this page is module quizzes only. `finished_at` is null while an
- * attempt is in progress (the generated type flattens it to string).
+ * One row from get_course_quiz_performance() — one module-quiz OR General Course
+ * Quiz attempt in the lecturer's own course. The RPC is SECURITY DEFINER and
+ * derives the course from current_lecturer_course(); it never accepts a course
+ * id and never returns email / VARK. `finished_at` is null while an attempt is
+ * in progress; `topic` / `topic_id` are null for general quizzes and
+ * `course_quiz_id` is null for module quizzes (the generated type flattens all
+ * of these to string).
  */
 type QuizPerfRow = {
   attempt_id: string;
   student: string;
-  topic: string;
-  topic_id: string;
+  quiz_type: "module" | "general";
+  quiz_title: string;
+  topic: string | null;
+  topic_id: string | null;
+  course_quiz_id: string | null;
   score: number;
   total: number;
   pct: number;
@@ -46,6 +50,9 @@ type QuizPerfRow = {
 
 type StatusFilter = "all" | "completed" | "in-progress";
 type SortKey = "recent" | "pct-desc" | "pct-asc" | "student";
+
+/** Stable identity for a quiz across attempts (topic id or course-quiz id). */
+const quizKeyOf = (r: QuizPerfRow) => r.topic_id ?? r.course_quiz_id ?? r.quiz_title;
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -97,7 +104,7 @@ function LecturerPerformance() {
   const enabled = !!lecturerCourseId;
 
   const [search, setSearch] = useState("");
-  const [moduleFilter, setModuleFilter] = useState("all");
+  const [quizFilter, setQuizFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("recent");
 
@@ -140,11 +147,15 @@ function LecturerPerformance() {
   const perf = useMemo<QuizPerfRow[]>(() => perfQuery.data ?? [], [perfQuery.data]);
   const enrolledCount = studentsQuery.data?.length ?? 0;
 
-  const modules = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of perf) map.set(r.topic_id, r.topic);
-    return Array.from(map, ([id, title]) => ({ id, title })).sort((a, b) =>
-      a.title.localeCompare(b.title),
+  // Every quiz that has an attempt — module topics and General Course Quizzes.
+  const quizList = useMemo(() => {
+    const map = new Map<string, { id: string; title: string; type: "module" | "general" }>();
+    for (const r of perf) {
+      const id = quizKeyOf(r);
+      if (!map.has(id)) map.set(id, { id, title: r.quiz_title, type: r.quiz_type });
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => a.type.localeCompare(b.type) || a.title.localeCompare(b.title),
     );
   }, [perf]);
 
@@ -163,23 +174,38 @@ function LecturerPerformance() {
     };
   }, [perf]);
 
-  const byModule = useMemo(() => {
+  // Per-quiz averages — module topics and General Course Quizzes alike.
+  const byQuiz = useMemo(() => {
     const map = new Map<
       string,
-      { topic: string; attempts: number; completed: number; sum: number }
+      {
+        title: string;
+        type: "module" | "general";
+        attempts: number;
+        completed: number;
+        sum: number;
+      }
     >();
     for (const r of perf) {
-      const e = map.get(r.topic_id) ?? { topic: r.topic, attempts: 0, completed: 0, sum: 0 };
+      const id = quizKeyOf(r);
+      const e = map.get(id) ?? {
+        title: r.quiz_title,
+        type: r.quiz_type,
+        attempts: 0,
+        completed: 0,
+        sum: 0,
+      };
       e.attempts += 1;
       if (r.completed) {
         e.completed += 1;
         e.sum += r.pct;
       }
-      map.set(r.topic_id, e);
+      map.set(id, e);
     }
     return Array.from(map.values())
       .map((e) => ({
-        topic: e.topic,
+        title: e.title,
+        type: e.type,
         attempts: e.attempts,
         completed: e.completed,
         avg: e.completed ? Math.round(e.sum / e.completed) : null,
@@ -246,7 +272,7 @@ function LecturerPerformance() {
     const term = search.trim().toLowerCase();
     let list = perf.filter((r) => {
       if (term && !r.student.toLowerCase().includes(term)) return false;
-      if (moduleFilter !== "all" && r.topic_id !== moduleFilter) return false;
+      if (quizFilter !== "all" && quizKeyOf(r) !== quizFilter) return false;
       if (statusFilter === "completed" && !r.completed) return false;
       if (statusFilter === "in-progress" && r.completed) return false;
       return true;
@@ -268,7 +294,7 @@ function LecturerPerformance() {
       }
     });
     return list;
-  }, [perf, search, moduleFilter, statusFilter, sort]);
+  }, [perf, search, quizFilter, statusFilter, sort]);
 
   const courseName = courseQuery.data?.title;
   const loading = perfQuery.isLoading;
@@ -282,7 +308,7 @@ function LecturerPerformance() {
     >
       <h1 className="font-display text-4xl">Performance</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Module-quiz results for students enrolled in{" "}
+        Module quiz and General Course Quiz results for students enrolled in{" "}
         <span className="font-medium text-foreground">{courseName ?? "your assigned course"}</span>.
         {studentsQuery.isSuccess && enrolledCount > 0 && (
           <>
@@ -338,22 +364,29 @@ function LecturerPerformance() {
           </div>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            {/* Average score per module */}
+            {/* Average score per quiz */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Average score per module</CardTitle>
+                <CardTitle className="text-lg">Average score per quiz</CardTitle>
               </CardHeader>
               <CardContent>
                 {loading ? (
                   <SkeletonRows />
-                ) : byModule.length === 0 ? (
+                ) : byQuiz.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No quiz attempts yet.</p>
                 ) : (
                   <ul className="space-y-3">
-                    {byModule.map((m) => (
-                      <li key={m.topic}>
+                    {byQuiz.map((m) => (
+                      <li key={`${m.type}-${m.title}`}>
                         <div className="flex items-center justify-between gap-3 text-sm">
-                          <span className="min-w-0 truncate">{m.topic}</span>
+                          <span className="flex min-w-0 items-center gap-1.5 truncate">
+                            <span className="truncate">{m.title}</span>
+                            {m.type === "general" && (
+                              <Badge variant="outline" className="shrink-0 text-[10px]">
+                                General
+                              </Badge>
+                            )}
+                          </span>
                           <span className="shrink-0 tabular-nums font-semibold">
                             {m.avg == null ? "—" : `${m.avg}%`}
                           </span>
@@ -469,15 +502,16 @@ function LecturerPerformance() {
                   className="rounded-xl sm:w-52"
                   aria-label="Search attempts by student"
                 />
-                <Select value={moduleFilter} onValueChange={setModuleFilter}>
-                  <SelectTrigger className="rounded-xl sm:w-48" aria-label="Filter by module">
+                <Select value={quizFilter} onValueChange={setQuizFilter}>
+                  <SelectTrigger className="rounded-xl sm:w-48" aria-label="Filter by quiz">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All modules</SelectItem>
-                    {modules.map((m) => (
+                    <SelectItem value="all">All quizzes</SelectItem>
+                    {quizList.map((m) => (
                       <SelectItem key={m.id} value={m.id}>
                         {m.title}
+                        {m.type === "general" ? " · General" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -527,7 +561,8 @@ function LecturerPerformance() {
                       <thead>
                         <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                           <th className="pb-2 font-medium">Student</th>
-                          <th className="pb-2 font-medium">Module</th>
+                          <th className="pb-2 font-medium">Quiz</th>
+                          <th className="pb-2 font-medium">Type</th>
                           <th className="pb-2 text-right font-medium">Score</th>
                           <th className="pb-2 text-right font-medium">%</th>
                           <th className="pb-2 pl-3 font-medium">Status</th>
@@ -538,7 +573,12 @@ function LecturerPerformance() {
                         {attempts.map((r) => (
                           <tr key={r.attempt_id}>
                             <td className="max-w-[10rem] truncate py-2 pr-2">{r.student}</td>
-                            <td className="max-w-[10rem] truncate py-2 pr-2">{r.topic}</td>
+                            <td className="max-w-[10rem] truncate py-2 pr-2">{r.quiz_title}</td>
+                            <td className="py-2 pr-2">
+                              <Badge variant={r.quiz_type === "general" ? "secondary" : "outline"}>
+                                {r.quiz_type === "general" ? "General" : "Module"}
+                              </Badge>
+                            </td>
                             <td className="py-2 text-right tabular-nums">
                               {r.completed ? `${r.score}/${r.total}` : "—"}
                             </td>

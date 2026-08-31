@@ -598,8 +598,11 @@ export type Database = {
         Returns: {
           attempt_id: string;
           completed: boolean;
+          course_quiz_id: string;
           finished_at: string;
           pct: number;
+          quiz_title: string;
+          quiz_type: string;
           score: number;
           started_at: string;
           student: string;

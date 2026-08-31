@@ -6,13 +6,23 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
-import { BarChart3, BookOpen, ClipboardList, LayoutDashboard, LogOut, Users } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  BarChart3,
+  BookOpen,
+  ClipboardList,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Users,
+} from "lucide-react";
 import logoAsset from "@/assets/ace-logo.jpg";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useRole } from "@/hooks/use-role";
 import { finishPendingLecturerClaim, hasPendingLecturerId } from "@/lib/lecturer-claim";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/lecturer")({
   component: LecturerLayout,
@@ -50,6 +60,22 @@ function LecturerLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const qc = useQueryClient();
   const claimingRef = useRef(false);
+  const isMobile = useIsMobile();
+  // The left navigation sidebar. Visible by default; collapsible with the
+  // header button. On desktop it occupies space beside the content; on mobile
+  // it is an off-canvas drawer (no dark overlay either way).
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Default to open on desktop, closed on mobile — re-evaluated when the
+  // viewport crosses the breakpoint.
+  useEffect(() => {
+    setSidebarOpen(!isMobile);
+  }, [isMobile]);
+
+  // On mobile the sidebar is a drawer, so close it after navigating.
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [pathname, isMobile]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -97,11 +123,26 @@ function LecturerLayout() {
   const isActive = (to: string, exact: boolean) =>
     exact ? pathname === to : pathname === to || pathname.startsWith(to + "/");
 
+  const activeItem = LECTURER_NAV.find((item) => isActive(item.to, item.exact));
+
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-xl">
-        <div className="flex h-16 items-center gap-3 px-4">
-          <Link to="/lecturer" className="flex items-center gap-2">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
+          {/* Collapse / expand the navigation sidebar */}
+          <button
+            type="button"
+            aria-label={sidebarOpen ? "Collapse navigation sidebar" : "Expand navigation sidebar"}
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen((o) => !o)}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
+          <span aria-hidden className="h-6 w-px shrink-0 bg-border" />
+
+          <Link to="/lecturer" className="flex shrink-0 items-center gap-2">
             <img
               src={logoAsset}
               alt="AceTutor"
@@ -114,36 +155,73 @@ function LecturerLayout() {
               · Lecturer workspace
             </span>
           </Link>
+
+          {activeItem && (
+            <span className="hidden min-w-0 items-center gap-1.5 truncate text-sm font-medium text-foreground md:flex">
+              <span aria-hidden className="text-muted-foreground">
+                /
+              </span>
+              <activeItem.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">{activeItem.label}</span>
+            </span>
+          )}
+
           <button
             type="button"
             onClick={signOut}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
-            <LogOut className="h-4 w-4" /> Sign out
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Sign out</span>
           </button>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-2 pb-2">
-          {LECTURER_NAV.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.to, item.exact);
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
       </header>
-      <Outlet />
+
+      <div className="flex">
+        {/* Left navigation sidebar. Desktop: sits in the flow and takes space
+            beside the content. Mobile: an off-canvas drawer that slides over the
+            content. No dark overlay in either mode. */}
+        <aside
+          aria-label="Lecturer navigation"
+          className={cn(
+            "z-20 shrink-0 border-r border-border bg-background",
+            "fixed inset-y-0 left-0 top-16 w-60 -translate-x-full transition-transform duration-200 ease-out",
+            sidebarOpen && "translate-x-0",
+            "md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:translate-x-0 md:overflow-hidden md:transition-[width]",
+            sidebarOpen ? "md:w-60" : "md:w-0 md:border-r-0",
+          )}
+        >
+          <nav className="flex w-60 flex-col gap-1 p-3">
+            {LECTURER_NAV.map((item) => {
+              const Icon = item.icon;
+              const active = isActive(item.to, item.exact);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  onClick={() => {
+                    if (isMobile) setSidebarOpen(false);
+                  }}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                    active
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <main className="min-w-0 flex-1">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
