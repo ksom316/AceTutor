@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
+import { useRole } from "@/hooks/use-role";
 import type { User } from "@supabase/supabase-js";
 
 type NavItem = {
@@ -62,6 +63,7 @@ const accountItems: NavItem[] = [
 export function AppSidebar({ user }: { user: User }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { isLecturer } = useRole();
 
   const { data: profile } = useQuery({
     queryKey: ["nav-profile", user.id],
@@ -72,18 +74,6 @@ export function AppSidebar({ user }: { user: User }) {
         .eq("id", user.id)
         .maybeSingle();
       return data;
-    },
-  });
-
-  const { data: role } = useQuery({
-    queryKey: ["nav-role", user.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      return (data?.role as string | undefined) ?? "student";
     },
   });
 
@@ -102,7 +92,6 @@ export function AppSidebar({ user }: { user: User }) {
     },
   });
 
-  const isLecturer = role === "teacher" || role === "admin";
   const items = isLecturer ? lecturerItems : studentItems;
   const displayName = profile?.full_name || user.email?.split("@")[0] || "Learner";
   const initials = displayName

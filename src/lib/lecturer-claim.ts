@@ -32,6 +32,15 @@ export function hasPendingLecturerId(): boolean {
   }
 }
 
+/** Read the pending Lecturer ID without consuming it. */
+export function peekPendingLecturerId(): string | null {
+  try {
+    return sessionStorage.getItem(PENDING_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function takePendingLecturerId(): string | null {
   try {
     const value = sessionStorage.getItem(PENDING_KEY);
@@ -60,4 +69,43 @@ export async function finishPendingLecturerClaim(): Promise<ClaimResult> {
   const id = takePendingLecturerId();
   if (!id) return { status: "none" };
   return claimLecturerSlot(id);
+}
+
+/**
+ * Login-time verification for the "Lecturer" sign-in option. The Lecturer ID
+ * typed at login is not proof of anything on its own — this runs AFTER
+ * `signInWithPassword` and confirms the *authenticated* user genuinely owns the
+ * slot for that ID:
+ *
+ *  - `lecturer_slots` is read under RLS (`lecturer_slots_select_own`), so a row
+ *    is returned only when `enteredId` is a slot whose `claimed_by = auth.uid()`.
+ *    Any other ID — someone else's, or one that does not exist — produces the
+ *    same empty result, so nothing about other lecturers is revealed.
+ *  - `claimed_by` is additionally checked against the authenticated user id.
+ *  - the account must also hold the internal `teacher` role.
+ *
+ * A claim left pending by lecturer *signup* (email-confirmation path) is
+ * finished first, but only when the pending ID matches what the user typed, so
+ * a first sign-in still verifies. `claim_lecturer_slot` is never invoked for an
+ * arbitrary typed ID, so a student cannot acquire a slot from the login page.
+ */
+export async function verifyLecturerLogin(
+  userId: string,
+  enteredId: string,
+): Promise<boolean> {
+  const key = enteredId.trim().toUpperCase();
+
+  const pending = peekPendingLecturerId();
+  if (pending && pending.trim().toUpperCase() === key) {
+    await finishPendingLecturerClaim();
+  }
+
+  const [slotRes, roleRes] = await Promise.all([
+    supabase.from("lecturer_slots").select("claimed_by").eq("lecturer_id", key).maybeSingle(),
+    supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle(),
+  ]);
+
+  const ownsSlot = !!slotRes.data && slotRes.data.claimed_by === userId;
+  const hasTeacherRole = roleRes.data?.role === "teacher";
+  return ownsSlot && hasTeacherRole;
 }

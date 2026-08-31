@@ -1,7 +1,13 @@
-import { createFileRoute, Link, Outlet, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { LogOut } from "lucide-react";
+import { BarChart3, BookOpen, ClipboardList, LayoutDashboard, LogOut, Users } from "lucide-react";
 import logoAsset from "@/assets/ace-logo.jpg";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -11,6 +17,14 @@ import { finishPendingLecturerClaim, hasPendingLecturerId } from "@/lib/lecturer
 export const Route = createFileRoute("/lecturer")({
   component: LecturerLayout,
 });
+
+const LECTURER_NAV = [
+  { to: "/lecturer", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { to: "/lecturer/students", label: "Students", icon: Users, exact: false },
+  { to: "/lecturer/materials", label: "Materials", icon: BookOpen, exact: false },
+  { to: "/lecturer/quizzes", label: "Quizzes", icon: ClipboardList, exact: false },
+  { to: "/lecturer/performance", label: "Performance", icon: BarChart3, exact: false },
+] as const;
 
 function LoadingScreen() {
   return (
@@ -27,12 +41,13 @@ function LoadingScreen() {
  * Layout + guard for /lecturer/*. Route protection here is UX only — the real
  * boundary is RLS + the SECURITY DEFINER functions. The guard decides purely
  * from the database-backed role (useRole), never from the URL, and waits for
- * role resolution before redirecting to avoid loops / flashes.
+ * both auth and role to settle before redirecting to avoid loops / flashes.
  */
 function LecturerLayout() {
   const { user, loading: authLoading } = useAuth();
   const { isLecturer, loading: roleLoading } = useRole();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
   const qc = useQueryClient();
   const claimingRef = useRef(false);
 
@@ -40,7 +55,7 @@ function LecturerLayout() {
     if (authLoading) return;
 
     if (!user) {
-      navigate({ to: "/login", search: { redirect: "/lecturer" } });
+      navigate({ to: "/login", search: { redirect: window.location.pathname } });
       return;
     }
 
@@ -79,27 +94,54 @@ function LecturerLayout() {
     navigate({ to: "/" });
   };
 
+  const isActive = (to: string, exact: boolean) =>
+    exact ? pathname === to : pathname === to || pathname.startsWith(to + "/");
+
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-xl">
-        <Link to="/lecturer" className="flex items-center gap-2">
-          <img
-            src={logoAsset}
-            alt="AceTutor"
-            width={30}
-            height={30}
-            className="rounded-lg object-contain shadow-sm"
-          />
-          <span className="text-sm font-bold tracking-tight">AceTutor</span>
-          <span className="hidden text-xs text-muted-foreground sm:inline">· Lecturer workspace</span>
-        </Link>
-        <button
-          type="button"
-          onClick={signOut}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-        >
-          <LogOut className="h-4 w-4" /> Sign out
-        </button>
+      <header className="sticky top-0 z-20 border-b border-border bg-background/80 backdrop-blur-xl">
+        <div className="flex h-16 items-center gap-3 px-4">
+          <Link to="/lecturer" className="flex items-center gap-2">
+            <img
+              src={logoAsset}
+              alt="AceTutor"
+              width={30}
+              height={30}
+              className="rounded-lg object-contain shadow-sm"
+            />
+            <span className="text-sm font-bold tracking-tight">AceTutor</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">
+              · Lecturer workspace
+            </span>
+          </Link>
+          <button
+            type="button"
+            onClick={signOut}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <LogOut className="h-4 w-4" /> Sign out
+          </button>
+        </div>
+        <nav className="flex gap-1 overflow-x-auto px-2 pb-2">
+          {LECTURER_NAV.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.to, item.exact);
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
       </header>
       <Outlet />
     </div>

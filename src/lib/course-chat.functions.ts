@@ -33,15 +33,33 @@ const schema = z.object({
 // Browse the current free roster at https://openrouter.ai/models?max_price=0
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-// Models are tried in order: Google's Gemini-family model first, then GPT,
-// then OpenRouter's auto-router as a catch-all. If one is down, rate-limited,
-// or delisted, the next takes over — quiz generation and chat keep working.
-const MODELS = [
-  process.env.OPENROUTER_MODEL_GEMINI ?? "google/gemma-4-31b-it:free",
-  process.env.OPENROUTER_MODEL_GPT ?? "openai/gpt-oss-20b:free",
-  process.env.OPENROUTER_MODEL ?? "openrouter/free",
-];
-
+// Models are tried in order; if one is down, rate-limited, or delisted, the
+// next takes over. OpenRouter's free roster changes often, so the whole list
+// can be overridden from the environment without a code change:
+//
+//   OPENROUTER_MODELS="id1:free,id2:free,openrouter/free"   (comma-separated, whole list)
+//
+// or per-slot via OPENROUTER_MODEL_GEMINI / OPENROUTER_MODEL_GPT / OPENROUTER_MODEL
+// (kept for backward compat — they are just "slot 1/2/3" now).
+//
+// The defaults below were verified against OpenRouter's live catalogue and the
+// project's own key on 2026-08-31: `minimax/minimax-m3:free` returns clean quiz
+// JSON in both response_format and plain mode. The previous defaults
+// (`google/gemma-3-27b-it:free`, `openai/gpt-oss-20b:free`) had lost their free
+// tier — OpenRouter answered 404 "unavailable for free" — and `openrouter/free`
+// returns null content when response_format:json_object is set.
+// Browse current free ids at https://openrouter.ai/models?max_price=0
+const MODELS = (
+  process.env.OPENROUTER_MODELS
+    ? process.env.OPENROUTER_MODELS.split(",")
+        .map((m) => m.trim())
+        .filter(Boolean)
+    : [
+        process.env.OPENROUTER_MODEL_GEMINI ?? "minimax/minimax-m3:free",
+        process.env.OPENROUTER_MODEL_GPT ?? "nvidia/nemotron-3-super-120b-a12b:free",
+        process.env.OPENROUTER_MODEL ?? "openrouter/free",
+      ]
+).filter(Boolean);
 
 /** Abort signal that trips after `ms`, so a stalled upstream can't hang a request. */
 function timeoutSignal(ms: number): AbortSignal {
@@ -271,11 +289,19 @@ async function callModel(
   return content;
 }
 
-async function callAI(
+// Exported so the lecturer quiz generator (src/lib/lecturer-quiz.functions.ts)
+// runs on the exact same server-side OpenRouter path — the API key never
+// reaches the browser.
+export async function callAI(
   messages: { role: string; content: string }[],
   opts?: CallOpts,
 ): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
+  // Safe diagnostic — boolean only, plus the model IDs being attempted. Never
+  // logs the key or any auth header.
+  console.info(
+    `[callAI] OPENROUTER_API_KEY configured: ${Boolean(apiKey)} — roster: [${MODELS.join(", ")}]`,
+  );
   if (!apiKey) {
     throw new Error(
       "AI tutor is not configured. Add a free OPENROUTER_API_KEY (get one at https://openrouter.ai/keys) to your environment.",

@@ -11,6 +11,7 @@ import {
   Check,
   ClipboardList,
   FileText,
+  GraduationCap,
   History,
   Loader2,
   Play,
@@ -33,6 +34,7 @@ import {
 } from "@/components/ui/accordion";
 import { supabase } from "@/integrations/supabase/client";
 import { askCourse } from "@/lib/course-chat.functions";
+import { deadlineStatus, formatDeadline } from "@/lib/course-quiz";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { toast } from "sonner";
@@ -123,6 +125,44 @@ function CourseDetail() {
     },
   });
 
+  // General Course Assessments — lecturer-created, course-wide, separate from
+  // modules. There can be several, each with its own questions and deadline.
+  const { data: generalQuizzes = [] } = useQuery({
+    queryKey: ["course-general-quizzes", user?.id, course?.id],
+    enabled: !!user && !!course?.id,
+    queryFn: async () => {
+      const { data: quizzes } = await supabase.rpc("list_course_quizzes", {
+        _course_id: course!.id,
+      });
+      const list = (quizzes ?? []) as {
+        id: string;
+        title: string;
+        description: string | null;
+        deadline: string | null;
+        question_count: number;
+      }[];
+      const published = list.filter((q) => q.question_count > 0);
+      if (published.length === 0) return [];
+
+      const { data: att } = await supabase
+        .from("quiz_attempts")
+        .select("course_quiz_id, score, total")
+        .eq("user_id", user!.id)
+        .not("finished_at", "is", null)
+        .in(
+          "course_quiz_id",
+          published.map((q) => q.id),
+        );
+      const bestById = new Map<string, number>();
+      for (const a of att ?? []) {
+        if (!a.course_quiz_id) continue;
+        const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
+        if (pct > (bestById.get(a.course_quiz_id) ?? -1)) bestById.set(a.course_quiz_id, pct);
+      }
+      return published.map((q) => ({ ...q, best: bestById.get(q.id) ?? null }));
+    },
+  });
+
   const analytics = useMemo(() => {
     const finished = attempts.filter((a) => a.finished_at);
     const byTopic = new Map<string, { score: number; total: number; count: number }>();
@@ -160,25 +200,25 @@ function CourseDetail() {
     return { perTopic, overall, progress, completed, weak, strong, nextTopic };
   }, [attempts, topics]);
 
-const performanceSummary = useMemo(() => {
-  if (analytics.perTopic.length === 0) return "";
+  const performanceSummary = useMemo(() => {
+    if (analytics.perTopic.length === 0) return "";
 
-  const lines = [
-    `Overall accuracy: ${analytics.overall}%`,
-    `Modules completed: ${analytics.completed}/${topics.length}`,
-    "",
-    "Available course modules and student performance:",
-    ...analytics.perTopic.map((p) => {
-      if (p.accuracy === null) {
-        return `- ${p.topic.title}: Not attempted`;
-      }
+    const lines = [
+      `Overall accuracy: ${analytics.overall}%`,
+      `Modules completed: ${analytics.completed}/${topics.length}`,
+      "",
+      "Available course modules and student performance:",
+      ...analytics.perTopic.map((p) => {
+        if (p.accuracy === null) {
+          return `- ${p.topic.title}: Not attempted`;
+        }
 
-      return `- ${p.topic.title}: ${p.accuracy}% (${p.attempts} attempt${p.attempts === 1 ? "" : "s"})`;
-    }),
-  ];
+        return `- ${p.topic.title}: ${p.accuracy}% (${p.attempts} attempt${p.attempts === 1 ? "" : "s"})`;
+      }),
+    ];
 
-  return lines.join("\n");
-}, [analytics, topics.length]);
+    return lines.join("\n");
+  }, [analytics, topics.length]);
 
   const enroll = useMutation({
     mutationFn: async () => {
@@ -244,27 +284,23 @@ const performanceSummary = useMemo(() => {
     },
   });
 
-const recommendations = useQuery({
-  queryKey: ["course-recs", course?.id, performanceSummary],
-  enabled:
-    !!course &&
-    !!user &&
-    attempts.length > 0 &&
-    !!performanceSummary.trim(),
-  queryFn: async () => {
-    const res = await ask({
-      data: {
-        courseTitle: course!.title,
-        courseSummary: course!.summary ?? undefined,
-        mode: "recommend",
-        performanceSummary,
-      },
-    });
+  const recommendations = useQuery({
+    queryKey: ["course-recs", course?.id, performanceSummary],
+    enabled: !!course && !!user && attempts.length > 0 && !!performanceSummary.trim(),
+    queryFn: async () => {
+      const res = await ask({
+        data: {
+          courseTitle: course!.title,
+          courseSummary: course!.summary ?? undefined,
+          mode: "recommend",
+          performanceSummary,
+        },
+      });
 
-    return res.related === false ? "" : res.answer;
-  },
-  staleTime: 1000 * 60 * 10,
-});
+      return res.related === false ? "" : res.answer;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
 
   const submit = () => {
     const q = input.trim();
@@ -363,6 +399,71 @@ const recommendations = useQuery({
             </div>
           </div>
         </section>
+
+        {/* GENERAL COURSE ASSESSMENTS — lecturer-created, course-wide, not modules */}
+        {user && isEnrolled && generalQuizzes.length > 0 && (
+          <section className="mt-6 rounded-2xl border border-primary/30 bg-primary/5 p-6">
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                <GraduationCap className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="font-display text-lg">General Course Assessments</p>
+                <p className="mt-0.5 max-w-2xl text-sm text-muted-foreground">
+                  These assessments were created by your lecturer and cover material from across the
+                  course. They are separate from the individual module quizzes.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {generalQuizzes.map((q) => {
+                const dl = deadlineStatus(q.deadline);
+                return (
+                  <div
+                    key={q.id}
+                    className="flex flex-col rounded-xl border border-border bg-card p-4"
+                  >
+                    <p className="font-medium">{q.title}</p>
+                    <p className="mt-0.5 text-xs font-medium uppercase tracking-wide text-primary">
+                      Created by your lecturer
+                    </p>
+                    {q.description && (
+                      <p className="mt-1 text-sm text-muted-foreground">{q.description}</p>
+                    )}
+                    <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                      <p>
+                        {q.question_count} {q.question_count === 1 ? "question" : "questions"}
+                      </p>
+                      <p className={dl === "passed" ? "text-destructive" : undefined}>
+                        {dl === "none"
+                          ? "Deadline: No deadline"
+                          : dl === "passed"
+                            ? "Deadline passed"
+                            : `Deadline: ${formatDeadline(q.deadline)}`}
+                      </p>
+                      {q.best != null && <p>Best score: {q.best}%</p>}
+                    </div>
+                    <div className="mt-3">
+                      {dl === "passed" ? (
+                        <Badge variant="outline" className="text-destructive">
+                          Closed
+                        </Badge>
+                      ) : (
+                        <Button asChild size="sm" className="rounded-full">
+                          <Link to="/course-quiz/$quizId" params={{ quizId: q.id }}>
+                            <Brain className="mr-1.5 h-4 w-4" />
+                            {q.best != null ? "Retake Quiz" : "Start Quiz"}
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_300px]">
           <div className="space-y-8">

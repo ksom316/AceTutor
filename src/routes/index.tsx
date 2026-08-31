@@ -388,19 +388,7 @@ function AuthedHome({ userId }: { userId: string }) {
     },
   });
 
-  const { data: role } = useQuery({
-    queryKey: ["home-role", userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .maybeSingle();
-      return (data?.role as string | undefined) ?? "student";
-    },
-  });
-
-  const isLecturer = role === "teacher" || role === "admin";
+  const { isLecturer } = useRole();
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
 
   return (

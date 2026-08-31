@@ -52,10 +52,10 @@ export function useStudentDashboard(userId: string | undefined) {
     enabled: !!userId,
     queryFn: async () => {
       const { data } = await supabase
-      .from("enrollments")
-      .select("course_id, created_at, courses(id, slug, title, summary)")
-      .eq("user_id", userId!)
-      .order("created_at", { ascending: false });
+        .from("enrollments")
+        .select("course_id, created_at, courses(id, slug, title, summary)")
+        .eq("user_id", userId!)
+        .order("created_at", { ascending: false });
       return data ?? [];
     },
   });
@@ -117,6 +117,9 @@ export function useStudentDashboard(userId: string | undefined) {
         .from("quiz_attempts")
         .select("id, score, total, finished_at, topics(title, courses(title, slug))")
         .not("finished_at", "is", null)
+        // Module quizzes only — the General Course Quiz is surfaced on the course
+        // page and must not affect module-centric dashboard stats.
+        .not("topic_id", "is", null)
         .order("finished_at", { ascending: false })
         .limit(6);
       return (data ?? []) as unknown as AttemptRow[];
@@ -147,7 +150,8 @@ export function useStudentDashboard(userId: string | undefined) {
       const { data } = await supabase
         .from("quiz_attempts")
         .select("topic_id, finished_at")
-        .eq("user_id", userId!);
+        .eq("user_id", userId!)
+        .not("topic_id", "is", null);
       return (data ?? []) as unknown as ModuleAttemptRow[];
     },
   });

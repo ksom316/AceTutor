@@ -21,6 +21,9 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as LecturerIndexRouteImport } from './routes/lecturer.index'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as TeachersAuthRouteImport } from './routes/teachers.auth'
+import { Route as LecturerStudentsRouteImport } from './routes/lecturer.students'
+import { Route as LecturerPerformanceRouteImport } from './routes/lecturer.performance'
+import { Route as LecturerMaterialsRouteImport } from './routes/lecturer.materials'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as AuthGoogleRouteImport } from './routes/auth.google'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
@@ -33,10 +36,14 @@ import { Route as AuthenticatedGamesRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAnalyticsRouteImport } from './routes/_authenticated/analytics'
 import { Route as AuthenticatedAboutRouteImport } from './routes/_authenticated/about'
+import { Route as LecturerQuizzesIndexRouteImport } from './routes/lecturer.quizzes.index'
+import { Route as LecturerQuizzesTopicIdRouteImport } from './routes/lecturer.quizzes.$topicId'
 import { Route as AuthenticatedTopicTopicIdRouteImport } from './routes/_authenticated/topic.$topicId'
 import { Route as AuthenticatedResultAttemptIdRouteImport } from './routes/_authenticated/result.$attemptId'
 import { Route as AuthenticatedQuizTopicIdRouteImport } from './routes/_authenticated/quiz.$topicId'
 import { Route as AuthenticatedOnboardingVarkRouteImport } from './routes/_authenticated/onboarding.vark'
+import { Route as AuthenticatedCourseQuizQuizIdRouteImport } from './routes/_authenticated/course-quiz.$quizId'
+import { Route as LecturerQuizzesGeneralQuizIdRouteImport } from './routes/lecturer.quizzes.general.$quizId'
 
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
@@ -96,6 +103,21 @@ const TeachersAuthRoute = TeachersAuthRouteImport.update({
   id: '/auth',
   path: '/auth',
   getParentRoute: () => TeachersRoute,
+} as any)
+const LecturerStudentsRoute = LecturerStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => LecturerRoute,
+} as any)
+const LecturerPerformanceRoute = LecturerPerformanceRouteImport.update({
+  id: '/performance',
+  path: '/performance',
+  getParentRoute: () => LecturerRoute,
+} as any)
+const LecturerMaterialsRoute = LecturerMaterialsRouteImport.update({
+  id: '/materials',
+  path: '/materials',
+  getParentRoute: () => LecturerRoute,
 } as any)
 const CoursesSlugRoute = CoursesSlugRouteImport.update({
   id: '/courses/$slug',
@@ -158,6 +180,16 @@ const AuthenticatedAboutRoute = AuthenticatedAboutRouteImport.update({
   path: '/about',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const LecturerQuizzesIndexRoute = LecturerQuizzesIndexRouteImport.update({
+  id: '/quizzes/',
+  path: '/quizzes/',
+  getParentRoute: () => LecturerRoute,
+} as any)
+const LecturerQuizzesTopicIdRoute = LecturerQuizzesTopicIdRouteImport.update({
+  id: '/quizzes/$topicId',
+  path: '/quizzes/$topicId',
+  getParentRoute: () => LecturerRoute,
+} as any)
 const AuthenticatedTopicTopicIdRoute =
   AuthenticatedTopicTopicIdRouteImport.update({
     id: '/topic/$topicId',
@@ -182,6 +214,18 @@ const AuthenticatedOnboardingVarkRoute =
     path: '/onboarding/vark',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedCourseQuizQuizIdRoute =
+  AuthenticatedCourseQuizQuizIdRouteImport.update({
+    id: '/course-quiz/$quizId',
+    path: '/course-quiz/$quizId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const LecturerQuizzesGeneralQuizIdRoute =
+  LecturerQuizzesGeneralQuizIdRouteImport.update({
+    id: '/quizzes/general/$quizId',
+    path: '/quizzes/general/$quizId',
+    getParentRoute: () => LecturerRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -204,13 +248,20 @@ export interface FileRoutesByFullPath {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/lecturer/materials': typeof LecturerMaterialsRoute
+  '/lecturer/performance': typeof LecturerPerformanceRoute
+  '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses/': typeof CoursesIndexRoute
   '/lecturer/': typeof LecturerIndexRoute
+  '/course-quiz/$quizId': typeof AuthenticatedCourseQuizQuizIdRoute
   '/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
   '/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
   '/topic/$topicId': typeof AuthenticatedTopicTopicIdRoute
+  '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
+  '/lecturer/quizzes/': typeof LecturerQuizzesIndexRoute
+  '/lecturer/quizzes/general/$quizId': typeof LecturerQuizzesGeneralQuizIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -232,13 +283,20 @@ export interface FileRoutesByTo {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/lecturer/materials': typeof LecturerMaterialsRoute
+  '/lecturer/performance': typeof LecturerPerformanceRoute
+  '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses': typeof CoursesIndexRoute
   '/lecturer': typeof LecturerIndexRoute
+  '/course-quiz/$quizId': typeof AuthenticatedCourseQuizQuizIdRoute
   '/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
   '/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
   '/topic/$topicId': typeof AuthenticatedTopicTopicIdRoute
+  '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
+  '/lecturer/quizzes': typeof LecturerQuizzesIndexRoute
+  '/lecturer/quizzes/general/$quizId': typeof LecturerQuizzesGeneralQuizIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -263,13 +321,20 @@ export interface FileRoutesById {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/lecturer/materials': typeof LecturerMaterialsRoute
+  '/lecturer/performance': typeof LecturerPerformanceRoute
+  '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses/': typeof CoursesIndexRoute
   '/lecturer/': typeof LecturerIndexRoute
+  '/_authenticated/course-quiz/$quizId': typeof AuthenticatedCourseQuizQuizIdRoute
   '/_authenticated/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/_authenticated/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
   '/_authenticated/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
   '/_authenticated/topic/$topicId': typeof AuthenticatedTopicTopicIdRoute
+  '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
+  '/lecturer/quizzes/': typeof LecturerQuizzesIndexRoute
+  '/lecturer/quizzes/general/$quizId': typeof LecturerQuizzesGeneralQuizIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -294,13 +359,20 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/google'
     | '/courses/$slug'
+    | '/lecturer/materials'
+    | '/lecturer/performance'
+    | '/lecturer/students'
     | '/teachers/auth'
     | '/courses/'
     | '/lecturer/'
+    | '/course-quiz/$quizId'
     | '/onboarding/vark'
     | '/quiz/$topicId'
     | '/result/$attemptId'
     | '/topic/$topicId'
+    | '/lecturer/quizzes/$topicId'
+    | '/lecturer/quizzes/'
+    | '/lecturer/quizzes/general/$quizId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -322,13 +394,20 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/google'
     | '/courses/$slug'
+    | '/lecturer/materials'
+    | '/lecturer/performance'
+    | '/lecturer/students'
     | '/teachers/auth'
     | '/courses'
     | '/lecturer'
+    | '/course-quiz/$quizId'
     | '/onboarding/vark'
     | '/quiz/$topicId'
     | '/result/$attemptId'
     | '/topic/$topicId'
+    | '/lecturer/quizzes/$topicId'
+    | '/lecturer/quizzes'
+    | '/lecturer/quizzes/general/$quizId'
   id:
     | '__root__'
     | '/'
@@ -352,13 +431,20 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/google'
     | '/courses/$slug'
+    | '/lecturer/materials'
+    | '/lecturer/performance'
+    | '/lecturer/students'
     | '/teachers/auth'
     | '/courses/'
     | '/lecturer/'
+    | '/_authenticated/course-quiz/$quizId'
     | '/_authenticated/onboarding/vark'
     | '/_authenticated/quiz/$topicId'
     | '/_authenticated/result/$attemptId'
     | '/_authenticated/topic/$topicId'
+    | '/lecturer/quizzes/$topicId'
+    | '/lecturer/quizzes/'
+    | '/lecturer/quizzes/general/$quizId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -463,6 +549,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeachersAuthRouteImport
       parentRoute: typeof TeachersRoute
     }
+    '/lecturer/students': {
+      id: '/lecturer/students'
+      path: '/students'
+      fullPath: '/lecturer/students'
+      preLoaderRoute: typeof LecturerStudentsRouteImport
+      parentRoute: typeof LecturerRoute
+    }
+    '/lecturer/performance': {
+      id: '/lecturer/performance'
+      path: '/performance'
+      fullPath: '/lecturer/performance'
+      preLoaderRoute: typeof LecturerPerformanceRouteImport
+      parentRoute: typeof LecturerRoute
+    }
+    '/lecturer/materials': {
+      id: '/lecturer/materials'
+      path: '/materials'
+      fullPath: '/lecturer/materials'
+      preLoaderRoute: typeof LecturerMaterialsRouteImport
+      parentRoute: typeof LecturerRoute
+    }
     '/courses/$slug': {
       id: '/courses/$slug'
       path: '/courses/$slug'
@@ -547,6 +654,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAboutRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/lecturer/quizzes/': {
+      id: '/lecturer/quizzes/'
+      path: '/quizzes'
+      fullPath: '/lecturer/quizzes/'
+      preLoaderRoute: typeof LecturerQuizzesIndexRouteImport
+      parentRoute: typeof LecturerRoute
+    }
+    '/lecturer/quizzes/$topicId': {
+      id: '/lecturer/quizzes/$topicId'
+      path: '/quizzes/$topicId'
+      fullPath: '/lecturer/quizzes/$topicId'
+      preLoaderRoute: typeof LecturerQuizzesTopicIdRouteImport
+      parentRoute: typeof LecturerRoute
+    }
     '/_authenticated/topic/$topicId': {
       id: '/_authenticated/topic/$topicId'
       path: '/topic/$topicId'
@@ -575,6 +696,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedOnboardingVarkRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/course-quiz/$quizId': {
+      id: '/_authenticated/course-quiz/$quizId'
+      path: '/course-quiz/$quizId'
+      fullPath: '/course-quiz/$quizId'
+      preLoaderRoute: typeof AuthenticatedCourseQuizQuizIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/lecturer/quizzes/general/$quizId': {
+      id: '/lecturer/quizzes/general/$quizId'
+      path: '/quizzes/general/$quizId'
+      fullPath: '/lecturer/quizzes/general/$quizId'
+      preLoaderRoute: typeof LecturerQuizzesGeneralQuizIdRouteImport
+      parentRoute: typeof LecturerRoute
+    }
   }
 }
 
@@ -588,6 +723,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedSecurityRoute: typeof AuthenticatedSecurityRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedCourseQuizQuizIdRoute: typeof AuthenticatedCourseQuizQuizIdRoute
   AuthenticatedOnboardingVarkRoute: typeof AuthenticatedOnboardingVarkRoute
   AuthenticatedQuizTopicIdRoute: typeof AuthenticatedQuizTopicIdRoute
   AuthenticatedResultAttemptIdRoute: typeof AuthenticatedResultAttemptIdRoute
@@ -604,6 +740,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedSecurityRoute: AuthenticatedSecurityRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedCourseQuizQuizIdRoute: AuthenticatedCourseQuizQuizIdRoute,
   AuthenticatedOnboardingVarkRoute: AuthenticatedOnboardingVarkRoute,
   AuthenticatedQuizTopicIdRoute: AuthenticatedQuizTopicIdRoute,
   AuthenticatedResultAttemptIdRoute: AuthenticatedResultAttemptIdRoute,
@@ -615,11 +752,23 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 )
 
 interface LecturerRouteChildren {
+  LecturerMaterialsRoute: typeof LecturerMaterialsRoute
+  LecturerPerformanceRoute: typeof LecturerPerformanceRoute
+  LecturerStudentsRoute: typeof LecturerStudentsRoute
   LecturerIndexRoute: typeof LecturerIndexRoute
+  LecturerQuizzesTopicIdRoute: typeof LecturerQuizzesTopicIdRoute
+  LecturerQuizzesIndexRoute: typeof LecturerQuizzesIndexRoute
+  LecturerQuizzesGeneralQuizIdRoute: typeof LecturerQuizzesGeneralQuizIdRoute
 }
 
 const LecturerRouteChildren: LecturerRouteChildren = {
+  LecturerMaterialsRoute: LecturerMaterialsRoute,
+  LecturerPerformanceRoute: LecturerPerformanceRoute,
+  LecturerStudentsRoute: LecturerStudentsRoute,
   LecturerIndexRoute: LecturerIndexRoute,
+  LecturerQuizzesTopicIdRoute: LecturerQuizzesTopicIdRoute,
+  LecturerQuizzesIndexRoute: LecturerQuizzesIndexRoute,
+  LecturerQuizzesGeneralQuizIdRoute: LecturerQuizzesGeneralQuizIdRoute,
 }
 
 const LecturerRouteWithChildren = LecturerRoute._addFileChildren(

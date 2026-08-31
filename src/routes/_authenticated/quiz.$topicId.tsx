@@ -144,7 +144,7 @@
 //           qc.invalidateQueries({ queryKey: ["dash-progress", user!.id] });
 //         }}
 //       />
-//     </main> 
+//     </main>
 //   );
 // }
 
@@ -155,70 +155,84 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
-
-
+import { QuizRunner, type RunnerQuestion } from "@/components/course/QuizRunner";
 
 export const Route = createFileRoute("/_authenticated/quiz/$topicId")({
-  component: QuizRunner,
+  component: ModuleQuizRoute,
 });
 
-type Q = {
-  id: string;
-  prompt: string;
-  choices: string[];
-  difficulty: number;
-};
-
-function QuizRunner() {
+function ModuleQuizRoute() {
   const { topicId } = Route.useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [questions, setQuestions] = useState<Q[]>([]);
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [questions, setQuestions] = useState<RunnerQuestion[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [topicTitle, setTopicTitle] = useState("");
   const [courseId, setCourseId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [noQuiz, setNoQuiz] = useState(false);
 
   // Time spent on the quiz counts towards the topic's course.
   useStudyCourse(courseId);
 
   useEffect(() => {
     if (!user) return;
+    let active = true;
     (async () => {
+      setLoading(true);
       const { data: topic } = await supabase
         .from("topics")
         .select("title, course_id")
         .eq("id", topicId)
         .maybeSingle();
+      if (!active) return;
       setTopicTitle(topic?.title ?? "");
       setCourseId(topic?.course_id ?? null);
 
-      const { data: qs, error } = await supabase.rpc("get_quiz_questions", { _topic_id: topicId, _limit: 30 });
+      const { data: qs, error } = await supabase.rpc("get_quiz_questions", {
+        _topic_id: topicId,
+        _limit: 30,
+      });
+      if (!active) return;
       if (error) {
         toast.error("Could not load questions");
+        setLoading(false);
         return;
       }
-      setQuestions((qs ?? []) as Q[]);
+      const loaded = (qs ?? []) as RunnerQuestion[];
+      setQuestions(loaded);
+
+      // A module without a published quiz can't be started or completed — the
+      // lecturer hasn't added questions yet. Don't record an attempt.
+      if (loaded.length === 0) {
+        setNoQuiz(true);
+        setLoading(false);
+        return;
+      }
 
       const { data: attempt, error: aErr } = await supabase
         .from("quiz_attempts")
         .insert({ user_id: user.id, topic_id: topicId })
         .select("id")
         .single();
+      if (!active) return;
       if (aErr) toast.error(aErr.message);
       else setAttemptId(attempt.id);
+      setLoading(false);
     })();
+    return () => {
+      active = false;
+    };
   }, [user, topicId]);
 
-  const submit = async () => {
+  const onSubmit = async (answers: Record<string, number>) => {
     if (!attemptId) return;
-    if (Object.keys(answers).length < questions.length) {
-      toast.error("Answer every question before submitting");
-      return;
-    }
     setSubmitting(true);
-    const { error } = await supabase.rpc("grade_quiz", { _attempt_id: attemptId, _answers: answers });
+    const { error } = await supabase.rpc("grade_quiz", {
+      _attempt_id: attemptId,
+      _answers: answers,
+    });
     setSubmitting(false);
     if (error) {
       toast.error(error.message);
@@ -227,43 +241,35 @@ function QuizRunner() {
     navigate({ to: "/result/$attemptId", params: { attemptId } });
   };
 
+  if (noQuiz) {
+    return (
+      <main className="container mx-auto flex min-h-[60vh] max-w-2xl items-center justify-center px-4 py-12">
+        <div className="rounded-2xl border border-dashed border-border bg-card/60 p-10 text-center">
+          <h1 className="font-display text-2xl">Quiz not published yet</h1>
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+            {topicTitle ? `"${topicTitle}"` : "This module"} doesn&apos;t have a quiz yet.
+            You&apos;ll need to complete its quiz to finish the module — check back soon.
+          </p>
+          <Button
+            onClick={() => navigate({ to: "/topic/$topicId", params: { topicId } })}
+            className="mt-6 rounded-full"
+          >
+            Back to module
+          </Button>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="container mx-auto max-w-3xl px-4 py-12">
-      <p className="text-xs uppercase tracking-widest text-muted-foreground">Quiz</p>
-      <h1 className="mt-2 font-display text-4xl">{topicTitle}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Answer all questions, then submit for instant feedback.</p>
-
-      <ol className="mt-10 space-y-8">
-        {questions.map((q, idx) => (
-          <li key={q.id} className="rounded-2xl border border-border bg-card p-6">
-            <p className="text-xs uppercase tracking-widest text-muted-foreground">Question {idx + 1}</p>
-            <p className="mt-2 text-lg">{q.prompt}</p>
-            <div className="mt-4 grid gap-2">
-              {q.choices.map((c, ci) => (
-                <label
-                  key={ci}
-                  className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${
-                    answers[q.id] === ci ? "border-accent bg-accent/10" : "border-border hover:bg-muted/40"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name={q.id}
-                    checked={answers[q.id] === ci}
-                    onChange={() => setAnswers({ ...answers, [q.id]: ci })}
-                    className="h-4 w-4 accent-primary"
-                  />
-                  <span className="text-sm">{c}</span>
-                </label>
-              ))}
-            </div>
-          </li>
-        ))}
-      </ol>
-
-      <Button onClick={submit} disabled={submitting || !attemptId} size="lg" className="mt-10">
-        {submitting ? "Grading…" : "Submit answers"}
-      </Button>
-    </main>
+    <QuizRunner
+      eyebrow="Quiz"
+      title={topicTitle}
+      loading={loading}
+      submitting={submitting}
+      attemptReady={!!attemptId}
+      questions={questions}
+      onSubmit={onSubmit}
+    />
   );
 }

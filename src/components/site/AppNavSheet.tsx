@@ -21,6 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { useRole } from "@/hooks/use-role";
 import { cn } from "@/lib/utils";
 import type { User } from "@supabase/supabase-js";
 
@@ -54,6 +55,7 @@ export function AppNavSheet({ user }: { user: User }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { isLecturer } = useRole();
 
   const { data: profile } = useQuery({
     queryKey: ["nav-profile", user.id],
@@ -64,18 +66,6 @@ export function AppNavSheet({ user }: { user: User }) {
         .eq("id", user.id)
         .maybeSingle();
       return data;
-    },
-  });
-
-  const { data: role } = useQuery({
-    queryKey: ["nav-role", user.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      return (data?.role as string | undefined) ?? "student";
     },
   });
 
@@ -94,7 +84,6 @@ export function AppNavSheet({ user }: { user: User }) {
     },
   });
 
-  const isLecturer = role === "teacher" || role === "admin";
   const items = isLecturer ? lecturerItems : studentItems;
   const displayName = profile?.full_name || user.email?.split("@")[0] || "Learner";
   const initials = displayName

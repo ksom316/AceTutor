@@ -276,33 +276,74 @@ export type Database = {
           },
         ];
       };
+      course_quizzes: {
+        Row: {
+          course_id: string;
+          created_at: string;
+          deadline: string | null;
+          description: string | null;
+          id: string;
+          title: string;
+        };
+        Insert: {
+          course_id: string;
+          created_at?: string;
+          deadline?: string | null;
+          description?: string | null;
+          id?: string;
+          title?: string;
+        };
+        Update: {
+          course_id?: string;
+          created_at?: string;
+          deadline?: string | null;
+          description?: string | null;
+          id?: string;
+          title?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "course_quizzes_course_id_fkey";
+            columns: ["course_id"];
+            isOneToOne: false;
+            referencedRelation: "courses";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       questions: {
         Row: {
           choices: Json;
           correct_index: number;
+          course_quiz_id: string | null;
           difficulty: number;
           explanation: string | null;
           id: string;
+          order_index: number;
           prompt: string;
-          topic_id: string;
+          topic_id: string | null;
         };
         Insert: {
           choices: Json;
           correct_index: number;
+          course_quiz_id?: string | null;
           difficulty?: number;
           explanation?: string | null;
           id?: string;
+          order_index?: number;
           prompt: string;
-          topic_id: string;
+          topic_id?: string | null;
         };
         Update: {
           choices?: Json;
           correct_index?: number;
+          course_quiz_id?: string | null;
           difficulty?: number;
           explanation?: string | null;
           id?: string;
+          order_index?: number;
           prompt?: string;
-          topic_id?: string;
+          topic_id?: string | null;
         };
         Relationships: [
           {
@@ -312,33 +353,43 @@ export type Database = {
             referencedRelation: "topics";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "questions_course_quiz_id_fkey";
+            columns: ["course_quiz_id"];
+            isOneToOne: false;
+            referencedRelation: "course_quizzes";
+            referencedColumns: ["id"];
+          },
         ];
       };
       quiz_attempts: {
         Row: {
+          course_quiz_id: string | null;
           finished_at: string | null;
           id: string;
           score: number;
           started_at: string;
-          topic_id: string;
+          topic_id: string | null;
           total: number;
           user_id: string;
         };
         Insert: {
+          course_quiz_id?: string | null;
           finished_at?: string | null;
           id?: string;
           score?: number;
           started_at?: string;
-          topic_id: string;
+          topic_id?: string | null;
           total?: number;
           user_id: string;
         };
         Update: {
+          course_quiz_id?: string | null;
           finished_at?: string | null;
           id?: string;
           score?: number;
           started_at?: string;
-          topic_id?: string;
+          topic_id?: string | null;
           total?: number;
           user_id?: string;
         };
@@ -348,6 +399,13 @@ export type Database = {
             columns: ["topic_id"];
             isOneToOne: false;
             referencedRelation: "topics";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "quiz_attempts_course_quiz_id_fkey";
+            columns: ["course_quiz_id"];
+            isOneToOne: false;
+            referencedRelation: "course_quizzes";
             referencedColumns: ["id"];
           },
         ];
@@ -480,6 +538,51 @@ export type Database = {
         Args: Record<PropertyKey, never>;
         Returns: string;
       };
+      create_module_with_quiz: {
+        Args: { _lessons: Json; _questions: Json; _summary: string; _title: string };
+        Returns: string;
+      };
+      create_course_quiz: {
+        Args: { _deadline?: string | null; _description?: string | null; _title: string };
+        Returns: string;
+      };
+      update_course_quiz: {
+        Args: {
+          _deadline?: string | null;
+          _description?: string | null;
+          _quiz_id: string;
+          _title: string;
+        };
+        Returns: undefined;
+      };
+      delete_course_quiz: {
+        Args: { _quiz_id: string };
+        Returns: undefined;
+      };
+      course_quiz_has_attempts: {
+        Args: { _quiz_id: string };
+        Returns: boolean;
+      };
+      list_course_quizzes: {
+        Args: { _course_id: string };
+        Returns: {
+          created_at: string;
+          deadline: string | null;
+          description: string | null;
+          id: string;
+          question_count: number;
+          title: string;
+        }[];
+      };
+      get_course_quiz_questions: {
+        Args: { _limit?: number; _quiz_id: string };
+        Returns: {
+          choices: Json;
+          difficulty: number;
+          id: string;
+          prompt: string;
+        }[];
+      };
       get_course_quiz_performance: {
         Args: Record<PropertyKey, never>;
         Returns: {
@@ -544,10 +647,18 @@ export type Database = {
         Args: { _course_id: string; _questions: Json; _quiz_title: string; _topic_title: string };
         Returns: string;
       };
+      replace_topic_quiz: {
+        Args: { _questions: Json; _topic_id: string };
+        Returns: undefined;
+      };
+      replace_course_quiz: {
+        Args: { _questions: Json; _quiz_id: string };
+        Returns: string;
+      };
     };
     Enums: {
       app_role: "student" | "teacher" | "admin";
-      modality: "text" | "video" | "audio";
+      modality: "text" | "video" | "audio" | "slides";
       vark_style: "visual" | "aural" | "read_write" | "kinesthetic";
     };
     CompositeTypes: {
@@ -675,7 +786,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["student", "admin"],
-      modality: ["text", "video", "audio"],
+      modality: ["text", "video", "audio", "slides"],
       vark_style: ["visual", "aural", "read_write", "kinesthetic"],
     },
   },

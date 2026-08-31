@@ -1,16 +1,16 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Mail, Lock, ArrowRight } from "lucide-react";
+import { Mail, Lock, ArrowRight, User, GraduationCap, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useRole } from "@/hooks/use-role";
-import { finishPendingLecturerClaim } from "@/lib/lecturer-claim";
+import { verifyLecturerLogin } from "@/lib/lecturer-claim";
 import { GoogleAuthButton } from "@/components/site/GoogleAuthButton";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import logoAsset from "@/assets/ace-logo.jpg";
@@ -19,6 +19,8 @@ const schema = z.object({
   email: z.string().trim().email("Enter a valid email").max(255),
   password: z.string().min(6, "At least 6 characters").max(72),
 });
+
+type AccountType = "student" | "lecturer";
 
 type LoginSearch = {
   redirect?: string;
@@ -37,9 +39,14 @@ function LoginPage() {
   const { redirect } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [accountType, setAccountType] = useState<AccountType>("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [lecturerId, setLecturerId] = useState("");
   const [loading, setLoading] = useState(false);
+  // Once a submit has taken over routing, the "already signed in" effect below
+  // must stand down so it can't fight onSubmit's own navigation / sign-out.
+  const submittedRef = useRef(false);
 
   // Send the user back to wherever they were headed (e.g. a quiz page),
   // falling back to the dashboard.
@@ -47,7 +54,7 @@ function LoginPage() {
 
   // Already signed in (e.g. hit /login directly) → route by the DB-backed role.
   useEffect(() => {
-    if (!user || roleLoading) return;
+    if (submittedRef.current || !user || roleLoading) return;
     navigate({ to: isLecturer ? "/lecturer" : target });
   }, [user, roleLoading, isLecturer, navigate, target]);
 
@@ -58,29 +65,55 @@ function LoginPage() {
       toast.error(parsed.error.issues[0].message);
       return;
     }
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword(parsed.data);
-    if (error) {
-      setLoading(false);
-      toast.error(error.message);
+    if (accountType === "lecturer" && !lecturerId.trim()) {
+      toast.error("Enter your Lecturer ID");
       return;
     }
 
-    // Finish a Lecturer-ID claim started at signup (email-confirmation path),
-    // then route strictly from the database — never from form state.
-    const claim = await finishPendingLecturerClaim();
-    if (claim.status === "failed") toast.error(claim.message);
+    submittedRef.current = true;
+    setLoading(true);
 
-    let destination = target;
-    if (claim.status === "claimed") {
-      destination = "/lecturer";
-    } else {
-      const { data: lecturerCourse } = await supabase.rpc("current_lecturer_course");
-      if (lecturerCourse) destination = "/lecturer";
+    const { data: signIn, error } = await supabase.auth.signInWithPassword(parsed.data);
+    if (error || !signIn.user) {
+      submittedRef.current = false;
+      setLoading(false);
+      toast.error(error?.message ?? "Could not sign in.");
+      return;
+    }
+    const userId = signIn.user.id;
+
+    if (accountType === "lecturer") {
+      // The typed Lecturer ID proves nothing by itself — this checks that the
+      // authenticated account actually owns that slot (RLS) and holds the
+      // teacher role. Never redirects a non-owner into /lecturer.
+      const verified = await verifyLecturerLogin(userId, lecturerId);
+      if (!verified) {
+        await supabase.auth.signOut();
+        setLoading(false);
+        toast.error("Lecturer ID does not match this account.");
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ["user-role"] });
+      setLoading(false);
+      navigate({ to: "/lecturer" });
+      return;
+    }
+
+    // Student sign-in. A genuine student is never a lecturer, so this is a
+    // no-op for them; a lecturer account using the Student option is turned
+    // away rather than routed into the lecturer interface.
+    const { data: lecturerCourse } = await supabase.rpc("current_lecturer_course");
+    if (lecturerCourse) {
+      await supabase.auth.signOut();
+      setLoading(false);
+      toast.error(
+        "This is a lecturer account — sign in with the Lecturer option and your Lecturer ID.",
+      );
+      return;
     }
     await qc.invalidateQueries({ queryKey: ["user-role"] });
     setLoading(false);
-    navigate({ to: destination });
+    navigate({ to: target });
   };
 
   const forgotPassword = async () => {
@@ -121,7 +154,9 @@ function LoginPage() {
             Welcome to <span className="text-primary">AceTutor</span>
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in — students and lecturers use the same login
+            {accountType === "lecturer"
+              ? "Sign in with your email, password and Lecturer ID"
+              : "Sign in to your student workspace"}
           </p>
         </motion.div>
 
@@ -129,6 +164,34 @@ function LoginPage() {
           variants={staggerItem}
           className="mt-8 rounded-2xl border border-border bg-card p-6 shadow-sm"
         >
+          <div className="mb-5">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              I am signing in as
+            </p>
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted p-1">
+              {(["student", "lecturer"] as AccountType[]).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setAccountType(option)}
+                  aria-pressed={accountType === option}
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold transition-colors ${
+                    accountType === option
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {option === "student" ? (
+                    <User className="h-4 w-4" />
+                  ) : (
+                    <GraduationCap className="h-4 w-4" />
+                  )}
+                  {option === "student" ? "Student" : "Lecturer"}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <form onSubmit={onSubmit} className="space-y-5">
             <div className="space-y-1.5">
               <label
@@ -172,6 +235,31 @@ function LoginPage() {
                 />
               </div>
             </div>
+
+            {accountType === "lecturer" && (
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="lecturerId"
+                  className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                >
+                  Lecturer ID
+                </label>
+                <div className="relative">
+                  <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="lecturerId"
+                    placeholder="LECT-001"
+                    value={lecturerId}
+                    onChange={(e) => setLecturerId(e.target.value)}
+                    required
+                    maxLength={20}
+                    autoComplete="off"
+                    className="pl-9 rounded-xl uppercase"
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end">
               <button
                 type="button"
@@ -196,10 +284,14 @@ function LoginPage() {
             </Button>
           </form>
 
-          <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
-            <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
-          </div>
-          <GoogleAuthButton label="Sign in with Google" redirect={target} />
+          {accountType === "student" && (
+            <>
+              <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
+                <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+              </div>
+              <GoogleAuthButton label="Sign in with Google" redirect={target} />
+            </>
+          )}
         </motion.div>
 
         <motion.p variants={staggerItem} className="mt-6 text-center text-sm text-muted-foreground">

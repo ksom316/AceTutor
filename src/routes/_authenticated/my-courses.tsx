@@ -108,6 +108,7 @@ function MyCoursesPage() {
         .from("quiz_attempts")
         .select("score, total, finished_at")
         .not("finished_at", "is", null)
+        .not("topic_id", "is", null)
         .order("finished_at", { ascending: false })
         .limit(20);
       return (data ?? []) as unknown as AttemptRow[];
@@ -152,7 +153,8 @@ function MyCoursesPage() {
       const { data } = await supabase
         .from("quiz_attempts")
         .select("topic_id, finished_at")
-        .eq("user_id", user!.id);
+        .eq("user_id", user!.id)
+        .not("topic_id", "is", null);
       return (data ?? []) as unknown as ModuleAttemptRow[];
     },
   });

@@ -17,8 +17,13 @@ type AttemptDetail = {
   id: string;
   score: number | null;
   total: number | null;
-  topic_id: string;
+  topic_id: string | null;
+  course_quiz_id: string | null;
   topics: { title: string; course_id: string } | null;
+  course_quizzes: {
+    title: string;
+    courses: { id: string; title: string; slug: string } | null;
+  } | null;
 };
 type AnswerRow = {
   question_id: string;
@@ -55,7 +60,9 @@ function ResultPage() {
     queryFn: async () => {
       const { data: attempt } = await supabase
         .from("quiz_attempts")
-        .select("id, score, total, topic_id, topics(title, course_id)")
+        .select(
+          "id, score, total, topic_id, course_quiz_id, topics(title, course_id), course_quizzes(title, courses(id, title, slug))",
+        )
         .eq("id", attemptId)
         .maybeSingle();
       const { data: answers } = await supabase
@@ -71,8 +78,17 @@ function ResultPage() {
     },
   });
 
-  // Time reviewing results counts towards the topic's course.
-  useStudyCourse(data?.attempt?.topics?.course_id ?? null);
+  // Time reviewing results counts towards the quiz's course.
+  useStudyCourse(
+    data?.attempt?.topics?.course_id ?? data?.attempt?.course_quizzes?.courses?.id ?? null,
+  );
+
+  const isCourseQuiz = !!data?.attempt && !data.attempt.topic_id;
+  const resultTitle = isCourseQuiz
+    ? `${data?.attempt?.course_quizzes?.title ?? "General Course Quiz"} · ${
+        data?.attempt?.course_quizzes?.courses?.title ?? "Course"
+      }`
+    : (data?.attempt?.topics?.title ?? "Quiz");
 
   if (isLoading || !data?.attempt) {
     return (
@@ -112,7 +128,7 @@ function ResultPage() {
         transition={{ duration: 0.5, ease: EASE, delay: 0.05 }}
         className="mt-2 font-display text-4xl"
       >
-        {data.attempt.topics?.title}
+        {resultTitle}
       </motion.h1>
 
       {/* Score hero */}
@@ -203,11 +219,21 @@ function ResultPage() {
         transition={{ duration: 0.45 }}
         className="mt-10 flex gap-3"
       >
-        <Button asChild className="transition-transform hover:scale-[1.02] active:scale-95">
-          <Link to="/quiz/$topicId" params={{ topicId: data.attempt.topic_id }}>
-            <RotateCcw className="mr-1.5 h-4 w-4" /> Retry
-          </Link>
-        </Button>
+        {isCourseQuiz ? (
+          data.attempt.course_quiz_id ? (
+            <Button asChild className="transition-transform hover:scale-[1.02] active:scale-95">
+              <Link to="/course-quiz/$quizId" params={{ quizId: data.attempt.course_quiz_id }}>
+                <RotateCcw className="mr-1.5 h-4 w-4" /> Retry
+              </Link>
+            </Button>
+          ) : null
+        ) : data.attempt.topic_id ? (
+          <Button asChild className="transition-transform hover:scale-[1.02] active:scale-95">
+            <Link to="/quiz/$topicId" params={{ topicId: data.attempt.topic_id }}>
+              <RotateCcw className="mr-1.5 h-4 w-4" /> Retry
+            </Link>
+          </Button>
+        ) : null}
         <Button asChild variant="outline">
           <Link to="/dashboard">Back to dashboard</Link>
         </Button>
