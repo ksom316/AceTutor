@@ -5,35 +5,32 @@ import { animate, motion, useInView, useMotionValue, useTransform } from "framer
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 import {
   ArrowRight,
-  ArrowUpRight,
+  BarChart3,
   BookOpen,
   Brain,
+  Gamepad2,
   Headphones,
-  Play,
-  PlayCircle,
+  LayoutDashboard,
   Sparkles,
   Target,
   Trophy,
   Users,
 } from "lucide-react";
 
-import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
-
 import { Header } from "@/components/site/Header";
 import { Footer } from "@/components/site/Footer";
 import { HeroPreview } from "@/components/site/HeroPreview";
+import { FeatureCarousel } from "@/components/site/FeatureCarousel";
+import { EnrolledCoursesCarousel } from "@/components/site/EnrolledCoursesCarousel";
 import { CourseCard } from "@/components/site/CourseCard";
 import { useEnrolledCourses } from "@/hooks/use-enrolled-courses";
 import { Button } from "@/components/ui/button";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useRole } from "@/hooks/use-role";
-import { useStudentDashboard, type PerCourse } from "@/hooks/use-student-dashboard";
-import { courseGradient } from "@/lib/course-visuals";
+import { useStudentDashboard } from "@/hooks/use-student-dashboard";
 import { AppShell } from "@/components/site/AppShell";
 import { supabase } from "@/integrations/supabase/client";
-
-const DONUT_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--muted)"];
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -188,47 +185,8 @@ function VisitorHome() {
         </div>
       </section>
 
-      {/* Pillars */}
-      <section className="container mx-auto max-w-6xl px-4 py-16">
-        <motion.div
-          variants={staggerContainer}
-          initial="hidden"
-          whileInView="show"
-          viewport={viewportOnce}
-          className="grid gap-4 md:grid-cols-3"
-        >
-          {[
-            {
-              icon: Brain,
-              title: "VARK-aware",
-              body: "A quick intake classifies how you process information — visual, aural, read/write, or kinesthetic.",
-            },
-            {
-              icon: PlayCircle,
-              title: "Three modalities",
-              body: "Every topic ships as readable notes, an explainer video, and a focused audio lesson.",
-            },
-            {
-              icon: Target,
-              title: "Adaptive quizzes",
-              body: "Question difficulty scales with your rolling accuracy so you're always working the right edge.",
-            },
-          ].map(({ icon: Icon, title, body }) => (
-            <motion.div
-              key={title}
-              variants={staggerItem}
-              whileHover={{ y: -4 }}
-              className="group rounded-2xl border border-border bg-card p-6 transition-all hover:border-primary/30 hover:shadow-lg"
-            >
-              <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
-                <Icon className="h-5 w-5" />
-              </span>
-              <h3 className="mt-4 text-lg font-semibold text-foreground">{title}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{body}</p>
-            </motion.div>
-          ))}
-        </motion.div>
-      </section>
+      {/* Feature carousel */}
+      <FeatureCarousel />
 
       {/* Courses preview */}
       <section className="container mx-auto max-w-6xl px-4 py-16">
@@ -390,346 +348,108 @@ function AuthedHome({ userId }: { userId: string }) {
 
   const { isLecturer } = useRole();
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
+  const today = new Date().toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-10">
-      {/* Welcome */}
-      <motion.section
-        variants={fadeUp}
-        initial="hidden"
-        animate="show"
-        className="flex flex-wrap items-end justify-between gap-4"
-      >
-        <div>
-          <h1 className="font-display text-3xl tracking-tight md:text-4xl">
-            Welcome back, {firstName} <span className="inline-block">👋</span>
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Let's continue your learning journey.
-          </p>
-        </div>
-        {!profile?.vark_primary && !isLecturer && (
-          <Link
-            to="/onboarding/vark"
-            className="inline-flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-2.5 text-sm text-foreground hover:bg-primary/15"
-          >
-            Take the VARK intake <ArrowRight className="h-4 w-4" />
-          </Link>
-        )}
-      </motion.section>
+    <div className="mx-auto max-w-4xl px-4 py-10">
+      {/* Welcome — a launch pad, not an analytics view. The numbers live on /dashboard. */}
+      <motion.header variants={fadeUp} initial="hidden" animate="show">
+        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          {today}
+        </p>
+        <h1 className="mt-1 font-display text-3xl tracking-tight md:text-4xl">
+          {greetingFor(new Date())}, {firstName}.
+        </h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Pick up where you left off, or jump into something new.
+        </p>
+      </motion.header>
 
-      {isLecturer ? <LecturerPanels /> : <StudentPanels userId={userId} />}
+      {isLecturer ? <LecturerPanels /> : <StudentHub userId={userId} />}
+
+      {!profile?.vark_primary && !isLecturer && (
+        <Link
+          to="/onboarding/vark"
+          className="mt-8 flex items-center justify-between gap-3 rounded-2xl border border-primary/25 bg-primary/10 px-5 py-4 transition-colors hover:bg-primary/15"
+        >
+          <span className="flex items-center gap-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+              <Brain className="h-4 w-4" />
+            </span>
+            <span className="text-sm">
+              <span className="font-medium text-foreground">Take the VARK intake</span>
+              <span className="block text-xs text-muted-foreground">
+                16 quick questions to tailor every lesson to how you learn.
+              </span>
+            </span>
+          </span>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </Link>
+      )}
     </div>
   );
 }
 
-function StudentPanels({ userId }: { userId: string }) {
-  const { perCourse, overallPct, donut, continueCourse, recommended, recentAttempts } =
-    useStudentDashboard(userId);
-  const donutHasData = donut.some((d) => d.value > 0);
+/** Time-of-day greeting so the home header reads differently from the dashboard's. */
+function greetingFor(d: Date) {
+  const h = d.getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
 
-  // The ring is a fill gauge for the same module percentage shown in the centre;
-  // the Completed / In Progress / Not Started counts are listed beneath it.
-  const ring = [
-    { name: "Completed", value: overallPct },
-    { name: "Remaining", value: Math.max(0, 100 - overallPct) },
-  ];
+const HUB_ACTIONS = [
+  { to: "/my-courses", label: "My courses", desc: "Everything you're enrolled in", Icon: BookOpen },
+  {
+    to: "/analytics",
+    label: "Progress & analytics",
+    desc: "Time, accuracy, and trends",
+    Icon: BarChart3,
+  },
+  { to: "/games", label: "Learning games", desc: "Crosswords & word search", Icon: Gamepad2 },
+  {
+    to: "/dashboard",
+    label: "Full dashboard",
+    desc: "Your complete overview",
+    Icon: LayoutDashboard,
+  },
+] as const;
+
+function StudentHub({ userId }: { userId: string }) {
+  const { continueCourse, perCourse } = useStudentDashboard(userId);
 
   return (
     <>
-      {/* Continue learning + progress donut */}
-      <motion.section
+      {/* Your courses — a horizontal scroll carousel of every enrolled course. */}
+      <EnrolledCoursesCarousel courses={perCourse} continueCourse={continueCourse} />
+
+      {/* Quick actions — Home points you somewhere; the numbers and history live there. */}
+      <motion.div
         variants={staggerContainer}
         initial="hidden"
         animate="show"
-        className="mt-8 grid gap-6 lg:grid-cols-[1.5fr_1fr]"
+        className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
       >
-        {/* Continue learning */}
-        <motion.div
-          variants={staggerItem}
-          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-6 text-primary-foreground shadow-lg md:p-8"
-        >
-          <div
-            aria-hidden
-            className="absolute -right-10 -top-10 h-44 w-44 rounded-full bg-white/10 blur-2xl"
-          />
-          <div
-            aria-hidden
-            className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl"
-          />
-          <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
-            Continue learning
-          </p>
-          {continueCourse ? (
-            <>
-              <h2 className="relative mt-2 font-display text-2xl leading-tight md:text-3xl">
-                {continueCourse.title}
-              </h2>
-              <p className="relative mt-1 text-sm text-primary-foreground/80">
-                {continueCourse.done}/{continueCourse.total || "—"} lessons complete
-              </p>
-              <div className="relative mt-5 h-2 w-full max-w-sm overflow-hidden rounded-full bg-white/25">
-                <motion.div
-                  className="h-full rounded-full bg-white"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${continueCourse.pct}%` }}
-                  transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
-                />
-              </div>
-              <p className="relative mt-1.5 text-xs text-primary-foreground/80">
-                {continueCourse.pct}% complete
-              </p>
-              <Link
-                to="/courses/$slug"
-                params={{ slug: continueCourse.slug }}
-                className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
-              >
-                <Play className="h-4 w-4 fill-primary" /> Resume course
-              </Link>
-            </>
-          ) : (
-            <>
-              <h2 className="relative mt-2 font-display text-2xl leading-tight md:text-3xl">
-                Start your first course
-              </h2>
-              <p className="relative mt-1 max-w-sm text-sm text-primary-foreground/80">
-                Browse the catalog and enroll to begin tracking your progress here.
-              </p>
-              <Link
-                to="/courses"
-                className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
-              >
-                <BookOpen className="h-4 w-4" /> Browse courses
-              </Link>
-            </>
-          )}
-        </motion.div>
-
-        {/* Progress donut */}
-        <motion.div
-          variants={staggerItem}
-          className="rounded-3xl border border-border bg-card p-6 shadow-sm"
-        >
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-lg">Your progress</h2>
-            <Target className="h-4 w-4 text-primary" />
-          </div>
-          <div className="relative mt-2 h-40">
-            {donutHasData ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={ring}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={52}
-                    outerRadius={70}
-                    paddingAngle={3}
-                    stroke="var(--card)"
-                    strokeWidth={2}
-                    startAngle={90}
-                    endAngle={-270}
-                  >
-                    <Cell fill={DONUT_COLORS[0]} />
-                    <Cell fill={DONUT_COLORS[2]} />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="grid h-full place-items-center text-center">
-                <div>
-                  <div className="font-display text-3xl">{overallPct}%</div>
-                  <div className="text-[11px] text-muted-foreground">overall</div>
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Start a lesson to track progress
-                  </div>
-                </div>
-              </div>
-            )}
-            {donutHasData && (
-              <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                <div className="text-center">
-                  <div className="font-display text-3xl">{overallPct}%</div>
-                  <div className="text-[11px] text-muted-foreground">overall</div>
-                </div>
-              </div>
-            )}
-          </div>
-          <ul className="mt-3 space-y-1.5 text-xs">
-            {donut.map((d, i) => (
-              <li key={d.name} className="flex items-center justify-between">
-                <span className="flex items-center gap-2 text-muted-foreground">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ background: DONUT_COLORS[i] }}
-                  />
-                  {d.name}
-                </span>
-                <span className="font-medium">{d.value}</span>
-              </li>
-            ))}
-          </ul>
-        </motion.div>
-      </motion.section>
-
-      {/* My courses */}
-      <section className="mt-10">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-display text-xl">My courses</h2>
-          <Link
-            to="/my-courses"
-            className="inline-flex items-center text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            View all <ArrowRight className="ml-1 h-3.5 w-3.5" />
-          </Link>
-        </div>
-        {perCourse.length > 0 ? (
-          <motion.div
-            variants={staggerContainer}
-            initial="hidden"
-            whileInView="show"
-            viewport={viewportOnce}
-            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-          >
-            {perCourse.map((c, i) => (
-              <CourseProgressCard key={c.id} course={c} index={i} />
-            ))}
+        {HUB_ACTIONS.map(({ to, label, desc, Icon }) => (
+          <motion.div key={to} variants={staggerItem} whileHover={{ y: -3 }}>
+            <Link
+              to={to}
+              className="group flex h-full flex-col rounded-2xl border border-border bg-card p-4 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+            >
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary transition-transform group-hover:scale-110">
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="mt-3 text-sm font-semibold">{label}</span>
+              <span className="mt-0.5 text-xs text-muted-foreground">{desc}</span>
+            </Link>
           </motion.div>
-        ) : (
-          <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
-            <p className="text-sm text-muted-foreground">You're not enrolled in any course yet.</p>
-            <Button asChild className="mt-4 rounded-full">
-              <Link to="/courses">Browse courses</Link>
-            </Button>
-          </div>
-        )}
-      </section>
-
-      {/* Recent activity */}
-      <section className="mt-10 grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-lg">Recent quiz attempts</h2>
-            <Trophy className="h-4 w-4 text-primary" />
-          </div>
-          {recentAttempts.length ? (
-            <ul className="divide-y divide-border/70">
-              {recentAttempts.map((a) => {
-                const pct = a.total ? Math.round(((a.score ?? 0) / a.total) * 100) : 0;
-                return (
-                  <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{a.topics?.title ?? "Quiz"}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {a.topics?.courses?.title}
-                      </p>
-                    </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        pct >= 70 ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
-                      }`}
-                    >
-                      {a.score}/{a.total} · {pct}%
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No quizzes yet — take one to see your scores here.
-            </p>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-display text-lg">Recommended for you</h2>
-            <Sparkles className="h-4 w-4 text-primary" />
-          </div>
-          {recommended.length ? (
-            <ul className="space-y-1">
-              {recommended.map((c) => (
-                <li key={c.id}>
-                  <Link
-                    to="/courses/$slug"
-                    params={{ slug: c.slug }}
-                    className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-secondary"
-                  >
-                    <span className="truncate">{c.title}</span>
-                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="py-2">
-              <p className="text-sm text-muted-foreground">
-                You're making progress everywhere — explore the catalog for something new.
-              </p>
-              <Button asChild variant="outline" size="sm" className="mt-3 rounded-full">
-                <Link to="/courses">Browse catalog</Link>
-              </Button>
-            </div>
-          )}
-        </div>
-      </section>
+        ))}
+      </motion.div>
     </>
-  );
-}
-
-/** A "My courses" card with a gradient thumbnail banner, status pill, and progress bar. */
-function CourseProgressCard({ course, index }: { course: PerCourse; index: number }) {
-  const status =
-    course.pct >= 100
-      ? { label: "Completed", className: "bg-success/15 text-success" }
-      : course.touched > 0
-        ? { label: "In Progress", className: "bg-primary/10 text-primary" }
-        : { label: "Not Started", className: "bg-muted text-muted-foreground" };
-
-  return (
-    <motion.div variants={staggerItem} whileHover={{ y: -4 }}>
-      <Link
-        to="/courses/$slug"
-        params={{ slug: course.slug }}
-        className="group block h-full overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all hover:border-primary/40 hover:shadow-lg"
-      >
-        {/* Gradient thumbnail */}
-        <div className="relative h-24" style={{ background: courseGradient(index) }}>
-          <span className="absolute left-4 top-4 grid h-9 w-9 place-items-center rounded-xl bg-white/25 text-white backdrop-blur-sm">
-            <BookOpen className="h-5 w-5" />
-          </span>
-          <span
-            className={`absolute right-3 top-3 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold shadow-sm ${status.className}`}
-          >
-            {status.label}
-          </span>
-        </div>
-
-        {/* Body */}
-        <div className="p-5">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="line-clamp-1 font-display text-lg">{course.title}</h3>
-            <ArrowUpRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {course.total > 0 ? `${course.total} lessons` : "Lessons coming soon"}
-          </p>
-          <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-            <motion.div
-              className="h-full rounded-full bg-primary"
-              initial={{ width: 0 }}
-              whileInView={{ width: `${course.pct}%` }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-            />
-          </div>
-          <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">
-            {course.pct}% complete
-          </p>
-        </div>
-      </Link>
-    </motion.div>
   );
 }
 

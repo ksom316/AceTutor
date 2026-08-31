@@ -101,11 +101,14 @@ function Dashboard() {
         <div className="min-w-0 space-y-6">
           {/* Welcome */}
           <motion.div variants={fadeUp} initial="hidden" animate="show">
-            <h1 className="font-display text-3xl md:text-4xl">
-              Welcome back, {firstName} <span className="inline-block">👋</span>
+            <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Dashboard
+            </p>
+            <h1 className="mt-1 font-display text-3xl md:text-4xl">
+              {firstName}'s learning overview
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Let's continue your learning journey.
+              Progress, study time, and quiz history across every course.
             </p>
           </motion.div>
 
