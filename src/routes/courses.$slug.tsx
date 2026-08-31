@@ -1,5 +1,5 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import ReactMarkdown from "react-markdown";
@@ -20,6 +20,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  X,
 } from "lucide-react";
 import { PageShell } from "@/components/site/PageShell";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,8 @@ function CourseDetail() {
   const ask = useServerFn(askCourse);
   const [input, setInput] = useState("");
   const [activeModule, setActiveModule] = useState<TopicRow | null>(null);
+  const [showTutorResponse, setShowTutorResponse] = useState(true);
+  const tutorAbort = useRef<AbortController | null>(null);
 
   const { data: course, isLoading } = useQuery({
     queryKey: ["course", slug],
@@ -254,6 +257,11 @@ function CourseDetail() {
   });
 
   const tutor = useMutation({
+    onMutate: () => {
+      // Abort any request still running from a previous ask.
+      tutorAbort.current?.abort();
+      setShowTutorResponse(true);
+    },
     mutationFn: async (vars: {
       mode: "general" | "ask" | "explain" | "quiz" | "summarize" | "test";
       question?: string;
@@ -269,7 +277,11 @@ function CourseDetail() {
         throw new Error("Your session has expired. Please refresh the page and sign in again.");
       }
 
+      const controller = new AbortController();
+      tutorAbort.current = controller;
+
       return ask({
+        signal: controller.signal,
         data: {
           courseId: course.id,
           courseTitle: course.title,
@@ -282,7 +294,14 @@ function CourseDetail() {
         },
       });
     },
+    onSettled: () => {
+      tutorAbort.current = null;
+    },
     onError: (error: Error) => {
+      // The user cancelled the response — nothing to report.
+      if (error.name === "AbortError" || error.message.toLowerCase().includes("abort")) {
+        return;
+      }
       if (
         error.message.includes("Session expired") ||
         error.message.includes("session has expired")
@@ -557,8 +576,20 @@ function CourseDetail() {
                     </div>
                   </form>
 
-                  {(tutor.isPending || tutor.data || tutor.isError) && (
-                    <div className="mt-3 rounded-xl border border-border bg-background/50 p-5">
+                  {(tutor.isPending || tutor.data || tutor.isError) && showTutorResponse && (
+                    <div className="relative mt-3 rounded-xl border border-border bg-background/50 p-5 pr-12">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          tutorAbort.current?.abort();
+                          tutor.reset();
+                          setShowTutorResponse(false);
+                        }}
+                        className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        aria-label={tutor.isPending ? "Stop response" : "Dismiss response"}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
                       {tutor.isPending && (
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
@@ -627,7 +658,7 @@ function CourseDetail() {
                     ))}
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       className="rounded-full"
                       disabled={tutor.isPending}
