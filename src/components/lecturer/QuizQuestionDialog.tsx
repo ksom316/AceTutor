@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { HelpCircle, Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DIFFICULTY_HELP, DIFFICULTY_HELP_NOTE } from "@/lib/quiz-difficulty";
 import {
   Dialog,
   DialogContent,
@@ -148,7 +150,35 @@ export function QuizQuestionDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Difficulty</Label>
+            <div className="flex items-center gap-1.5">
+              <Label>Difficulty</Label>
+              <Popover>
+                <PopoverTrigger
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label="How does difficulty work?"
+                >
+                  <HelpCircle className="h-3.5 w-3.5" />
+                  How does difficulty work?
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-80 text-xs">
+                  <p className="text-sm font-medium">How difficulty works</p>
+                  <dl className="mt-2 space-y-2">
+                    {DIFFICULTY_HELP.filter((h) => ["Easy", "Medium", "Hard"].includes(h.term)).map(
+                      (h) => (
+                        <div key={h.term}>
+                          <dt className="font-medium text-foreground">{h.term}</dt>
+                          <dd className="text-muted-foreground">{h.body}</dd>
+                        </div>
+                      ),
+                    )}
+                  </dl>
+                  <p className="mt-3 border-t border-border pt-2 text-muted-foreground">
+                    {DIFFICULTY_HELP_NOTE}
+                  </p>
+                </PopoverContent>
+              </Popover>
+            </div>
             <Select value={String(difficulty)} onValueChange={(v) => setDifficulty(Number(v))}>
               <SelectTrigger className="sm:w-56">
                 <SelectValue />

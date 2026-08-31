@@ -9,6 +9,11 @@ import {
   MIN_ANALYSABLE_CHARS,
   type QuizSourceInfo,
 } from "@/lib/quiz-capability";
+import {
+  type DifficultyMode,
+  difficultyModePromptInstruction,
+  normaliseDifficultyForMode,
+} from "@/lib/quiz-difficulty";
 
 /**
  * Server-side AI quiz generation. The OpenRouter key never reaches the browser.
@@ -23,10 +28,18 @@ import {
  * QUIZ_GEN_ERROR_MESSAGES); the UI maps codes to friendly text.
  */
 
+/** Lecturer-chosen difficulty mode for AI generation. Optional; defaults to
+ *  "ai" (the model decides per question) so existing callers are unchanged. */
+const difficultyModeSchema = z
+  .enum(["ai", "easy", "medium", "hard", "mixed"])
+  .optional()
+  .default("ai");
+
 const schema = z.union([
   z.object({
     topicId: z.string().uuid(),
     questionCount: z.number().int().min(1).max(50),
+    difficulty: difficultyModeSchema,
   }),
   z.object({
     draftModule: z.object({
@@ -37,6 +50,7 @@ const schema = z.union([
       content: z.string().max(30_000).optional(),
     }),
     questionCount: z.number().int().min(1).max(50),
+    difficulty: difficultyModeSchema,
   }),
   z.object({
     /** A specific General Course Quiz — questions cover the whole course. The
@@ -46,6 +60,7 @@ const schema = z.union([
     courseWide: z.literal(true),
     courseQuizId: z.string().uuid(),
     questionCount: z.number().int().min(1).max(50),
+    difficulty: difficultyModeSchema,
   }),
 ]);
 
@@ -202,6 +217,18 @@ function parseQuestions(
   return { questions: out, rawCount: list.length };
 }
 
+/** Snap every generated question's `difficulty` into the band the lecturer
+ *  chose, so the stored 1–5 value always matches the selected mode. */
+function applyDifficultyMode(
+  questions: GeneratedQuestion[],
+  mode: DifficultyMode,
+): GeneratedQuestion[] {
+  return questions.map((q) => ({
+    ...q,
+    difficulty: normaliseDifficultyForMode(q.difficulty, mode),
+  }));
+}
+
 async function generateFrom(
   moduleTitle: string,
   moduleSummary: string | null,
@@ -209,15 +236,20 @@ async function generateFrom(
   count: number,
   strictGrounding: boolean,
   scope: "module" | "course" = "module",
+  difficultyMode: DifficultyMode = "ai",
 ): Promise<GeneratedQuestion[]> {
   const unit = scope === "course" ? "course" : "module";
-  const system = strictGrounding
-    ? `You write multiple-choice quiz questions for a university ${unit}. Use ONLY the SOURCE MATERIAL supplied by the user. Do not use outside knowledge. Never invent facts, terms, names, numbers, or definitions that are not stated in the material. Every question, its correct answer, and every distractor must be checkable against the material.${
-        scope === "course"
-          ? " Spread the questions across the different modules represented in the material rather than focusing on one."
-          : ""
-      } If the material cannot support the number of questions requested, return fewer good questions rather than padding with weak or invented ones. Do not write 'All of the above' or 'None of the above' options. No two questions may test the same fact. Respond with strict JSON only, no prose, no code fences.`
-    : "You write foundational multiple-choice quiz questions for a brand-new university module that has no learning materials yet. Base the questions on the module's stated topic and description. Keep them foundational, unambiguous, and widely agreed. Do not write 'All of the above' or 'None of the above'. No two questions may test the same fact. Respond with strict JSON only, no prose, no code fences.";
+  const difficultyInstruction = difficultyModePromptInstruction(difficultyMode);
+  const system =
+    (strictGrounding
+      ? `You write multiple-choice quiz questions for a university ${unit}. Use ONLY the SOURCE MATERIAL supplied by the user. Do not use outside knowledge. Never invent facts, terms, names, numbers, or definitions that are not stated in the material. Every question, its correct answer, and every distractor must be checkable against the material.${
+          scope === "course"
+            ? " Spread the questions across the different modules represented in the material rather than focusing on one."
+            : ""
+        } If the material cannot support the number of questions requested, return fewer good questions rather than padding with weak or invented ones. Do not write 'All of the above' or 'None of the above' options. No two questions may test the same fact.`
+      : "You write foundational multiple-choice quiz questions for a brand-new university module that has no learning materials yet. Base the questions on the module's stated topic and description. Keep them foundational, unambiguous, and widely agreed. Do not write 'All of the above' or 'None of the above'. No two questions may test the same fact.") +
+    ` ${difficultyInstruction}` +
+    " Respond with strict JSON only, no prose, no code fences.";
 
   const user = `${scope === "course" ? "COURSE" : "MODULE"}
 Title: ${moduleTitle}
@@ -233,9 +265,9 @@ ${
 
 Write up to ${count} multiple-choice questions.
 - Each question: exactly 4 options, exactly one correct.
-- Mix recall, understanding, and application where possible.
 - Distractors must be plausible but clearly wrong.
-- "difficulty" is 1 (easy) to 5 (hard).
+- ${difficultyInstruction}
+- "difficulty" is an integer from 1 (easy) to 5 (hard).
 Respond ONLY with JSON of this exact shape:
 { "questions": [ { "prompt": string, "choices": [string, string, string, string], "correctIndex": 0, "explanation": string, "difficulty": 3 } ] }`;
 
@@ -248,7 +280,7 @@ Respond ONLY with JSON of this exact shape:
   console.info(
     `[generateModuleQuiz] AI request — maxTokens=${maxTokens}, promptChars=${
       system.length + user.length
-    }, sourceChars=${sourceText.length}`,
+    }, sourceChars=${sourceText.length}, difficulty=${difficultyMode}`,
   );
 
   const attempt = async (jsonMode: boolean): Promise<GeneratedQuestion[]> => {
@@ -301,7 +333,10 @@ export const generateModuleQuiz = createServerFn({ method: "POST" })
         : "courseWide" in data
           ? "course-wide"
           : "existing-module";
-    console.info(`[generateModuleQuiz] start — mode=${mode}, count=${count}`);
+    const difficultyMode: DifficultyMode = data.difficulty;
+    console.info(
+      `[generateModuleQuiz] start — mode=${mode}, count=${count}, difficulty=${difficultyMode}`,
+    );
 
     const { data: lecturerCourseId } = await supabase.rpc("current_lecturer_course");
     if (!lecturerCourseId) throw new Error("NOT_A_LECTURER");
@@ -320,6 +355,8 @@ export const generateModuleQuiz = createServerFn({ method: "POST" })
           grounded ? content : "",
           count,
           grounded,
+          "module",
+          difficultyMode,
         );
       } catch (err) {
         console.error(
@@ -328,6 +365,7 @@ export const generateModuleQuiz = createServerFn({ method: "POST" })
           }`,
         );
       }
+      questions = applyDifficultyMode(questions, difficultyMode);
       console.info(
         `[generateModuleQuiz] new-module — grounded=${grounded}, final question count=${questions.length}`,
       );
@@ -412,6 +450,7 @@ export const generateModuleQuiz = createServerFn({ method: "POST" })
           count,
           true,
           "course",
+          difficultyMode,
         );
       } catch (err) {
         console.error(
@@ -421,6 +460,7 @@ export const generateModuleQuiz = createServerFn({ method: "POST" })
         );
         throw new Error("AI_GENERATION_FAILED");
       }
+      questions = applyDifficultyMode(questions, difficultyMode);
       console.info(`[generateModuleQuiz] course-wide final question count: ${questions.length}`);
       if (questions.length === 0) throw new Error("AI_GENERATION_FAILED");
       return { questions, requested: count, generated: questions.length, sources };
@@ -464,13 +504,22 @@ export const generateModuleQuiz = createServerFn({ method: "POST" })
 
     let questions: GeneratedQuestion[] = [];
     try {
-      questions = await generateFrom(topic.title, topic.summary, text, count, true);
+      questions = await generateFrom(
+        topic.title,
+        topic.summary,
+        text,
+        count,
+        true,
+        "module",
+        difficultyMode,
+      );
     } catch (err) {
       console.error(
         `[generateModuleQuiz] generation threw: ${err instanceof Error ? err.message : String(err)}`,
       );
       throw new Error("AI_GENERATION_FAILED");
     }
+    questions = applyDifficultyMode(questions, difficultyMode);
     console.info(`[generateModuleQuiz] final question count: ${questions.length}`);
     if (questions.length === 0) {
       console.error(

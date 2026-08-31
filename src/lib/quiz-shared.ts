@@ -18,12 +18,16 @@ export type QuizDraft = {
 };
 export type QuizQuestionRow = QuizDraft & { id: string; order_index: number };
 
+/**
+ * The 1–5 `questions.difficulty` scale, grouped into the same bands the AI
+ * difficulty modes use: Easy = 1–2, Medium = 3, Hard = 4–5.
+ */
 export const DIFFICULTY_LABEL: Record<number, string> = {
   1: "1 — Easy",
-  2: "2 — Light",
+  2: "2 — Easy",
   3: "3 — Medium",
   4: "4 — Hard",
-  5: "5 — Challenging",
+  5: "5 — Hard",
 };
 
 export function blankDraft(): QuizDraft {

@@ -65,6 +65,8 @@ import {
   localTimezoneLabel,
   toDatetimeLocalValue,
 } from "@/lib/course-quiz";
+import { DEFAULT_DIFFICULTY_MODE, type DifficultyMode } from "@/lib/quiz-difficulty";
+import { DifficultyModeField } from "@/components/lecturer/DifficultyModeField";
 
 /**
  * Shared quiz builder for both a module quiz (`kind: "topic"`) and one of a
@@ -103,6 +105,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const [deleteTarget, setDeleteTarget] = useState<QuizQuestionRow | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiCount, setAiCount] = useState("10");
+  const [aiDifficulty, setAiDifficulty] = useState<DifficultyMode>(DEFAULT_DIFFICULTY_MODE);
   const [generating, setGenerating] = useState(false);
   const [review, setReview] = useState<{ items: QuizDraft[]; result: QuizGenResult } | null>(null);
   const [confirmReplace, setConfirmReplace] = useState(false);
@@ -480,9 +483,16 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     try {
       const res =
         scope.kind === "topic"
-          ? await runGenerate({ data: { topicId: scope.topicId, questionCount: n } })
+          ? await runGenerate({
+              data: { topicId: scope.topicId, questionCount: n, difficulty: aiDifficulty },
+            })
           : await runGenerate({
-              data: { courseWide: true, courseQuizId: scope.courseQuizId, questionCount: n },
+              data: {
+                courseWide: true,
+                courseQuizId: scope.courseQuizId,
+                questionCount: n,
+                difficulty: aiDifficulty,
+              },
             });
       setReview({ items: res.questions.map((q) => ({ ...q })), result: res });
       setAiOpen(false);
@@ -896,6 +906,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                       : ""}
                   </p>
                 </div>
+                <DifficultyModeField value={aiDifficulty} onChange={setAiDifficulty} />
               </>
             ) : (
               <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-muted-foreground">

@@ -44,6 +44,8 @@ import {
 } from "@/lib/quiz-shared";
 import { generateModuleQuiz, type QuizGenResult } from "@/lib/lecturer-quiz.functions";
 import { quizGenErrorMessage } from "@/lib/quiz-capability";
+import { DEFAULT_DIFFICULTY_MODE, type DifficultyMode } from "@/lib/quiz-difficulty";
+import { DifficultyModeField } from "@/components/lecturer/DifficultyModeField";
 
 /**
  * Three-step "Create module" flow: module details → course content → quiz.
@@ -79,6 +81,7 @@ export function CreateModuleDialog({
     null,
   );
   const [aiCount, setAiCount] = useState("10");
+  const [aiDifficulty, setAiDifficulty] = useState<DifficultyMode>(DEFAULT_DIFFICULTY_MODE);
   const [generating, setGenerating] = useState(false);
   const [review, setReview] = useState<{ items: QuizDraft[]; result: QuizGenResult } | null>(null);
 
@@ -94,6 +97,7 @@ export function CreateModuleDialog({
     setQuestions([]);
     setQDialog(null);
     setAiCount("10");
+    setAiDifficulty(DEFAULT_DIFFICULTY_MODE);
     setReview(null);
     setSubmitting(false);
   };
@@ -171,6 +175,7 @@ export function CreateModuleDialog({
             content: content || undefined,
           },
           questionCount: n,
+          difficulty: aiDifficulty,
         },
       });
       setReview({ items: res.questions.map((q) => ({ ...q })), result: res });
@@ -601,6 +606,15 @@ export function CreateModuleDialog({
                     AI drafts questions from the module title, description and any text you added in
                     the course content. Every draft is reviewed before it&apos;s added. AI is
                     optional — you can add questions manually.
+                  </p>
+                  <DifficultyModeField
+                    value={aiDifficulty}
+                    onChange={setAiDifficulty}
+                    disabled={generating}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Difficulty applies to the questions AI generates. You can still change any
+                    question&apos;s difficulty afterwards.
                   </p>
 
                   {questions.length === 0 ? (
