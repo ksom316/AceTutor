@@ -94,7 +94,7 @@ export function AppNavSheet({ user }: { user: User }) {
     },
   });
 
-  const isLecturer = role === "lecturer" || role === "admin";
+  const isLecturer = role === "teacher" || role === "admin";
   const items = isLecturer ? lecturerItems : studentItems;
   const displayName = profile?.full_name || user.email?.split("@")[0] || "Learner";
   const initials = displayName

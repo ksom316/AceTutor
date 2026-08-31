@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { animate, motion, useInView, useMotionValue, useTransform } from "framer-motion";
@@ -27,6 +27,7 @@ import { useEnrolledCourses } from "@/hooks/use-enrolled-courses";
 import { Button } from "@/components/ui/button";
 
 import { useAuth } from "@/hooks/use-auth";
+import { useRole } from "@/hooks/use-role";
 import { useStudentDashboard, type PerCourse } from "@/hooks/use-student-dashboard";
 import { courseGradient } from "@/lib/course-visuals";
 import { AppShell } from "@/components/site/AppShell";
@@ -40,11 +41,21 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   const { user, loading } = useAuth();
+  const { isLecturer, loading: roleLoading } = useRole();
+  const navigate = useNavigate();
+
+  // A claimed lecturer's home is the lecturer workspace, not the student one.
+  useEffect(() => {
+    if (user && !roleLoading && isLecturer) navigate({ to: "/lecturer" });
+  }, [user, roleLoading, isLecturer, navigate]);
 
   // Signed in → the same sidebar shell as the student workspace, so the home
   // page and the workspace share one navigation. Visitors keep the marketing
   // chrome (floating header + footer).
   if (user) {
+    if (roleLoading || isLecturer) {
+      return <div className="min-h-screen" />;
+    }
     return (
       <AppShell user={user}>
         <AuthedHome userId={user.id} />
@@ -389,7 +400,7 @@ function AuthedHome({ userId }: { userId: string }) {
     },
   });
 
-  const isLecturer = role === "lecturer" || role === "admin";
+  const isLecturer = role === "teacher" || role === "admin";
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
 
   return (
@@ -428,6 +439,13 @@ function StudentPanels({ userId }: { userId: string }) {
   const { perCourse, overallPct, donut, continueCourse, recommended, recentAttempts } =
     useStudentDashboard(userId);
   const donutHasData = donut.some((d) => d.value > 0);
+
+  // The ring is a fill gauge for the same module percentage shown in the centre;
+  // the Completed / In Progress / Not Started counts are listed beneath it.
+  const ring = [
+    { name: "Completed", value: overallPct },
+    { name: "Remaining", value: Math.max(0, 100 - overallPct) },
+  ];
 
   return (
     <>
@@ -513,7 +531,7 @@ function StudentPanels({ userId }: { userId: string }) {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={donut}
+                    data={ring}
                     dataKey="value"
                     nameKey="name"
                     innerRadius={52}
@@ -524,9 +542,8 @@ function StudentPanels({ userId }: { userId: string }) {
                     startAngle={90}
                     endAngle={-270}
                   >
-                    {donut.map((_, i) => (
-                      <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                    ))}
+                    <Cell fill={DONUT_COLORS[0]} />
+                    <Cell fill={DONUT_COLORS[2]} />
                   </Pie>
                 </PieChart>
               </ResponsiveContainer>

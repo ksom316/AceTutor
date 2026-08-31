@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -8,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useRole } from "@/hooks/use-role";
+import { finishPendingLecturerClaim } from "@/lib/lecturer-claim";
 import { GoogleAuthButton } from "@/components/site/GoogleAuthButton";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import logoAsset from "@/assets/ace-logo.jpg";
@@ -30,8 +33,10 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const { user } = useAuth();
+  const { isLecturer, loading: roleLoading } = useRole();
   const { redirect } = Route.useSearch();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,9 +45,11 @@ function LoginPage() {
   // falling back to the dashboard.
   const target = redirect?.startsWith("/") ? redirect : "/dashboard";
 
+  // Already signed in (e.g. hit /login directly) → route by the DB-backed role.
   useEffect(() => {
-    if (user) navigate({ to: target });
-  }, [user, navigate, target]);
+    if (!user || roleLoading) return;
+    navigate({ to: isLecturer ? "/lecturer" : target });
+  }, [user, roleLoading, isLecturer, navigate, target]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,9 +60,27 @@ function LoginPage() {
     }
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword(parsed.data);
+    if (error) {
+      setLoading(false);
+      toast.error(error.message);
+      return;
+    }
+
+    // Finish a Lecturer-ID claim started at signup (email-confirmation path),
+    // then route strictly from the database — never from form state.
+    const claim = await finishPendingLecturerClaim();
+    if (claim.status === "failed") toast.error(claim.message);
+
+    let destination = target;
+    if (claim.status === "claimed") {
+      destination = "/lecturer";
+    } else {
+      const { data: lecturerCourse } = await supabase.rpc("current_lecturer_course");
+      if (lecturerCourse) destination = "/lecturer";
+    }
+    await qc.invalidateQueries({ queryKey: ["user-role"] });
     setLoading(false);
-    if (error) toast.error(error.message);
-    else navigate({ to: target });
+    navigate({ to: destination });
   };
 
   const forgotPassword = async () => {
@@ -96,7 +121,7 @@ function LoginPage() {
             Welcome to <span className="text-primary">AceTutor</span>
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in to your organization or teacher workspace
+            Sign in — students and lecturers use the same login
           </p>
         </motion.div>
 
@@ -180,7 +205,7 @@ function LoginPage() {
         <motion.p variants={staggerItem} className="mt-6 text-center text-sm text-muted-foreground">
           New to AceTutor?{" "}
           <Link to="/signup" className="font-semibold text-primary hover:underline">
-            Create a free student account
+            Create an account
           </Link>
         </motion.p>
       </motion.div>

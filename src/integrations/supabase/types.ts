@@ -109,6 +109,38 @@ export type Database = {
           },
         ];
       };
+      lecturer_slots: {
+        Row: {
+          claimed_at: string | null;
+          claimed_by: string | null;
+          course_id: string;
+          created_at: string;
+          lecturer_id: string;
+        };
+        Insert: {
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          course_id: string;
+          created_at?: string;
+          lecturer_id: string;
+        };
+        Update: {
+          claimed_at?: string | null;
+          claimed_by?: string | null;
+          course_id?: string;
+          created_at?: string;
+          lecturer_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "lecturer_slots_course_id_fkey";
+            columns: ["course_id"];
+            isOneToOne: true;
+            referencedRelation: "courses";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       lessons: {
         Row: {
           body_md: string | null;
@@ -440,6 +472,41 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      claim_lecturer_slot: {
+        Args: { _lecturer_id: string };
+        Returns: string;
+      };
+      current_lecturer_course: {
+        Args: Record<PropertyKey, never>;
+        Returns: string;
+      };
+      get_course_quiz_performance: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          attempt_id: string;
+          completed: boolean;
+          finished_at: string;
+          pct: number;
+          score: number;
+          started_at: string;
+          student: string;
+          topic: string;
+          topic_id: string;
+          total: number;
+        }[];
+      };
+      get_course_students: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          attempts: number;
+          avatar_url: string;
+          avg_pct: number;
+          enrolled_at: string;
+          full_name: string;
+          last_active: string;
+          user_id: string;
+        }[];
+      };
       get_quiz_questions: {
         Args: { _limit?: number; _topic_id: string };
         Returns: {
@@ -464,6 +531,10 @@ export type Database = {
           _user_id: string;
         };
         Returns: boolean;
+      };
+      lecturer_id_available: {
+        Args: { _lecturer_id: string };
+        Returns: string;
       };
       publish_teacher_note: {
         Args: { _body_md: string; _course_id: string; _lesson_title: string; _topic_title: string };

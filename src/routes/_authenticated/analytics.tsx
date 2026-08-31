@@ -3,17 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { motion, useInView, useMotionValue, useTransform, animate } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   PolarAngleAxis,
   RadialBar,
   RadialBarChart,
@@ -25,9 +20,7 @@ import {
 import {
   Activity,
   BarChart3,
-  BookOpen,
   Clock,
-  Flame,
   Lightbulb,
   Puzzle,
   Target,
@@ -45,7 +38,7 @@ import {
   type GameStats,
 } from "@/lib/game-stats";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
-import { secondsBySurface, studyStreak, SURFACE_LABELS } from "@/lib/study-time";
+import { secondsBySurface, SURFACE_LABELS } from "@/lib/study-time";
 
 export const Route = createFileRoute("/_authenticated/analytics")({
   component: AnalyticsPage,
@@ -62,12 +55,6 @@ const CHART_COLORS = [
   "var(--chart-4)",
   "var(--chart-5)",
 ];
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** Bucket key for study time that isn't tied to a course (e.g. a mixed word game). */
-const OTHER_STUDY = "__other__";
-const OTHER_STUDY_LABEL = "Other study time";
 
 type AnalyticsCourse = { id: string; title: string; slug: string };
 type ProgressRow = {
@@ -94,14 +81,6 @@ type SessionRow = {
   seconds: number;
   courses: AnalyticsCourse | null;
 };
-
-function formatDuration(seconds: number): string {
-  if (!seconds || seconds < 1) return "0m";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
 
 function dayKey(d: Date): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -239,6 +218,60 @@ function useAnalyticsData() {
     },
   });
 
+  // Every quiz attempt (finished or not) per topic — the same data and query
+  // key the dashboard uses, so react-query serves it from one cache. Drives the
+  // Lesson completion card: a topic is "completed" once it has a finished
+  // attempt, "started" once it has any attempt.
+  const moduleAttemptsQuery = useQuery({
+    queryKey: ["dash-module-attempts", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("quiz_attempts")
+        .select("topic_id, finished_at")
+        .eq("user_id", user!.id);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // The student's enrolled courses (same query key/shape the dashboard uses).
+  const enrollmentsQuery = useQuery({
+    queryKey: ["dash-enrollments", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("enrollments")
+        .select("course_id, created_at, courses(id, slug, title, summary)")
+        .eq("user_id", user!.id)
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+
+  const enrolledCourseIds = useMemo(
+    () =>
+      ((enrollmentsQuery.data ?? []) as unknown as { course_id: string | null }[])
+        .map((e) => e.course_id)
+        .filter((id): id is string => !!id),
+    [enrollmentsQuery.data],
+  );
+
+  // Topics belonging to the enrolled courses — the only ones the Lesson
+  // completion card is allowed to count. Same query pattern as the dashboard.
+  const enrolledTopicsQuery = useQuery({
+    queryKey: ["dash-topics", enrolledCourseIds],
+    enabled: enrolledCourseIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("topics")
+        .select("id, course_id")
+        .in("course_id", enrolledCourseIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   // Active time spent on learning surfaces, recorded by the study-time tracker
   // (see src/hooks/use-study-time.tsx).
   const sessionsQuery = useQuery({
@@ -256,7 +289,7 @@ function useAnalyticsData() {
     },
   });
 
-  return { progressQuery, attemptsQuery, sessionsQuery };
+  return { progressQuery, attemptsQuery, moduleAttemptsQuery, enrolledTopicsQuery, sessionsQuery };
 }
 
 /**
@@ -279,7 +312,8 @@ function useGameStats(): GameStats {
 /* ------------------------------------------------------------------ */
 
 function AnalyticsPage() {
-  const { progressQuery, attemptsQuery, sessionsQuery } = useAnalyticsData();
+  const { progressQuery, attemptsQuery, moduleAttemptsQuery, enrolledTopicsQuery, sessionsQuery } =
+    useAnalyticsData();
   const gameStats = useGameStats();
   // Memoize the fallbacks so the empty-array reference is stable across renders
   // (otherwise every dependent useMemo re-runs on each render while loading).
@@ -291,47 +325,29 @@ function AnalyticsPage() {
     () => (attemptsQuery.data ?? []) as unknown as AttemptRow[],
     [attemptsQuery.data],
   );
+  const moduleAttempts = useMemo(
+    () =>
+      (moduleAttemptsQuery.data ?? []) as unknown as {
+        topic_id: string | null;
+        finished_at: string | null;
+      }[],
+    [moduleAttemptsQuery.data],
+  );
   const sessions = useMemo(
     () => (sessionsQuery.data ?? []) as unknown as SessionRow[],
     [sessionsQuery.data],
   );
+  // Topic ids that belong to the student's enrolled courses.
+  const enrolledTopicIds = useMemo(
+    () =>
+      new Set(
+        ((enrolledTopicsQuery.data ?? []) as unknown as { id: string }[]).map((t) => t.id),
+      ),
+    [enrolledTopicsQuery.data],
+  );
   const loading = progressQuery.isLoading || attemptsQuery.isLoading || sessionsQuery.isLoading;
 
   /* ---- Derived datasets ---------------------------------------- */
-
-  // Per course: lessons touched/completed from progress, time actually spent
-  // from the study-time tracker. Time on course-agnostic surfaces (a mixed
-  // word game, say) lands under "Other study time".
-  const perCourse = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; seconds: number; lessons: number; completed: number }
-    >();
-    const entryFor = (id: string, name: string) => {
-      const existing = map.get(id);
-      if (existing) return existing;
-      const created = { name, seconds: 0, lessons: 0, completed: 0 };
-      map.set(id, created);
-      return created;
-    };
-
-    for (const row of progress) {
-      const course = row.lessons?.topics?.courses;
-      if (!course) continue;
-      const entry = entryFor(course.id, course.title);
-      entry.lessons += 1;
-      if (row.completed_at) entry.completed += 1;
-    }
-
-    for (const row of sessions) {
-      const entry = entryFor(row.course_id ?? OTHER_STUDY, row.courses?.title ?? OTHER_STUDY_LABEL);
-      entry.seconds += row.seconds;
-    }
-
-    return Array.from(map.values())
-      .filter((c) => c.seconds > 0 || c.lessons > 0)
-      .sort((a, b) => b.seconds - a.seconds);
-  }, [progress, sessions]);
 
   // Where the time went: modules, course pages, quizzes, games.
   const perSurface = useMemo(
@@ -359,34 +375,6 @@ function AnalyticsPage() {
       attempts: e.pct.length,
     }));
   }, [attempts]);
-
-  // Minutes actually studied per day over the last 14 days.
-  const activity = useMemo(() => {
-    const days: string[] = [];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const buckets = new Map<string, { seconds: number; sessions: number }>();
-    for (let i = 13; i >= 0; i--) {
-      const key = dayKey(new Date(today.getTime() - i * DAY_MS));
-      buckets.set(key, { seconds: 0, sessions: 0 });
-      days.push(key);
-    }
-    for (const row of sessions) {
-      const bucket = buckets.get(dayKey(new Date(row.started_at)));
-      if (!bucket) continue;
-      bucket.seconds += row.seconds;
-      bucket.sessions += 1;
-    }
-    return days.map((key) => {
-      const bucket = buckets.get(key)!;
-      return {
-        key,
-        minutes: Math.round((bucket.seconds / 60) * 10) / 10,
-        seconds: bucket.seconds,
-        sessions: bucket.sessions,
-      };
-    });
-  }, [sessions]);
 
   // Quiz score trend over time
   const scoreTrend = useMemo(() => {
@@ -437,10 +425,7 @@ function AnalyticsPage() {
   const hasGameData = gameStats.solved > 0;
 
   /* ---- KPIs ----------------------------------------------------- */
-  const totalSeconds = useMemo(() => sessions.reduce((s, r) => s + r.seconds, 0), [sessions]);
-  const sessionCount = sessions.length;
-  const avgSessionSeconds = sessionCount ? Math.round(totalSeconds / sessionCount) : 0;
-  const activeCourses = perCourse.filter((c) => c.name !== OTHER_STUDY_LABEL).length;
+
   const totalQuizzes = attempts.length;
   const avgScore = useMemo(() => {
     if (!attempts.length) return 0;
@@ -448,38 +433,31 @@ function AnalyticsPage() {
     return Math.round(sum / attempts.length);
   }, [attempts]);
 
-  // Days out of the last 14 with any study time recorded.
-  const activeDays = useMemo(() => activity.filter((d) => d.seconds > 0).length, [activity]);
-  // Consecutive days studied, up to today.
-  const streak = useMemo(() => studyStreak(sessions), [sessions]);
+  // Lesson completion — same topic/quiz-attempt classification the dashboard
+  // uses, restricted to topics of the student's ENROLLED courses. A topic is
+  // "completed" once it has a finished quiz attempt and "started" once it has
+  // any attempt (finished ones included), so completed can never exceed started.
+  // Multiple attempts on one topic count once (Set). The `progress` table is
+  // deliberately NOT used here. The ring and the centre percentage both read
+  // `pct`.
+  const lessonStats = useMemo(() => {
+    const started = new Set<string>();
+    const completed = new Set<string>();
+    for (const a of moduleAttempts) {
+      if (!a.topic_id || !enrolledTopicIds.has(a.topic_id)) continue;
+      started.add(a.topic_id);
+      if (a.finished_at) completed.add(a.topic_id);
+    }
+    const pct = started.size > 0 ? Math.round((completed.size / started.size) * 100) : 0;
+    return { started: started.size, completed: completed.size, pct };
+  }, [moduleAttempts, enrolledTopicIds]);
 
-  const completionData = useMemo(() => {
-    const totalLessons = perCourse.reduce((s, c) => s + c.lessons, 0);
-    const completed = perCourse.reduce((s, c) => s + c.completed, 0);
-    const pct = totalLessons ? Math.round((completed / totalLessons) * 100) : 0;
-    return [{ name: "Completed", value: pct, fill: "var(--chart-1)" }];
-  }, [perCourse]);
+  const completionData = useMemo(
+    () => [{ name: "Completed", value: lessonStats.pct, fill: "var(--chart-1)" }],
+    [lessonStats.pct],
+  );
 
   const kpis = [
-    {
-      label: "Total time learning",
-      icon: Clock,
-      value: totalSeconds,
-      fmt: (n: number) => formatDuration(n),
-      tint: "text-chart-1",
-    },
-    {
-      label: "Active courses",
-      icon: BookOpen,
-      value: activeCourses,
-      fmt: (n: number) => `${Math.round(n)}`,
-    },
-    {
-      label: "Typical session",
-      icon: Timer,
-      value: avgSessionSeconds,
-      fmt: (n: number) => (n ? formatDuration(n) : "—"),
-    },
     {
       label: "Quizzes completed",
       icon: Trophy,
@@ -493,18 +471,6 @@ function AnalyticsPage() {
       fmt: (n: number) => `${Math.round(n)}%`,
     },
     {
-      label: "Day streak",
-      icon: Flame,
-      value: streak,
-      fmt: (n: number) => `${Math.round(n)}`,
-    },
-    {
-      label: "Active days (14d)",
-      icon: Activity,
-      value: activeDays,
-      fmt: (n: number) => `${Math.round(n)}`,
-    },
-    {
       label: "Puzzles solved",
       icon: Puzzle,
       value: gameStats.solved,
@@ -513,7 +479,12 @@ function AnalyticsPage() {
   ];
 
   const hasData =
-    !loading && (progress.length > 0 || attempts.length > 0 || hasGameData || sessions.length > 0);
+    !loading &&
+    (progress.length > 0 ||
+      attempts.length > 0 ||
+      moduleAttempts.length > 0 ||
+      hasGameData ||
+      sessions.length > 0);
 
   return (
     <main className="container mx-auto max-w-6xl px-4 py-12">
@@ -537,7 +508,7 @@ function AnalyticsPage() {
       </motion.div>
 
       {loading && (
-        <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-12 grid gap-6 md:grid-cols-2">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
@@ -570,7 +541,7 @@ function AnalyticsPage() {
             variants={staggerContainer}
             initial="hidden"
             animate="show"
-            className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6"
+            className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-3"
           >
             {kpis.map((k) => {
               const Icon = k.icon;
@@ -599,132 +570,8 @@ function AnalyticsPage() {
             initial="hidden"
             whileInView="show"
             viewport={viewportOnce}
-            className="mt-6 grid gap-6 lg:grid-cols-3"
+            className="mt-6 grid gap-6 md:grid-cols-2"
           >
-            {/* Time per course — Pie */}
-            <ChartCard
-              title="Time spent per course"
-              subtitle="Share of your total learning time"
-              icon={Clock}
-            >
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={perCourse}
-                      dataKey="seconds"
-                      nameKey="name"
-                      innerRadius={55}
-                      outerRadius={90}
-                      paddingAngle={3}
-                      stroke="var(--card)"
-                      strokeWidth={2}
-                    >
-                      {perCourse.map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      {...tooltipStyle}
-                      formatter={(v: number) => [formatDuration(v), "Time"]}
-                    />
-                    <Legend
-                      iconType="circle"
-                      wrapperStyle={{ fontSize: "0.72rem", color: "var(--muted-foreground)" }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </ChartCard>
-
-            {/* Study activity — Area (14 days) */}
-            <ChartCard
-              title="Study activity"
-              subtitle="Minutes per day over the last 14 days"
-              icon={TrendingUp}
-              className="lg:col-span-2"
-            >
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={activity} margin={{ left: -18, right: 8, top: 6 }}>
-                    <defs>
-                      <linearGradient id="actGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.55} />
-                        <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis
-                      dataKey="key"
-                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                      tickLine={false}
-                      axisLine={false}
-                      allowDecimals={false}
-                    />
-                    <Tooltip {...tooltipStyle} formatter={(v: number) => [`${v} min`, "Studied"]} />
-                    <Area
-                      type="monotone"
-                      dataKey="minutes"
-                      stroke="var(--chart-1)"
-                      strokeWidth={2.5}
-                      fill="url(#actGrad)"
-                      animationDuration={900}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </ChartCard>
-
-            {/* Time per course — Column */}
-            <ChartCard
-              title="Minutes by course"
-              subtitle="Active learning minutes recorded per course"
-              icon={BarChart3}
-              className="lg:col-span-2"
-            >
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={perCourse.map((c) => ({
-                      name: c.name,
-                      minutes: Math.round(c.seconds / 60),
-                    }))}
-                    margin={{ left: -18, right: 8, top: 6 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                      tickLine={false}
-                      axisLine={false}
-                      interval={0}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                      tickLine={false}
-                      axisLine={false}
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      {...tooltipStyle}
-                      cursor={{ fill: "var(--secondary)", opacity: 0.4 }}
-                      formatter={(v: number) => [`${v} min`, "Studied"]}
-                    />
-                    <Bar dataKey="minutes" radius={[6, 6, 0, 0]} animationDuration={900}>
-                      {perCourse.map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </ChartCard>
-
             {/* Overall completion — Radial */}
             <ChartCard
               title="Lesson completion"
@@ -760,6 +607,20 @@ function AnalyticsPage() {
                     <p className="text-xs text-muted-foreground">complete</p>
                   </div>
                 </div>
+              </div>
+              <div className="mt-3 flex items-center justify-center gap-6 text-xs text-muted-foreground">
+                <span>
+                  Completed:{" "}
+                  <span className="font-semibold text-foreground">
+                    {lessonStats.completed} {lessonStats.completed === 1 ? "lesson" : "lessons"}
+                  </span>
+                </span>
+                <span>
+                  Started:{" "}
+                  <span className="font-semibold text-foreground">
+                    {lessonStats.started} {lessonStats.started === 1 ? "lesson" : "lessons"}
+                  </span>
+                </span>
               </div>
             </ChartCard>
 
@@ -822,7 +683,6 @@ function AnalyticsPage() {
                 title="Quiz score trend"
                 subtitle="Your score % across quizzes over time"
                 icon={TrendingUp}
-                className="lg:col-span-2"
               >
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
@@ -872,7 +732,6 @@ function AnalyticsPage() {
                 title="Average score by course"
                 subtitle="How you perform across courses"
                 icon={Trophy}
-                className={scoreTrend.length > 0 ? "" : "lg:col-span-2"}
               >
                 <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1029,67 +888,6 @@ function AnalyticsPage() {
               </ChartCard>
             </motion.div>
           )}
-
-          {/* Per-course breakdown table */}
-          <motion.section
-            variants={fadeUp}
-            initial="hidden"
-            whileInView="show"
-            viewport={viewportOnce}
-            className="mt-6 overflow-hidden rounded-2xl border border-border bg-card"
-          >
-            <div className="border-b border-border px-5 py-4">
-              <h2 className="font-display text-xl">Course breakdown</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Time spent and lessons completed per course
-              </p>
-            </div>
-            <div className="divide-y divide-border">
-              {perCourse.map((c, i) => {
-                const pct = c.lessons ? Math.round((c.completed / c.lessons) * 100) : 0;
-                return (
-                  <motion.div
-                    key={c.name}
-                    initial={{ opacity: 0, x: -12 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ delay: i * 0.05, duration: 0.4 }}
-                    className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-secondary/40"
-                  >
-                    <span
-                      className="h-9 w-1.5 shrink-0 rounded-full"
-                      style={{ background: CHART_COLORS[i % CHART_COLORS.length] }}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="truncate text-sm font-medium">{c.name}</span>
-                        <span className="shrink-0 text-sm text-muted-foreground">
-                          {formatDuration(c.seconds)}
-                        </span>
-                      </div>
-                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-                        <motion.div
-                          className="h-full rounded-full"
-                          style={{ background: CHART_COLORS[i % CHART_COLORS.length] }}
-                          initial={{ width: 0 }}
-                          whileInView={{ width: `${pct}%` }}
-                          viewport={{ once: true }}
-                          transition={{
-                            delay: i * 0.05 + 0.2,
-                            duration: 0.7,
-                            ease: [0.22, 1, 0.36, 1],
-                          }}
-                        />
-                      </div>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {c.completed}/{c.lessons} lessons complete · {pct}%
-                      </p>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </motion.section>
         </>
       )}
     </main>

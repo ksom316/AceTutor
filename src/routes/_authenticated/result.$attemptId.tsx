@@ -5,6 +5,7 @@ import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { CheckCircle2, Loader2, RotateCcw, Sparkles, Trophy, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useStudyCourse } from "@/hooks/use-study-time";
 
 export const Route = createFileRoute("/_authenticated/result/$attemptId")({
   component: ResultPage,
@@ -17,7 +18,7 @@ type AttemptDetail = {
   score: number | null;
   total: number | null;
   topic_id: string;
-  topics: { title: string } | null;
+  topics: { title: string; course_id: string } | null;
 };
 type AnswerRow = {
   question_id: string;
@@ -54,7 +55,7 @@ function ResultPage() {
     queryFn: async () => {
       const { data: attempt } = await supabase
         .from("quiz_attempts")
-        .select("id, score, total, topic_id, topics(title)")
+        .select("id, score, total, topic_id, topics(title, course_id)")
         .eq("id", attemptId)
         .maybeSingle();
       const { data: answers } = await supabase
@@ -69,6 +70,9 @@ function ResultPage() {
       };
     },
   });
+
+  // Time reviewing results counts towards the topic's course.
+  useStudyCourse(data?.attempt?.topics?.course_id ?? null);
 
   if (isLoading || !data?.attempt) {
     return (

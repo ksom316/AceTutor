@@ -37,6 +37,8 @@ type ProgressRow = {
   lessons: { id: string; topics: { course_id: string } | null } | null;
 };
 type AttemptRow = { score: number | null; total: number | null; finished_at: string | null };
+type TopicRow = { id: string; course_id: string };
+type ModuleAttemptRow = { topic_id: string; finished_at: string | null };
 
 function MyCoursesPage() {
   const { user } = useAuth();
@@ -126,6 +128,35 @@ function MyCoursesPage() {
     },
   });
 
+  // Topics (modules) in the enrolled courses — the denominator for module-based
+  // course progress.
+  const { data: courseTopics } = useQuery({
+    queryKey: ["dash-topics", enrolledIds],
+    enabled: enrolledIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("topics")
+        .select("id, course_id")
+        .in("course_id", enrolledIds);
+      return (data ?? []) as unknown as TopicRow[];
+    },
+  });
+
+  // Every quiz attempt (finished or not) per topic — shares the dashboard's
+  // cache key, so both must fetch the same shape. A module counts as complete
+  // once it has a finished attempt (same rule as the course page).
+  const { data: moduleAttempts } = useQuery({
+    queryKey: ["dash-module-attempts", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("quiz_attempts")
+        .select("topic_id, finished_at")
+        .eq("user_id", user!.id);
+      return (data ?? []) as unknown as ModuleAttemptRow[];
+    },
+  });
+
   const stats = useMemo(() => {
     const lessons = courseLessons ?? [];
     const prog = progressRows ?? [];
@@ -155,9 +186,28 @@ function MyCoursesPage() {
     const secondsPerCourse = secondsByCourse(sessions);
     const totalSeconds = sessions.reduce((s, r) => s + r.seconds, 0);
 
+    // Module-based course progress, matching src/routes/courses.$slug.tsx: a
+    // course's modules are its topics, and a module counts as complete once the
+    // student has one finished quiz attempt for it (no progress-table row
+    // required). Keeps this page in step with the course page.
+    const finishedTopicIds = new Set(
+      (moduleAttempts ?? []).filter((a) => a.finished_at).map((a) => a.topic_id),
+    );
+    const totalModulesByCourse = new Map<string, number>();
+    const completedModulesByCourse = new Map<string, number>();
+    for (const t of courseTopics ?? []) {
+      totalModulesByCourse.set(t.course_id, (totalModulesByCourse.get(t.course_id) ?? 0) + 1);
+      if (finishedTopicIds.has(t.id)) {
+        completedModulesByCourse.set(
+          t.course_id,
+          (completedModulesByCourse.get(t.course_id) ?? 0) + 1,
+        );
+      }
+    }
+
     const perCourse = enrolledCourses.map((c) => {
-      const total = totalByCourse.get(c.id) ?? 0;
-      const done = completedByCourse.get(c.id) ?? 0;
+      const total = totalModulesByCourse.get(c.id) ?? 0;
+      const done = completedModulesByCourse.get(c.id) ?? 0;
       const touched = touchedByCourse.get(c.id) ?? 0;
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
       return { ...c, total, done, touched, pct, seconds: secondsPerCourse.get(c.id) ?? 0 };
@@ -172,7 +222,15 @@ function MyCoursesPage() {
       : 0;
 
     return { perCourse, totalSeconds, completedLessons, avgScore, quizzes: att.length };
-  }, [courseLessons, progressRows, sessionRows, enrolledCourses, attempts]);
+  }, [
+    courseLessons,
+    progressRows,
+    sessionRows,
+    enrolledCourses,
+    attempts,
+    courseTopics,
+    moduleAttempts,
+  ]);
 
   const continueCourse = useMemo(() => {
     const touched = stats.perCourse.filter((c) => c.touched > 0).sort((a, b) => b.pct - a.pct);

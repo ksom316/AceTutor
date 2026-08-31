@@ -87,6 +87,13 @@ function Dashboard() {
 
   const donutHasData = donut.some((d) => d.value > 0);
 
+  // The ring is a fill gauge for the same module percentage shown in the centre;
+  // the Completed / In Progress / Not Started counts are listed beneath it.
+  const ring = [
+    { name: "Completed", value: overallPct },
+    { name: "Remaining", value: Math.max(0, 100 - overallPct) },
+  ];
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">
       <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
@@ -184,7 +191,7 @@ function Dashboard() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={donut}
+                        data={ring}
                         dataKey="value"
                         nameKey="name"
                         innerRadius={52}
@@ -195,9 +202,8 @@ function Dashboard() {
                         startAngle={90}
                         endAngle={-270}
                       >
-                        {donut.map((_, i) => (
-                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                        ))}
+                        <Cell fill={CHART_COLORS[0]} />
+                        <Cell fill={CHART_COLORS[2]} />
                       </Pie>
                     </PieChart>
                   </ResponsiveContainer>

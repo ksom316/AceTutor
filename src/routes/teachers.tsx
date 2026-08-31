@@ -1,40 +1,43 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Header } from "@/components/site/Header";
-import { Footer } from "@/components/site/Footer";
-import { AppShell } from "@/components/site/AppShell";
-import { TeacherUploadPanel } from "@/components/teachers/TeacherUploadPanel";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useRole } from "@/hooks/use-role";
 
 export const Route = createFileRoute("/teachers")({
   head: () => ({
     meta: [
-      { title: "Teachers — AceTutor" },
+      { title: "Lecturers — AceTutor" },
       {
         name: "description",
         content:
-          "Upload course notes and quiz banks for your students. AceTutor delivers them across text, video, and audio modalities.",
+          "Lecturers manage their assigned course on AceTutor — materials, quizzes, enrolled students and quiz performance.",
       },
     ],
   }),
-  component: TeachersPage,
+  component: TeachersRedirect,
 });
 
-function TeachersPage() {
-  const { user } = useAuth();
+/**
+ * Compatibility redirect. The old standalone teacher upload interface has been
+ * replaced by the lecturer workspace (/lecturer); the obsolete self-serve
+ * teacher signup no longer exists. Route people to the right place by their
+ * database-backed role.
+ */
+function TeachersRedirect() {
+  const { user, loading } = useAuth();
+  const { isLecturer, loading: roleLoading } = useRole();
+  const navigate = useNavigate();
 
-  if (user) {
-    return (
-      <AppShell user={user}>
-        <TeacherUploadPanel authed />
-      </AppShell>
-    );
-  }
+  useEffect(() => {
+    if (loading || (user && roleLoading)) return;
+    if (isLecturer) {
+      navigate({ to: "/lecturer", replace: true });
+    } else if (user) {
+      navigate({ to: "/dashboard", replace: true });
+    } else {
+      navigate({ to: "/signup", search: { role: "lecturer" }, replace: true });
+    }
+  }, [user, loading, roleLoading, isLecturer, navigate]);
 
-  return (
-    <div className="min-h-screen">
-      <Header />
-      <TeacherUploadPanel />
-      <Footer />
-    </div>
-  );
+  return <div className="min-h-screen" />;
 }

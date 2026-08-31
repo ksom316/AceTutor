@@ -14,9 +14,11 @@ import { Route as TeachersRouteImport } from './routes/teachers'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as LecturerRouteImport } from './routes/lecturer'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as LecturerIndexRouteImport } from './routes/lecturer.index'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as TeachersAuthRouteImport } from './routes/teachers.auth'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
@@ -61,6 +63,11 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LecturerRoute = LecturerRouteImport.update({
+  id: '/lecturer',
+  path: '/lecturer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ContactRoute = ContactRouteImport.update({
   id: '/contact',
   path: '/contact',
@@ -74,6 +81,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const LecturerIndexRoute = LecturerIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => LecturerRoute,
 } as any)
 const CoursesIndexRoute = CoursesIndexRouteImport.update({
   id: '/courses/',
@@ -174,6 +186,7 @@ const AuthenticatedOnboardingVarkRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/contact': typeof ContactRoute
+  '/lecturer': typeof LecturerRouteWithChildren
   '/login': typeof LoginRoute
   '/privacy': typeof PrivacyRoute
   '/signup': typeof SignupRoute
@@ -193,6 +206,7 @@ export interface FileRoutesByFullPath {
   '/courses/$slug': typeof CoursesSlugRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses/': typeof CoursesIndexRoute
+  '/lecturer/': typeof LecturerIndexRoute
   '/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
   '/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
@@ -220,6 +234,7 @@ export interface FileRoutesByTo {
   '/courses/$slug': typeof CoursesSlugRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses': typeof CoursesIndexRoute
+  '/lecturer': typeof LecturerIndexRoute
   '/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
   '/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
@@ -230,6 +245,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/contact': typeof ContactRoute
+  '/lecturer': typeof LecturerRouteWithChildren
   '/login': typeof LoginRoute
   '/privacy': typeof PrivacyRoute
   '/signup': typeof SignupRoute
@@ -249,6 +265,7 @@ export interface FileRoutesById {
   '/courses/$slug': typeof CoursesSlugRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses/': typeof CoursesIndexRoute
+  '/lecturer/': typeof LecturerIndexRoute
   '/_authenticated/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
   '/_authenticated/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
   '/_authenticated/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
@@ -259,6 +276,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/contact'
+    | '/lecturer'
     | '/login'
     | '/privacy'
     | '/signup'
@@ -278,6 +296,7 @@ export interface FileRouteTypes {
     | '/courses/$slug'
     | '/teachers/auth'
     | '/courses/'
+    | '/lecturer/'
     | '/onboarding/vark'
     | '/quiz/$topicId'
     | '/result/$attemptId'
@@ -305,6 +324,7 @@ export interface FileRouteTypes {
     | '/courses/$slug'
     | '/teachers/auth'
     | '/courses'
+    | '/lecturer'
     | '/onboarding/vark'
     | '/quiz/$topicId'
     | '/result/$attemptId'
@@ -314,6 +334,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/contact'
+    | '/lecturer'
     | '/login'
     | '/privacy'
     | '/signup'
@@ -333,6 +354,7 @@ export interface FileRouteTypes {
     | '/courses/$slug'
     | '/teachers/auth'
     | '/courses/'
+    | '/lecturer/'
     | '/_authenticated/onboarding/vark'
     | '/_authenticated/quiz/$topicId'
     | '/_authenticated/result/$attemptId'
@@ -343,6 +365,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   ContactRoute: typeof ContactRoute
+  LecturerRoute: typeof LecturerRouteWithChildren
   LoginRoute: typeof LoginRoute
   PrivacyRoute: typeof PrivacyRoute
   SignupRoute: typeof SignupRoute
@@ -391,6 +414,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/lecturer': {
+      id: '/lecturer'
+      path: '/lecturer'
+      fullPath: '/lecturer'
+      preLoaderRoute: typeof LecturerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/contact': {
       id: '/contact'
       path: '/contact'
@@ -411,6 +441,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/lecturer/': {
+      id: '/lecturer/'
+      path: '/'
+      fullPath: '/lecturer/'
+      preLoaderRoute: typeof LecturerIndexRouteImport
+      parentRoute: typeof LecturerRoute
     }
     '/courses/': {
       id: '/courses/'
@@ -577,6 +614,18 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
   AuthenticatedRouteChildren,
 )
 
+interface LecturerRouteChildren {
+  LecturerIndexRoute: typeof LecturerIndexRoute
+}
+
+const LecturerRouteChildren: LecturerRouteChildren = {
+  LecturerIndexRoute: LecturerIndexRoute,
+}
+
+const LecturerRouteWithChildren = LecturerRoute._addFileChildren(
+  LecturerRouteChildren,
+)
+
 interface TeachersRouteChildren {
   TeachersAuthRoute: typeof TeachersAuthRoute
 }
@@ -593,6 +642,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   ContactRoute: ContactRoute,
+  LecturerRoute: LecturerRouteWithChildren,
   LoginRoute: LoginRoute,
   PrivacyRoute: PrivacyRoute,
   SignupRoute: SignupRoute,

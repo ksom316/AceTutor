@@ -16,7 +16,6 @@ import {
   SESSION_GAP_SECONDS,
   surfaceForPath,
   TICK_SECONDS,
-  type StudySurface,
 } from "@/lib/study-time";
 
 type StudyTimeContextValue = {
@@ -55,13 +54,11 @@ export function StudyTimeProvider({ children }: { children: React.ReactNode }) {
   const lastActivityRef = useRef(Date.now());
   const lastCountedAtRef = useRef(0);
   const sinceFlushRef = useRef(0);
-  // Mirrors of the reactive values, so the flush callback can stay stable.
-  const surfaceRef = useRef<StudySurface | null>(surface);
-  const courseRef = useRef<string | null>(courseId);
+  // Mirror of the user id, so the flush callback can stay stable. The surface
+  // and course a segment belongs to are carried in the flush `key` instead (see
+  // `segmentKey` / `flush`), so they can't be lost when the page unmounts.
   const userIdRef = useRef<string | null>(user?.id ?? null);
 
-  surfaceRef.current = surface;
-  courseRef.current = courseId;
   userIdRef.current = user?.id ?? null;
 
   /** Write pending seconds, extending the open row or opening a new one. */
@@ -87,12 +84,18 @@ export function StudyTimeProvider({ children }: { children: React.ReactNode }) {
         if (error) throw error;
         savedRef.current = total;
       } else {
+        // The segment's surface and course are encoded in `key`
+        // (`${surface}:${courseId}`), captured when this segment started — so an
+        // unmount that resets the live course to null can't corrupt this write.
+        const sep = key.indexOf(":");
+        const keySurface = sep >= 0 ? key.slice(0, sep) : "none";
+        const keyCourse = sep >= 0 ? key.slice(sep + 1) : "";
         const { data, error } = await supabase
           .from("study_sessions")
           .insert({
             user_id: userId,
-            course_id: courseRef.current,
-            surface: surfaceRef.current ?? "course",
+            course_id: keyCourse || null,
+            surface: keySurface === "none" ? "course" : keySurface,
             seconds,
           })
           .select("id")

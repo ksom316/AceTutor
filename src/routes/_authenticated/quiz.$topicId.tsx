@@ -154,8 +154,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useStudyCourse } from "@/hooks/use-study-time";
 
- 
+
 
 export const Route = createFileRoute("/_authenticated/quiz/$topicId")({
   component: QuizRunner,
@@ -177,12 +178,21 @@ function QuizRunner() {
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [topicTitle, setTopicTitle] = useState("");
+  const [courseId, setCourseId] = useState<string | null>(null);
+
+  // Time spent on the quiz counts towards the topic's course.
+  useStudyCourse(courseId);
 
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data: topic } = await supabase.from("topics").select("title").eq("id", topicId).maybeSingle();
+      const { data: topic } = await supabase
+        .from("topics")
+        .select("title, course_id")
+        .eq("id", topicId)
+        .maybeSingle();
       setTopicTitle(topic?.title ?? "");
+      setCourseId(topic?.course_id ?? null);
 
       const { data: qs, error } = await supabase.rpc("get_quiz_questions", { _topic_id: topicId, _limit: 30 });
       if (error) {

@@ -32,6 +32,8 @@ type AttemptRow = {
   finished_at: string | null;
   topics: { title: string; courses: { title: string; slug: string } | null } | null;
 };
+type TopicRow = { id: string; course_id: string };
+type ModuleAttemptRow = { topic_id: string; finished_at: string | null };
 
 /**
  * Shared student-dashboard data + derived stats, used by both the logged-in
@@ -121,6 +123,35 @@ export function useStudentDashboard(userId: string | undefined) {
     },
   });
 
+  // Topics (modules) in the user's enrolled courses — the denominator for
+  // module-based course progress.
+  const { data: courseTopics } = useQuery({
+    queryKey: ["dash-topics", enrolledIds],
+    enabled: enrolledIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("topics")
+        .select("id, course_id")
+        .in("course_id", enrolledIds);
+      return (data ?? []) as unknown as TopicRow[];
+    },
+  });
+
+  // Every quiz attempt (finished or not) per topic. A module is Completed when it
+  // has a finished attempt, In Progress when it only has unfinished ones. Same
+  // "completed" rule as the course page.
+  const { data: moduleAttempts } = useQuery({
+    queryKey: ["dash-module-attempts", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("quiz_attempts")
+        .select("topic_id, finished_at")
+        .eq("user_id", userId!);
+      return (data ?? []) as unknown as ModuleAttemptRow[];
+    },
+  });
+
   const stats = useMemo(() => {
     const lessons = courseLessons ?? [];
     const prog = progressRows ?? [];
@@ -148,9 +179,37 @@ export function useStudentDashboard(userId: string | undefined) {
       }
     }
 
-    const totalLessons = Array.from(totalByCourse.values()).reduce((s, n) => s + n, 0);
-    const notStarted = Math.max(0, totalLessons - completedLessons - inProgressLessons);
-    const overallPct = totalLessons > 0 ? Math.round((completedLessons / totalLessons) * 100) : 0;
+    // Module-based progress, matching src/routes/courses.$slug.tsx. Every topic
+    // of an enrolled course falls into exactly one bucket:
+    //   - Completed:   the topic has at least one finished quiz attempt
+    //   - In Progress: an attempt was started for the topic but none finished
+    //   - Not Started: the topic has no quiz attempt at all
+    // so completed + inProgress + notStarted === total modules. Multiple attempts
+    // on one topic still count once (Set membership).
+    const finishedTopicIds = new Set(
+      (moduleAttempts ?? []).filter((a) => a.finished_at).map((a) => a.topic_id),
+    );
+    const startedTopicIds = new Set((moduleAttempts ?? []).map((a) => a.topic_id));
+    const totalModulesByCourse = new Map<string, number>();
+    const completedModulesByCourse = new Map<string, number>();
+    let totalModules = 0;
+    let completedModules = 0;
+    let inProgressModules = 0;
+    for (const t of courseTopics ?? []) {
+      totalModules += 1;
+      totalModulesByCourse.set(t.course_id, (totalModulesByCourse.get(t.course_id) ?? 0) + 1);
+      if (finishedTopicIds.has(t.id)) {
+        completedModules += 1;
+        completedModulesByCourse.set(
+          t.course_id,
+          (completedModulesByCourse.get(t.course_id) ?? 0) + 1,
+        );
+      } else if (startedTopicIds.has(t.id)) {
+        inProgressModules += 1;
+      }
+    }
+    const notStartedModules = Math.max(0, totalModules - completedModules - inProgressModules);
+    const overallPct = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
 
     // Time learned comes from the study-time tracker, not lesson progress —
     // it's the same source the Analytics page reports.
@@ -159,8 +218,8 @@ export function useStudentDashboard(userId: string | undefined) {
     const totalSeconds = sessions.reduce((s, r) => s + r.seconds, 0);
 
     const perCourse: PerCourse[] = enrolledCourses.map((c) => {
-      const total = totalByCourse.get(c.id) ?? 0;
-      const done = completedByCourse.get(c.id) ?? 0;
+      const total = totalModulesByCourse.get(c.id) ?? 0;
+      const done = completedModulesByCourse.get(c.id) ?? 0;
       const touched = touchedByCourse.get(c.id) ?? 0;
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
       return { ...c, total, done, touched, pct, seconds: secondsPerCourse.get(c.id) ?? 0 };
@@ -178,15 +237,23 @@ export function useStudentDashboard(userId: string | undefined) {
       perCourse,
       overallPct,
       donut: [
-        { name: "Completed", value: completedLessons },
-        { name: "In Progress", value: inProgressLessons },
-        { name: "Not Started", value: notStarted },
+        { name: "Completed", value: completedModules },
+        { name: "In Progress", value: inProgressModules },
+        // { name: "Not Started", value: notStartedModules },
       ] as DonutDatum[],
       totalSeconds,
       avgScore,
       quizzes: att.length,
     };
-  }, [courseLessons, progressRows, sessionRows, enrolledCourses, attempts]);
+  }, [
+    courseLessons,
+    progressRows,
+    sessionRows,
+    enrolledCourses,
+    attempts,
+    courseTopics,
+    moduleAttempts,
+  ]);
 
   // "Continue learning": furthest-along touched course, else most recent enrollment.
   const continueCourse = useMemo(() => {
