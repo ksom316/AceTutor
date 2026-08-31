@@ -34,7 +34,12 @@ import {
 } from "@/components/ui/accordion";
 import { supabase } from "@/integrations/supabase/client";
 import { askCourse } from "@/lib/course-chat.functions";
-import { deadlineStatus, formatDeadline } from "@/lib/course-quiz";
+import {
+  attemptsUsageLabel,
+  canAttemptCourseQuiz,
+  deadlineStatus,
+  formatDeadline,
+} from "@/lib/course-quiz";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { toast } from "sonner";
@@ -140,26 +145,36 @@ function CourseDetail() {
         description: string | null;
         deadline: string | null;
         question_count: number;
+        max_attempts: number | null;
       }[];
       const published = list.filter((q) => q.question_count > 0);
       if (published.length === 0) return [];
 
+      // Every attempt (finished or abandoned) counts towards the cap — mirrors
+      // the server-side enforce_course_quiz_attempt() trigger.
       const { data: att } = await supabase
         .from("quiz_attempts")
-        .select("course_quiz_id, score, total")
+        .select("course_quiz_id, score, total, finished_at")
         .eq("user_id", user!.id)
-        .not("finished_at", "is", null)
         .in(
           "course_quiz_id",
           published.map((q) => q.id),
         );
       const bestById = new Map<string, number>();
+      const usedById = new Map<string, number>();
       for (const a of att ?? []) {
         if (!a.course_quiz_id) continue;
-        const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
-        if (pct > (bestById.get(a.course_quiz_id) ?? -1)) bestById.set(a.course_quiz_id, pct);
+        usedById.set(a.course_quiz_id, (usedById.get(a.course_quiz_id) ?? 0) + 1);
+        if (a.finished_at) {
+          const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
+          if (pct > (bestById.get(a.course_quiz_id) ?? -1)) bestById.set(a.course_quiz_id, pct);
+        }
       }
-      return published.map((q) => ({ ...q, best: bestById.get(q.id) ?? null }));
+      return published.map((q) => ({
+        ...q,
+        best: bestById.get(q.id) ?? null,
+        used: usedById.get(q.id) ?? 0,
+      }));
     },
   });
 
@@ -419,6 +434,7 @@ function CourseDetail() {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {generalQuizzes.map((q) => {
                 const dl = deadlineStatus(q.deadline);
+                const attemptsLeft = canAttemptCourseQuiz(q.used, q.max_attempts);
                 return (
                   <div
                     key={q.id}
@@ -442,6 +458,9 @@ function CourseDetail() {
                             ? "Deadline passed"
                             : `Deadline: ${formatDeadline(q.deadline)}`}
                       </p>
+                      <p className={!attemptsLeft ? "text-destructive" : undefined}>
+                        Attempts: {attemptsUsageLabel(q.used, q.max_attempts)}
+                      </p>
                       {q.best != null && <p>Best score: {q.best}%</p>}
                     </div>
                     <div className="mt-3">
@@ -449,11 +468,15 @@ function CourseDetail() {
                         <Badge variant="outline" className="text-destructive">
                           Closed
                         </Badge>
+                      ) : !attemptsLeft ? (
+                        <Badge variant="outline" className="text-destructive">
+                          Attempt limit reached
+                        </Badge>
                       ) : (
                         <Button asChild size="sm" className="rounded-full">
                           <Link to="/course-quiz/$quizId" params={{ quizId: q.id }}>
                             <Brain className="mr-1.5 h-4 w-4" />
-                            {q.best != null ? "Retake Quiz" : "Start Quiz"}
+                            {q.used > 0 ? "Retry Quiz" : "Start Quiz"}
                           </Link>
                         </Button>
                       )}

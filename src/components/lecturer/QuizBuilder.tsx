@@ -22,6 +22,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -63,6 +70,10 @@ import {
   deadlineStatus,
   fromDatetimeLocalValue,
   localTimezoneLabel,
+  MAX_ATTEMPTS_OPTIONS,
+  maxAttemptsFromSelectValue,
+  maxAttemptsLabel,
+  maxAttemptsToSelectValue,
   toDatetimeLocalValue,
 } from "@/lib/course-quiz";
 import { DEFAULT_DIFFICULTY_MODE, type DifficultyMode } from "@/lib/quiz-difficulty";
@@ -114,6 +125,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const [infoTitle, setInfoTitle] = useState("");
   const [infoDescription, setInfoDescription] = useState("");
   const [infoDeadline, setInfoDeadline] = useState("");
+  const [infoMaxAttempts, setInfoMaxAttempts] = useState("unlimited");
 
   const quizQuery = useQuery({
     queryKey: quizKey,
@@ -126,6 +138,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       let quizTitle = "";
       let quizDescription = "";
       let quizDeadline: string | null = null;
+      let quizMaxAttempts: number | null = null;
 
       if (scope.kind === "topic") {
         const { data: topic, error } = await supabase
@@ -141,7 +154,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       } else {
         const { data: cq, error } = await supabase
           .from("course_quizzes")
-          .select("id, title, description, deadline, course_id")
+          .select("id, title, description, deadline, max_attempts, course_id")
           .eq("id", scope.courseQuizId)
           .maybeSingle();
         if (error) throw error;
@@ -150,6 +163,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         quizTitle = cq?.title ?? "General Course Quiz";
         quizDescription = cq?.description ?? "";
         quizDeadline = cq?.deadline ?? null;
+        quizMaxAttempts = cq?.max_attempts ?? null;
         headerTitle = quizTitle;
         headerSubtitle = "General Course Quiz · covers the whole course";
       }
@@ -216,6 +230,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         quizTitle,
         quizDescription,
         quizDeadline,
+        quizMaxAttempts,
       };
     },
   });
@@ -259,14 +274,26 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     setInfoTitle(data.quizTitle);
     setInfoDescription(data.quizDescription);
     setInfoDeadline(toDatetimeLocalValue(data.quizDeadline));
+    setInfoMaxAttempts(maxAttemptsToSelectValue(data.quizMaxAttempts));
   }, [isCourse, data]);
+
+  // A stored value outside the standard choices (e.g. set directly in SQL) is
+  // shown as its own option so it is never silently lost on save.
+  const maxAttemptsOptions = useMemo(() => {
+    const current = maxAttemptsToSelectValue(data?.quizMaxAttempts ?? null);
+    if (current === "unlimited" || MAX_ATTEMPTS_OPTIONS.some((o) => o.value === current)) {
+      return MAX_ATTEMPTS_OPTIONS;
+    }
+    return [{ value: current, label: `${current} attempts` }, ...MAX_ATTEMPTS_OPTIONS];
+  }, [data?.quizMaxAttempts]);
 
   const infoDirty =
     isCourse &&
     !!data &&
     (infoTitle.trim() !== (data.quizTitle ?? "").trim() ||
       infoDescription.trim() !== (data.quizDescription ?? "").trim() ||
-      fromDatetimeLocalValue(infoDeadline) !== (data.quizDeadline ?? null));
+      fromDatetimeLocalValue(infoDeadline) !== (data.quizDeadline ?? null) ||
+      maxAttemptsFromSelectValue(infoMaxAttempts) !== (data.quizMaxAttempts ?? null));
 
   /* ---- mutations ---- */
 
@@ -281,6 +308,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         _title: infoTitle.trim(),
         _description: infoDescription.trim() || undefined,
         _deadline: fromDatetimeLocalValue(infoDeadline) ?? undefined,
+        _max_attempts: maxAttemptsFromSelectValue(infoMaxAttempts) ?? undefined,
       });
       if (error) throw error;
     },
@@ -591,6 +619,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             {deadlineStatus(data.quizDeadline) === "passed" ? "Deadline passed" : "Has a deadline"}
           </Badge>
         )}
+        {isCourse && <Badge variant="outline">{maxAttemptsLabel(data.quizMaxAttempts)}</Badge>}
       </div>
 
       {isCourse && (
@@ -646,6 +675,25 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                     </button>
                   </>
                 )}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cq-max-attempts">Maximum attempts</Label>
+              <Select value={infoMaxAttempts} onValueChange={setInfoMaxAttempts}>
+                <SelectTrigger id="cq-max-attempts" className="w-full sm:w-72">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {maxAttemptsOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                How many times each student may take this assessment. &ldquo;Unlimited&rdquo; keeps
+                the current behaviour. Enforced on the server — abandoned attempts still count.
               </p>
             </div>
           </div>

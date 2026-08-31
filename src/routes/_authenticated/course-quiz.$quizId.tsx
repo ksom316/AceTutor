@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { QuizRunner, type RunnerQuestion } from "@/components/course/QuizRunner";
-import { deadlineStatus, formatDeadline } from "@/lib/course-quiz";
+import { canAttemptCourseQuiz, deadlineStatus, formatDeadline } from "@/lib/course-quiz";
 
 export const Route = createFileRoute("/_authenticated/course-quiz/$quizId")({
   component: GeneralCourseQuizRoute,
@@ -18,6 +18,7 @@ type Status =
   | "not-enrolled"
   | "not-published"
   | "deadline-passed"
+  | "limit-reached"
   | "ready"
   | "error";
 
@@ -27,7 +28,11 @@ function GeneralCourseQuizRoute() {
   const navigate = useNavigate();
 
   const [status, setStatus] = useState<Status>("loading");
-  const [quiz, setQuiz] = useState<{ title: string; deadline: string | null } | null>(null);
+  const [quiz, setQuiz] = useState<{
+    title: string;
+    deadline: string | null;
+    maxAttempts: number | null;
+  } | null>(null);
   const [course, setCourse] = useState<{ id: string; title: string; slug: string } | null>(null);
   const [questions, setQuestions] = useState<RunnerQuestion[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
@@ -43,7 +48,7 @@ function GeneralCourseQuizRoute() {
 
       const { data: cq } = await supabase
         .from("course_quizzes")
-        .select("id, title, deadline, course_id")
+        .select("id, title, deadline, max_attempts, course_id")
         .eq("id", quizId)
         .maybeSingle();
       if (!active) return;
@@ -51,7 +56,7 @@ function GeneralCourseQuizRoute() {
         setStatus("not-found");
         return;
       }
-      setQuiz({ title: cq.title, deadline: cq.deadline });
+      setQuiz({ title: cq.title, deadline: cq.deadline, maxAttempts: cq.max_attempts });
 
       const { data: courseRow } = await supabase
         .from("courses")
@@ -80,6 +85,22 @@ function GeneralCourseQuizRoute() {
         return;
       }
 
+      // Client-side attempt-cap gate for a clear message. The DB trigger
+      // (enforce_course_quiz_attempt) is the authoritative check and counts
+      // every attempt row for this student + quiz, abandoned ones included.
+      if (cq.max_attempts != null) {
+        const { count } = await supabase
+          .from("quiz_attempts")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("course_quiz_id", quizId);
+        if (!active) return;
+        if (!canAttemptCourseQuiz(count ?? 0, cq.max_attempts)) {
+          setStatus("limit-reached");
+          return;
+        }
+      }
+
       const { data: qs, error } = await supabase.rpc("get_course_quiz_questions", {
         _quiz_id: quizId,
         _limit: 30,
@@ -104,9 +125,14 @@ function GeneralCourseQuizRoute() {
         .single();
       if (!active) return;
       if (aErr) {
-        // The BEFORE INSERT trigger surfaces deadline / enrolment errors here.
+        // The BEFORE INSERT trigger surfaces deadline / enrolment / attempt-cap
+        // errors here — map them to the matching screen.
         if (/deadline/i.test(aErr.message)) {
           setStatus("deadline-passed");
+          return;
+        }
+        if (/attempt/i.test(aErr.message)) {
+          setStatus("limit-reached");
           return;
         }
         toast.error(aErr.message);
@@ -145,9 +171,11 @@ function GeneralCourseQuizRoute() {
           ? "Enroll to take this assessment"
           : status === "deadline-passed"
             ? "Deadline passed"
-            : status === "not-published"
-              ? `${quiz?.title ?? "This assessment"} isn't ready yet`
-              : "Something went wrong";
+            : status === "limit-reached"
+              ? "Attempt limit reached"
+              : status === "not-published"
+                ? `${quiz?.title ?? "This assessment"} isn't ready yet`
+                : "Something went wrong";
     const body =
       status === "not-found"
         ? "This general course assessment no longer exists."
@@ -157,9 +185,13 @@ function GeneralCourseQuizRoute() {
             ? `This assessment is no longer available because the deadline has passed${
                 quiz?.deadline ? ` (${formatDeadline(quiz.deadline)})` : ""
               }.`
-            : status === "not-published"
-              ? "Your lecturer hasn't added any questions to this assessment yet — check back soon."
-              : "The assessment couldn't be loaded. Please try again.";
+            : status === "limit-reached"
+              ? `You have used all ${
+                  quiz?.maxAttempts ?? ""
+                } attempt(s) allowed for this assessment. Your previous results are still on your dashboard.`
+              : status === "not-published"
+                ? "Your lecturer hasn't added any questions to this assessment yet — check back soon."
+                : "The assessment couldn't be loaded. Please try again.";
     return (
       <main className="container mx-auto flex min-h-[60vh] max-w-2xl items-center justify-center px-4 py-12">
         <div className="rounded-2xl border border-dashed border-border bg-card/60 p-10 text-center">

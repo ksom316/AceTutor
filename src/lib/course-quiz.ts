@@ -61,3 +61,50 @@ export function fromDatetimeLocalValue(value: string): string | null {
   if (Number.isNaN(t)) return null;
   return new Date(t).toISOString();
 }
+
+/* ---- maximum retry attempts (General Course Quizzes only) ---- */
+
+/**
+ * `course_quizzes.max_attempts`: a positive integer cap, or NULL for unlimited.
+ * NULL is the default and preserves the original unlimited-retries behaviour.
+ * The database trigger `enforce_course_quiz_attempt()` is the authoritative
+ * enforcement — the UI values here are for display and pre-checks only.
+ */
+export const MAX_ATTEMPTS_CHOICES = [1, 2, 3, 5, 10] as const;
+
+/** Options for the lecturer's "Maximum attempts" select, unlimited first-class. */
+export const MAX_ATTEMPTS_OPTIONS: { value: string; label: string }[] = [
+  ...MAX_ATTEMPTS_CHOICES.map((n) => ({
+    value: String(n),
+    label: `${n} attempt${n === 1 ? "" : "s"}`,
+  })),
+  { value: "unlimited", label: "Unlimited" },
+];
+
+/** Select value (string) -> DB column value. "unlimited" / "" / invalid -> null. */
+export function maxAttemptsFromSelectValue(value: string): number | null {
+  if (value === "unlimited" || value.trim() === "") return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 ? n : null;
+}
+
+/** DB column value -> select value. null -> "unlimited". */
+export function maxAttemptsToSelectValue(max: number | null | undefined): string {
+  return max == null ? "unlimited" : String(max);
+}
+
+/** Whether a student with `used` attempts can start another. */
+export function canAttemptCourseQuiz(used: number, max: number | null | undefined): boolean {
+  return max == null || used < max;
+}
+
+/** "3 attempts allowed" · "Unlimited attempts". */
+export function maxAttemptsLabel(max: number | null | undefined): string {
+  if (max == null) return "Unlimited attempts";
+  return `${max} attempt${max === 1 ? "" : "s"} allowed`;
+}
+
+/** Student-facing usage summary, e.g. "1 / 3 used" or "2 used · unlimited". */
+export function attemptsUsageLabel(used: number, max: number | null | undefined): string {
+  return max == null ? `${used} used · unlimited` : `${used} / ${max} used`;
+}

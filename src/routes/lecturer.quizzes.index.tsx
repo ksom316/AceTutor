@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
 import { fadeUp } from "@/lib/motion";
-import { deadlineStatus, formatDeadline } from "@/lib/course-quiz";
+import { deadlineStatus, formatDeadline, maxAttemptsLabel } from "@/lib/course-quiz";
 
 export const Route = createFileRoute("/lecturer/quizzes/")({
   component: LecturerQuizzes,
@@ -32,6 +32,7 @@ type GeneralQuizRow = {
   deadline: string | null;
   created_at: string;
   question_count: number;
+  max_attempts: number | null;
 };
 
 function LecturerQuizzes() {
@@ -233,6 +234,7 @@ function LecturerQuizzes() {
                               <CalendarClock className="h-3 w-3" />
                               {q.deadline ? formatDeadline(q.deadline) : "No deadline"}
                             </span>
+                            <span>{maxAttemptsLabel(q.max_attempts)}</span>
                           </p>
                         </div>
                         <Badge variant={status.variant} className={`shrink-0 gap-1 ${status.cls}`}>

@@ -283,6 +283,7 @@ export type Database = {
           deadline: string | null;
           description: string | null;
           id: string;
+          max_attempts: number | null;
           title: string;
         };
         Insert: {
@@ -291,6 +292,7 @@ export type Database = {
           deadline?: string | null;
           description?: string | null;
           id?: string;
+          max_attempts?: number | null;
           title?: string;
         };
         Update: {
@@ -299,6 +301,7 @@ export type Database = {
           deadline?: string | null;
           description?: string | null;
           id?: string;
+          max_attempts?: number | null;
           title?: string;
         };
         Relationships: [
@@ -543,13 +546,19 @@ export type Database = {
         Returns: string;
       };
       create_course_quiz: {
-        Args: { _deadline?: string | null; _description?: string | null; _title: string };
+        Args: {
+          _deadline?: string | null;
+          _description?: string | null;
+          _max_attempts?: number | null;
+          _title: string;
+        };
         Returns: string;
       };
       update_course_quiz: {
         Args: {
           _deadline?: string | null;
           _description?: string | null;
+          _max_attempts?: number | null;
           _quiz_id: string;
           _title: string;
         };
@@ -570,6 +579,7 @@ export type Database = {
           deadline: string | null;
           description: string | null;
           id: string;
+          max_attempts: number | null;
           question_count: number;
           title: string;
         }[];

@@ -5,7 +5,9 @@ import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { CheckCircle2, Loader2, RotateCcw, Sparkles, Trophy, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
+import { canAttemptCourseQuiz } from "@/lib/course-quiz";
 
 export const Route = createFileRoute("/_authenticated/result/$attemptId")({
   component: ResultPage,
@@ -22,6 +24,7 @@ type AttemptDetail = {
   topics: { title: string; course_id: string } | null;
   course_quizzes: {
     title: string;
+    max_attempts: number | null;
     courses: { id: string; title: string; slug: string } | null;
   } | null;
 };
@@ -55,13 +58,14 @@ function ScoreCounter({ value }: { value: number }) {
 
 function ResultPage() {
   const { attemptId } = Route.useParams();
+  const { user } = useAuth();
   const { data, isLoading } = useQuery({
     queryKey: ["result", attemptId],
     queryFn: async () => {
       const { data: attempt } = await supabase
         .from("quiz_attempts")
         .select(
-          "id, score, total, topic_id, course_quiz_id, topics(title, course_id), course_quizzes(title, courses(id, title, slug))",
+          "id, score, total, topic_id, course_quiz_id, topics(title, course_id), course_quizzes(title, max_attempts, courses(id, title, slug))",
         )
         .eq("id", attemptId)
         .maybeSingle();
@@ -84,11 +88,30 @@ function ResultPage() {
   );
 
   const isCourseQuiz = !!data?.attempt && !data.attempt.topic_id;
+  const courseQuizId = data?.attempt?.course_quiz_id ?? null;
+  const maxAttempts = data?.attempt?.course_quizzes?.max_attempts ?? null;
   const resultTitle = isCourseQuiz
     ? `${data?.attempt?.course_quizzes?.title ?? "General Course Quiz"} · ${
         data?.attempt?.course_quizzes?.courses?.title ?? "Course"
       }`
     : (data?.attempt?.topics?.title ?? "Quiz");
+
+  // Whether the student may still start this General Course Quiz again. The DB
+  // trigger is authoritative; this only decides whether to show a Retry button.
+  const { data: attemptsUsed } = useQuery({
+    queryKey: ["result-course-quiz-attempts", courseQuizId, user?.id],
+    enabled: isCourseQuiz && !!courseQuizId && !!user && maxAttempts != null,
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("quiz_attempts")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user!.id)
+        .eq("course_quiz_id", courseQuizId!);
+      return count ?? 0;
+    },
+  });
+  const canRetryCourseQuiz =
+    maxAttempts == null || canAttemptCourseQuiz(attemptsUsed ?? 0, maxAttempts);
 
   if (isLoading || !data?.attempt) {
     return (
@@ -220,12 +243,16 @@ function ResultPage() {
         className="mt-10 flex gap-3"
       >
         {isCourseQuiz ? (
-          data.attempt.course_quiz_id ? (
+          data.attempt.course_quiz_id && canRetryCourseQuiz ? (
             <Button asChild className="transition-transform hover:scale-[1.02] active:scale-95">
               <Link to="/course-quiz/$quizId" params={{ quizId: data.attempt.course_quiz_id }}>
                 <RotateCcw className="mr-1.5 h-4 w-4" /> Retry
               </Link>
             </Button>
+          ) : data.attempt.course_quiz_id ? (
+            <p className="self-center text-sm text-muted-foreground">
+              Attempt limit reached — no retries left for this assessment.
+            </p>
           ) : null
         ) : data.attempt.topic_id ? (
           <Button asChild className="transition-transform hover:scale-[1.02] active:scale-95">
