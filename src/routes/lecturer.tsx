@@ -128,52 +128,62 @@ function LecturerLayout() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4">
-          {/* Collapse / expand the navigation sidebar */}
-          <button
-            type="button"
-            aria-label={sidebarOpen ? "Collapse navigation sidebar" : "Expand navigation sidebar"}
-            aria-expanded={sidebarOpen}
-            onClick={() => setSidebarOpen((o) => !o)}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        <div className="flex h-16">
+          {/* Toggle lives in the sidebar's own column so it clearly controls it:
+              when expanded it caps the sidebar (same width + border); when
+              collapsed it stays flush with the collapsed sidebar's left edge. */}
+          <div
+            className={cn(
+              "flex shrink-0 items-center px-3 transition-[width] duration-200 ease-out",
+              sidebarOpen ? "md:w-60 md:border-r md:border-border" : "md:w-[3.75rem]",
+            )}
           >
-            <Menu className="h-5 w-5" />
-          </button>
+            <button
+              type="button"
+              aria-label={sidebarOpen ? "Collapse navigation sidebar" : "Expand navigation sidebar"}
+              aria-expanded={sidebarOpen}
+              aria-controls="lecturer-sidebar"
+              onClick={() => setSidebarOpen((o) => !o)}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          </div>
 
-          <span aria-hidden className="h-6 w-px shrink-0 bg-border" />
-
-          <Link to="/lecturer" className="flex shrink-0 items-center gap-2">
-            <img
-              src={logoAsset}
-              alt="AceTutor"
-              width={30}
-              height={30}
-              className="rounded-lg object-contain shadow-sm"
-            />
-            <span className="text-sm font-bold tracking-tight">AceTutor</span>
-            <span className="hidden text-xs text-muted-foreground sm:inline">
-              · Lecturer workspace
-            </span>
-          </Link>
-
-          {activeItem && (
-            <span className="hidden min-w-0 items-center gap-1.5 truncate text-sm font-medium text-foreground md:flex">
-              <span aria-hidden className="text-muted-foreground">
-                /
+          <div className="flex min-w-0 flex-1 items-center gap-3 px-4">
+            <Link to="/lecturer" className="flex shrink-0 items-center gap-2">
+              <img
+                src={logoAsset}
+                alt="AceTutor"
+                width={30}
+                height={30}
+                className="rounded-lg object-contain shadow-sm"
+              />
+              <span className="text-sm font-bold tracking-tight">AceTutor</span>
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                · Lecturer workspace
               </span>
-              <activeItem.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{activeItem.label}</span>
-            </span>
-          )}
+            </Link>
 
-          <button
-            type="button"
-            onClick={signOut}
-            className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          >
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:inline">Sign out</span>
-          </button>
+            {activeItem && (
+              <span className="hidden min-w-0 items-center gap-1.5 truncate text-sm font-medium text-foreground md:flex">
+                <span aria-hidden className="text-muted-foreground">
+                  /
+                </span>
+                <activeItem.icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <span className="truncate">{activeItem.label}</span>
+              </span>
+            )}
+
+            <button
+              type="button"
+              onClick={signOut}
+              className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
+          </div>
         </div>
       </header>
 
@@ -182,6 +192,7 @@ function LecturerLayout() {
             beside the content. Mobile: an off-canvas drawer that slides over the
             content. No dark overlay in either mode. */}
         <aside
+          id="lecturer-sidebar"
           aria-label="Lecturer navigation"
           className={cn(
             "z-20 shrink-0 border-r border-border bg-background",
