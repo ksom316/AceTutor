@@ -271,6 +271,7 @@ function CourseDetail() {
 
       return ask({
         data: {
+          courseId: course.id,
           courseTitle: course.title,
           courseSummary: course.summary ?? undefined,
           mode: vars.mode,
@@ -305,6 +306,7 @@ function CourseDetail() {
     queryFn: async () => {
       const res = await ask({
         data: {
+          courseId: course!.id,
           courseTitle: course!.title,
           courseSummary: course!.summary ?? undefined,
           mode: "recommend",
@@ -492,141 +494,162 @@ function CourseDetail() {
           <div className="space-y-8">
             {/* AI TUTOR */}
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Sparkles className="h-5 w-5 text-primary" /> AI Course Tutor
-                  {activeModule && (
-                    <Badge variant="secondary" className="ml-2 font-normal">
-                      Focused on: {activeModule.title}
-                      <button
-                        onClick={() => setActiveModule(null)}
-                        className="ml-2 text-xs text-muted-foreground hover:text-foreground"
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Sparkles className="h-5 w-5 text-primary" /> AI Course Tutor
+                    {activeModule && (
+                      <Badge variant="secondary" className="ml-2 font-normal">
+                        Focused on: {activeModule.title}
+                        <button
+                          onClick={() => setActiveModule(null)}
+                          className="ml-2 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          ✕
+                        </button>
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!isEnrolled) {
+                        toast.error("Enroll to use AI tutor", {
+                          description: "You need to be enrolled in this course to ask questions.",
+                          action: user ? {
+                            label: "Enroll",
+                            onClick: () => enroll.mutate(),
+                          } : undefined,
+                        });
+                        return;
+                      }
+                      submit();
+                    }}
+                  >
+                    <div className="flex items-end gap-2 rounded-2xl border border-border bg-background p-3 shadow-sm focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15">
+                      <textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            submit();
+                          }
+                        }}
+                        rows={1}
+                        placeholder="Ask anything about this course (e.g. explain Week 3, generate quiz, summarize notes...)"
+                        className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+                      />
+                      <Button
+                        type="submit"
+                        size="icon"
+                        disabled={!input.trim() || tutor.isPending}
+                        className="h-9 w-9 shrink-0 rounded-full"
+                        aria-label="Send"
                       >
-                        ✕
-                      </button>
-                    </Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    submit();
-                  }}
-                >
-                  <div className="flex items-end gap-2 rounded-2xl border border-border bg-background p-3 shadow-sm focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15">
-                    <textarea
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          submit();
-                        }
-                      }}
-                      rows={1}
-                      placeholder="Ask anything about this course (e.g. explain Week 3, generate quiz, summarize notes...)"
-                      className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
-                    />
-                    <Button
-                      type="submit"
-                      size="icon"
-                      disabled={!input.trim() || tutor.isPending}
-                      className="h-9 w-9 shrink-0 rounded-full"
-                      aria-label="Send"
-                    >
-                      {tutor.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ArrowUp className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </form>
+                        {tutor.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ArrowUp className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </form>
 
-                {(tutor.isPending || tutor.data || tutor.isError) && (
-                  <div className="mt-3 rounded-xl border border-border bg-background/50 p-5">
-                    {tutor.isPending && (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
-                      </div>
-                    )}
-                    {tutor.isError && (
-                      <p className="text-sm text-destructive">
-                        Couldn't get a response: {(tutor.error as Error).message}
-                      </p>
-                    )}
-                    {tutor.data?.related === false && (
-                      <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-                        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                        <div>
-                          <p className="font-medium text-foreground">
-                            That doesn't look related to {course.title}.
-                          </p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {tutor.data.reason ||
-                              `Try asking something specific to ${course.title}.`}
-                          </p>
+                  {(tutor.isPending || tutor.data || tutor.isError) && (
+                    <div className="mt-3 rounded-xl border border-border bg-background/50 p-5">
+                      {tutor.isPending && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
                         </div>
-                      </div>
-                    )}
-                    {tutor.data?.related !== false && tutor.data?.answer && (
-                      <div className="prose-lesson max-w-none text-foreground">
-                        <ReactMarkdown>{tutor.data.answer}</ReactMarkdown>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                      {tutor.isError && (
+                        <p className="text-sm text-destructive">
+                          Couldn't get a response: {(tutor.error as Error).message}
+                        </p>
+                      )}
+                      {tutor.data?.related === false && (
+                        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                          <div>
+                            <p className="font-medium text-foreground">
+                              That doesn't look related to {course.title}.
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {tutor.data.reason ||
+                                `Try asking something specific to ${course.title}.`}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {tutor.data?.related !== false && tutor.data?.answer && (
+                        <div className="prose-lesson max-w-none text-foreground">
+                          <ReactMarkdown>{tutor.data.answer}</ReactMarkdown>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {[
-                    { mode: "explain" as const, label: "📘 Explain Topic" },
-                    { mode: "summarize" as const, label: "📄 Summarize Lecture" },
-                    { mode: "test" as const, label: "🎯 Test My Knowledge" },
-                  ].map(({ mode, label }) => (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {[
+                      { mode: "explain" as const, label: "📘 Explain Topic" },
+                      { mode: "summarize" as const, label: "📄 Summarize Lecture" },
+                      { mode: "test" as const, label: "🎯 Test My Knowledge" },
+                    ].map(({ mode, label }) => (
+                      <Button
+                        key={mode}
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full"
+                        disabled={tutor.isPending}
+                        onClick={() => {
+                          if (!isEnrolled) {
+                            toast.error("Enroll to use AI tutor", {
+                              description: "You need to be enrolled in this course to use AI features.",
+                              action: user ? {
+                                label: "Enroll",
+                                onClick: () => enroll.mutate(),
+                              } : undefined,
+                            });
+                            return;
+                          }
+                          tutor.mutate({
+                            mode: "explain" as const,
+                            moduleTitle: activeModule?.title,
+                            moduleSummary: activeModule?.summary ?? undefined,
+                          });
+                        }}
+                      >
+                        {label}
+                      </Button>
+                    ))}
                     <Button
-                      key={mode}
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
                       className="rounded-full"
                       disabled={tutor.isPending}
-                      onClick={() =>
-                        tutor.mutate({
-                          mode,
-                          moduleTitle: activeModule?.title,
-                          moduleSummary: activeModule?.summary ?? undefined,
-                        })
-                      }
+                      onClick={() => {
+                        if (!isEnrolled) {
+                          toast.error("Enroll to use AI tutor", {
+                            description: "You need to be enrolled in this course to use AI features.",
+                            action: user ? {
+                              label: "Enroll",
+                              onClick: () => enroll.mutate(),
+                            } : undefined,
+                          });
+                          return;
+                        }
+                        tutor.mutate({ mode: "general" });
+                      }}
                     >
-                      {label}
+                      General overview
                     </Button>
-                  ))}
-                  {/* <StartQuizButton
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full"
-                    disabled={topics.length === 0}
-                    topicId={(activeModule ?? topics[0])?.id}
-                    icon={<Brain className="mr-1.5 h-3.5 w-3.5" />}
-                  >
-                    Generate Quiz
-                  </StartQuizButton> */}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full"
-                    disabled={tutor.isPending}
-                    onClick={() => tutor.mutate({ mode: "general" })}
-                  >
-                    General overview
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                  </div>
+                </CardContent>
+              </Card>
 
             {/* MODULES */}
             <Card>
@@ -662,16 +685,41 @@ function CourseDetail() {
                               <p className="text-sm text-muted-foreground">{t.summary}</p>
                             )}
                             <div className="mt-4 flex flex-wrap gap-2">
-                              <Link to="/topic/$topicId" params={{ topicId: t.id }}>
-                                <Button size="sm" variant="outline" className="rounded-full">
-                                  <BookOpen className="mr-1.5 h-4 w-4" /> Open module
-                                </Button>
-                              </Link>
                               <Button
                                 size="sm"
                                 variant="outline"
                                 className="rounded-full"
                                 onClick={() => {
+                                  if (!isEnrolled) {
+                                    toast.error("Enroll to view module", {
+                                      description: "You need to be enrolled to view this module.",
+                                      action: user ? {
+                                        label: "Enroll",
+                                        onClick: () => enroll.mutate(),
+                                      } : undefined,
+                                    });
+                                    return;
+                                  }
+                                  window.location.href = `/topic/${t.id}`;
+                                }}
+                              >
+                                <BookOpen className="mr-1.5 h-4 w-4" /> Open module
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full"
+                                onClick={() => {
+                                  if (!isEnrolled) {
+                                    toast.error("Enroll to ask AI tutor", {
+                                      description: "You need to be enrolled to use AI features.",
+                                      action: user ? {
+                                        label: "Enroll",
+                                        onClick: () => enroll.mutate(),
+                                      } : undefined,
+                                    });
+                                    return;
+                                  }
                                   setActiveModule(t);
                                   document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
                                 }}
@@ -793,41 +841,65 @@ function CourseDetail() {
                 <CardTitle className="text-base">Quick actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {analytics.nextTopic ? (
-                  <>
-                    {/* <StartQuizButton
-                      variant="outline"
-                      className="w-full justify-start rounded-lg"
-                      topicId={analytics.nextTopic.id}
-                      icon={<ClipboardList className="mr-2 h-4 w-4" />}
-                    >
-                      Start quiz
-                    </StartQuizButton> */}
-                    <Link
-                      to="/topic/$topicId"
-                      params={{ topicId: analytics.nextTopic.id }}
-                      className="block"
-                    >
-                      <Button variant="outline" className="w-full justify-start rounded-lg">
-                        <Play className="mr-2 h-4 w-4" /> Continue learning
-                      </Button>
-                    </Link>
-                  </>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No modules available.</p>
+                {analytics.nextTopic && (
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start rounded-lg"
+                    onClick={() => {
+                      if (!isEnrolled) {
+                        toast.error("Enroll to continue learning", {
+                          description: "You need to be enrolled to access modules.",
+                          action: user ? {
+                            label: "Enroll",
+                            onClick: () => enroll.mutate(),
+                          } : undefined,
+                        });
+                        return;
+                      }
+                      window.location.href = `/topic/${analytics.nextTopic.id}`;
+                    }}
+                  >
+                    <Play className="mr-2 h-4 w-4" /> Continue learning
+                  </Button>
                 )}
                 <Button
                   variant="outline"
                   className="w-full justify-start rounded-lg"
-                  onClick={() => document.documentElement.scrollTo({ top: 0, behavior: "smooth" })}
+                  onClick={() => {
+                    if (!isEnrolled) {
+                      toast.error("Enroll to ask AI tutor", {
+                        description: "You need to be enrolled to use AI features.",
+                        action: user ? {
+                          label: "Enroll",
+                          onClick: () => enroll.mutate(),
+                        } : undefined,
+                      });
+                      return;
+                    }
+                    document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
                 >
                   <Sparkles className="mr-2 h-4 w-4" /> Ask AI Tutor
                 </Button>
-                <Link to="/dashboard" className="block">
-                  <Button variant="outline" className="w-full justify-start rounded-lg">
-                    <History className="mr-2 h-4 w-4" /> View past results
-                  </Button>
-                </Link>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start rounded-lg"
+                  onClick={() => {
+                    if (!isEnrolled) {
+                      toast.error("Enroll to view results", {
+                        description: "You need to be enrolled to view your progress.",
+                        action: user ? {
+                          label: "Enroll",
+                          onClick: () => enroll.mutate(),
+                        } : undefined,
+                      });
+                      return;
+                    }
+                    window.location.href = "/dashboard";
+                  }}
+                >
+                  <History className="mr-2 h-4 w-4" /> View past results
+                </Button>
               </CardContent>
             </Card>
 

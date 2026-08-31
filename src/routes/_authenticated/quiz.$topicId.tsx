@@ -172,6 +172,7 @@ function ModuleQuizRoute() {
   const [courseId, setCourseId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [noQuiz, setNoQuiz] = useState(false);
+  const [notEnrolled, setNotEnrolled] = useState(false);
 
   // Time spent on the quiz counts towards the topic's course.
   useStudyCourse(courseId);
@@ -189,6 +190,22 @@ function ModuleQuizRoute() {
       if (!active) return;
       setTopicTitle(topic?.title ?? "");
       setCourseId(topic?.course_id ?? null);
+
+      // Check if user is enrolled in the course
+      if (topic?.course_id) {
+        const { data: enrollment } = await supabase
+          .from("enrollments")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("course_id", topic.course_id)
+          .maybeSingle();
+        if (!active) return;
+        if (!enrollment) {
+          setNotEnrolled(true);
+          setLoading(false);
+          return;
+        }
+      }
 
       const { data: qs, error } = await supabase.rpc("get_quiz_questions", {
         _topic_id: topicId,
@@ -255,6 +272,25 @@ function ModuleQuizRoute() {
             className="mt-6 rounded-full"
           >
             Back to module
+          </Button>
+        </div>
+      </main>
+    );
+  }
+
+  if (notEnrolled) {
+    return (
+      <main className="container mx-auto flex min-h-[60vh] max-w-2xl items-center justify-center px-4 py-12">
+        <div className="rounded-2xl border border-dashed border-border bg-card/60 p-10 text-center">
+          <h1 className="font-display text-2xl">Enroll to take this quiz</h1>
+          <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+            You must be enrolled in this course before you can take quizzes. Please enroll first to proceed.
+          </p>
+          <Button
+            onClick={() => navigate({ to: "/courses" })}
+            className="mt-6 rounded-full"
+          >
+            View courses and enroll
           </Button>
         </div>
       </main>

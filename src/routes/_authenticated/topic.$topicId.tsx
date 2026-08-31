@@ -92,6 +92,21 @@ function TopicPage() {
     },
   });
 
+  // Check if user is enrolled in the course
+  const { data: enrollment } = useQuery({
+    queryKey: ["topic-enrollment", user?.id, data?.topic?.course_id],
+    enabled: !!user && !!data?.topic?.course_id,
+    queryFn: async () => {
+      const { data: enroll } = await supabase
+        .from("enrollments")
+        .select("id")
+        .eq("user_id", user!.id)
+        .eq("course_id", data!.topic!.course_id)
+        .maybeSingle();
+      return enroll;
+    },
+  });
+
   // Study time on a module belongs to its course.
   useStudyCourse(data?.topic?.course_id);
 
@@ -286,6 +301,24 @@ function TopicPage() {
             <span className="font-medium text-foreground">Module quiz coming soon.</span> Your
             lecturer hasn&apos;t published this module&apos;s quiz yet. You&apos;ll need to complete
             it to finish the module.
+          </div>
+        ) : user && !enrollment ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5">
+            <p className="font-medium text-foreground">Enroll to take the quiz</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              You need to be enrolled in {data?.topic?.courses?.title || "this course"} to take this module's quiz.
+            </p>
+            <Button
+              onClick={() =>
+                navigate({
+                  to: "/courses/$slug",
+                  params: { slug: data?.topic?.courses?.slug || "" },
+                })
+              }
+              className="mt-3 rounded-full"
+            >
+              Go to course to enroll
+            </Button>
           </div>
         ) : (
           <StartQuizButton

@@ -47,6 +47,23 @@ export function StartQuizButton({
       return;
     }
 
+    // Check enrollment if courseId is provided
+    if (courseId) {
+      setLoading(true);
+      const { data: enrollment } = await supabase
+        .from("enrollments")
+        .select("id")
+        .eq("user_id", data.session.user.id)
+        .eq("course_id", courseId)
+        .maybeSingle();
+      setLoading(false);
+      
+      if (!enrollment) {
+        toast.error("You must be enrolled in this course to take a quiz");
+        return;
+      }
+    }
+
     let target = topicId;
     if (!target && courseId) {
       setLoading(true);

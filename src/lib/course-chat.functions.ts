@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { sanitizeClues, type CrosswordClue } from "@/lib/crossword";
 
 const schema = z.object({
+  courseId: z.string().optional(), // Optional for backward compatibility, but should be provided
   courseTitle: z.string().min(1).max(200),
   courseSummary: z.string().max(2000).optional(),
   mode: z.enum([
@@ -394,7 +395,23 @@ function formatAnswer(raw: string) {
 export const askCourse = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => schema.parse(input))
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    
+    // Check enrollment if courseId is provided
+    if (data.courseId) {
+      const { data: enrollment } = await supabase
+        .from("enrollments")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("course_id", data.courseId)
+        .maybeSingle();
+      
+      if (!enrollment) {
+        throw new Error("You must be enrolled in this course to use the AI tutor.");
+      }
+    }
+    
     const system =
       "You are AceTutor, an AI course tutor embedded in a learning dashboard. You help with the specific course the student is currently studying — including its modules, prerequisites, adjacent concepts, tools, and real-world applications. Prefer the REFERENCE MATERIAL in the prompt when it covers the topic, but when it is thin or missing, answer confidently from your own knowledge of the subject — a student should always get a tangible, useful answer to a course-related question. NEVER mention, cite, name, or hint at where any material comes from; present everything as course knowledge in your own words, with no citations, source names, or article titles. Use Markdown with short paragraphs, bullet points, and concrete examples.";
 
