@@ -1,8 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
-import { BarChart3, CheckCircle2, Clock, Target, Users } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { BarChart3, CheckCircle2, Clock, Loader2, Sparkles, Target } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +31,10 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
 import { fadeUp } from "@/lib/motion";
+import {
+  analyseCoursePerformance,
+  perfAnalysisErrorMessage,
+} from "@/lib/lecturer-performance.functions";
 
 export const Route = createFileRoute("/lecturer/performance")({
   component: LecturerPerformance,
@@ -53,6 +70,19 @@ type SortKey = "recent" | "pct-desc" | "pct-asc" | "student";
 
 /** Stable identity for a quiz across attempts (topic id or course-quiz id). */
 const quizKeyOf = (r: QuizPerfRow) => r.topic_id ?? r.course_quiz_id ?? r.quiz_title;
+
+/** Shared recharts tooltip styling — matches the student analytics page. */
+const tooltipStyle = {
+  contentStyle: {
+    background: "var(--card)",
+    border: "1px solid var(--border)",
+    borderRadius: "0.75rem",
+    fontSize: "0.8rem",
+    boxShadow: "0 10px 30px -12px rgba(0,0,0,0.35)",
+  },
+  labelStyle: { color: "var(--foreground)", fontWeight: 600 },
+  itemStyle: { color: "var(--muted-foreground)" },
+};
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -268,6 +298,55 @@ function LecturerPerformance() {
       }));
   }, [perf]);
 
+  // Weekly buckets for the overview chart: completed vs unfinished attempt
+  // volume, plus the completed-attempt average, over the last 10 weeks.
+  const chartData = useMemo(() => {
+    const map = new Map<
+      string,
+      { sum: number; n: number; completed: number; inProgress: number }
+    >();
+    for (const r of perf) {
+      const stamp = r.completed && r.finished_at ? r.finished_at : r.started_at;
+      const key = weekStartKey(stamp);
+      const e = map.get(key) ?? { sum: 0, n: 0, completed: 0, inProgress: 0 };
+      if (r.completed) {
+        e.completed += 1;
+        e.sum += r.pct;
+        e.n += 1;
+      } else {
+        e.inProgress += 1;
+      }
+      map.set(key, e);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-10)
+      .map(([key, e]) => ({
+        label: new Date(key).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        avg: e.n ? Math.round(e.sum / e.n) : 0,
+        completed: e.completed,
+        inProgress: e.inProgress,
+      }));
+  }, [perf]);
+
+  // Students who most / least need attention — from completed attempts only.
+  const strugglingStudents = useMemo(
+    () =>
+      byStudent
+        .filter((s) => s.avg != null && s.avg < 70)
+        .sort((a, b) => (a.avg ?? 0) - (b.avg ?? 0))
+        .slice(0, 6),
+    [byStudent],
+  );
+  const strongStudents = useMemo(
+    () =>
+      byStudent
+        .filter((s) => s.avg != null && s.avg >= 80)
+        .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0))
+        .slice(0, 6),
+    [byStudent],
+  );
+
   const attempts = useMemo(() => {
     const term = search.trim().toLowerCase();
     let list = perf.filter((r) => {
@@ -298,6 +377,52 @@ function LecturerPerformance() {
 
   const courseName = courseQuery.data?.title;
   const loading = perfQuery.isLoading;
+  const hasData = perf.length > 0;
+
+  // AI analysis of the aggregated numbers above. Only the small summary payload
+  // is sent — no raw attempt rows, ids, emails or timestamps.
+  const runAnalyse = useServerFn(analyseCoursePerformance);
+  const analyse = useMutation({
+    mutationFn: async () => {
+      const res = await runAnalyse({
+        data: {
+          courseTitle: courseName ?? "This course",
+          totals: {
+            enrolled: enrolledCount,
+            studentsAssessed: summary.studentsAssessed,
+            totalAttempts: summary.total,
+            completed: summary.completed,
+            inProgress: summary.inProgress,
+            averageScore: summary.completed ? summary.avg : null,
+          },
+          quizzes: byQuiz.map((q) => ({
+            title: q.title,
+            type: q.type,
+            attempts: q.attempts,
+            completed: q.completed,
+            avg: q.avg,
+          })),
+          struggling: strugglingStudents.map((s) => ({
+            name: s.student,
+            completed: s.completed,
+            avg: s.avg,
+          })),
+          strong: strongStudents.map((s) => ({
+            name: s.student,
+            completed: s.completed,
+            avg: s.avg,
+          })),
+          trend: chartData.map((w) => ({
+            label: w.label,
+            avg: w.avg,
+            completed: w.completed,
+            inProgress: w.inProgress,
+          })),
+        },
+      });
+      return res.analysis;
+    },
+  });
 
   return (
     <motion.main
@@ -349,11 +474,11 @@ function LecturerPerformance() {
               value={String(summary.completed)}
               loading={loading}
             />
-            <StatTile
-              icon={Clock}
-              label="In progress"
-              value={String(summary.inProgress)}
-              loading={loading}
+            <StatTile 
+              icon={Clock} 
+              label="Started but did not finish" 
+              value={String(summary.inProgress)} 
+              loading={loading} 
             />
             <StatTile
               icon={Target}
@@ -362,6 +487,154 @@ function LecturerPerformance() {
               loading={loading}
             />
           </div>
+
+          {/* Performance overview — attempt volume + average score by week */}
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="text-lg">Performance overview</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Attempts started each week (completed vs unfinished) and the average score of
+                completed attempts
+              </p>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-64 w-full" />
+              ) : chartData.length === 0 ? (
+                <p className="py-16 text-center text-sm text-muted-foreground">
+                  Not enough quiz activity to chart yet.
+                </p>
+              ) : (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={chartData} margin={{ left: -12, right: 8, top: 6 }}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        yAxisId="count"
+                        allowDecimals={false}
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        yAxisId="pct"
+                        orientation="right"
+                        domain={[0, 100]}
+                        unit="%"
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <Tooltip {...tooltipStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar
+                        yAxisId="count"
+                        dataKey="completed"
+                        name="Completed"
+                        stackId="a"
+                        fill="var(--chart-1)"
+                        radius={[0, 0, 0, 0]}
+                      />
+                      <Bar
+                        yAxisId="count"
+                        dataKey="inProgress"
+                        name="Unfinished"
+                        stackId="a"
+                        fill="var(--chart-4)"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Line
+                        yAxisId="pct"
+                        type="monotone"
+                        dataKey="avg"
+                        name="Avg score %"
+                        stroke="var(--chart-2)"
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: "var(--chart-2)" }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* AI performance insights */}
+          <Card className="mt-6">
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Sparkles className="h-4 w-4 text-primary" /> AI Performance Insights
+                </CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A practical read of the aggregated numbers above — where to focus teaching, and
+                  which students to support.
+                </p>
+              </div>
+              {analyse.data && !analyse.isPending && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full"
+                  onClick={() => analyse.mutate()}
+                >
+                  Regenerate
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <SkeletonRows />
+              ) : !hasData || summary.completed === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  There are no completed quiz attempts to analyse yet.
+                </p>
+              ) : analyse.isPending ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Analysing performance…
+                </div>
+              ) : analyse.isError ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-destructive">
+                    {perfAnalysisErrorMessage(analyse.error)}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => analyse.mutate()}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              ) : analyse.data ? (
+                <div className="prose-lesson max-w-none text-sm text-foreground">
+                  <ReactMarkdown>{analyse.data}</ReactMarkdown>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Generate an AI summary of strong and weak topics, students who may need support,
+                    recent trends, and suggested teaching actions and follow-up assessments.
+                  </p>
+                  <Button className="rounded-full" onClick={() => analyse.mutate()}>
+                    <Sparkles className="mr-1.5 h-4 w-4" /> Analyse performance
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
             {/* Average score per quiz */}
