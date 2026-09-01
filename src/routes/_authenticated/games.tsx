@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Flame,
@@ -13,6 +13,7 @@ import {
   Sparkles,
   Timer,
   Trophy,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CrosswordBoard } from "@/components/games/CrosswordBoard";
@@ -313,6 +314,26 @@ function GamesPage() {
     setError(null);
   }, []);
 
+  // "Play another" on the solved screen: rebuild straight away with the same
+  // game and difficulty instead of dropping back to setup. A sequence token
+  // lets an Exit mid-build win, so the fresh puzzle doesn't pop back in.
+  const [regenerating, setRegenerating] = useState(false);
+  const regenSeq = useRef(0);
+
+  const playAnother = useCallback(async () => {
+    const seq = ++regenSeq.current;
+    setRegenerating(true);
+    await generate();
+    if (regenSeq.current === seq) setRegenerating(false);
+    else clearPuzzle();
+  }, [generate, clearPuzzle]);
+
+  const exitBoard = useCallback(() => {
+    regenSeq.current++;
+    setRegenerating(false);
+    clearPuzzle();
+  }, [clearPuzzle]);
+
   const bestTime = useMemo(() => {
     const times = Object.values(stats.best);
     return times.length > 0 ? Math.min(...times) : null;
@@ -322,6 +343,63 @@ function GamesPage() {
   // The hero reflects the puzzle on screen, or the pending choice in setup.
   const heroGame = puzzle || wordSearch ? activeGame : game;
   const activeGameMeta = GAMES.find((g) => g.key === heroGame)!;
+
+  const boardActive = !!(puzzle || wordSearch);
+
+  const board = puzzle ? (
+    <CrosswordBoard
+      key={`${puzzleLabel}-${difficulty}-${puzzle.words.length}-${puzzle.rows}x${puzzle.cols}`}
+      puzzle={puzzle}
+      courseLabel={puzzleLabel}
+      showSources={mixed}
+      onSolved={handleSolved}
+      onPlayAgain={playAnother}
+      onNewPuzzle={exitBoard}
+    />
+  ) : wordSearch ? (
+    <WordSearchBoard
+      key={`${puzzleLabel}-${difficulty}-${wordSearch.words.length}-${wordSearch.size}`}
+      puzzle={wordSearch}
+      courseLabel={puzzleLabel}
+      showSources={mixed}
+      onSolved={handleSolved}
+      onPlayAgain={playAnother}
+      onNewPuzzle={exitBoard}
+    />
+  ) : null;
+
+  if (boardActive || regenerating) {
+    // Fills the workspace pane, not the viewport — the sidebar and top bar stay
+    // put (4rem = the AppShell top bar). The board fits this box without ever
+    // spilling into a page scrollbar.
+    return (
+      <div className="flex h-[calc(100svh-4rem)] flex-col bg-background">
+        <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4">
+          <div className="flex shrink-0 items-center justify-between gap-3">
+            <p className="min-w-0 truncate text-sm font-medium text-muted-foreground">
+              {activeGameMeta.label} · {puzzleLabel} · {activeDifficulty.label}
+            </p>
+            <button
+              type="button"
+              onClick={exitBoard}
+              aria-label="Exit puzzle"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" /> Exit
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {board ?? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <p className="text-sm">Building your next puzzle…</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">
@@ -367,184 +445,164 @@ function GamesPage() {
             </div>
           </motion.div>
 
-          {/* Setup / board */}
-          {puzzle ? (
-            <CrosswordBoard
-              key={`${puzzleLabel}-${difficulty}-${puzzle.words.length}-${puzzle.rows}x${puzzle.cols}`}
-              puzzle={puzzle}
-              courseLabel={puzzleLabel}
-              showSources={mixed}
-              onSolved={handleSolved}
-              onNewPuzzle={clearPuzzle}
-            />
-          ) : wordSearch ? (
-            <WordSearchBoard
-              key={`${puzzleLabel}-${difficulty}-${wordSearch.words.length}-${wordSearch.size}`}
-              puzzle={wordSearch}
-              courseLabel={puzzleLabel}
-              showSources={mixed}
-              onSolved={handleSolved}
-              onNewPuzzle={clearPuzzle}
-            />
-          ) : (
-            <motion.section
-              variants={fadeUp}
-              initial="hidden"
-              animate="show"
-              className="rounded-3xl border border-border bg-card p-5 shadow-sm md:p-6"
-            >
-              <div className="flex items-center gap-3">
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
-                  <Gamepad2 className="h-5 w-5" />
-                </span>
-                <div>
-                  <h2 className="font-display text-xl">New puzzle</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Pick a game and what to revise, then start solving.
-                  </p>
-                </div>
-              </div>
-
-              {/* Game picker */}
-              <div className="mt-6">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Game
+          {/* Setup — a running puzzle renders full-screen (see the early return above). */}
+          <motion.section
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            className="rounded-3xl border border-border bg-card p-5 shadow-sm md:p-6"
+          >
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                <Gamepad2 className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="font-display text-xl">New puzzle</h2>
+                <p className="text-sm text-muted-foreground">
+                  Pick a game and what to revise, then start solving.
                 </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {GAMES.map((g) => {
-                    const Icon = g.icon;
-                    const selected = game === g.key;
-                    return (
-                      <button
-                        key={g.key}
-                        type="button"
-                        onClick={() => setGame(g.key)}
-                        aria-pressed={selected}
-                        className={cn(
-                          "flex items-start gap-3 rounded-2xl border p-3 text-left transition-colors",
-                          selected
-                            ? "border-primary bg-primary/5"
-                            : "border-border hover:border-primary/40 hover:bg-secondary/50",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "grid h-9 w-9 shrink-0 place-items-center rounded-xl",
-                            selected
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-secondary text-muted-foreground",
-                          )}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-sm font-medium">{g.label}</span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">
-                            {g.blurb}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
+            </div>
 
-              {/* Course picker */}
-              <div className="mt-6">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Course
-                </p>
-                {courses.length === 0 ? (
-                  <p className="mt-3 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                    Enroll in a course to unlock word puzzles.
-                  </p>
-                ) : (
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <CourseOption
-                      title={ALL_COURSES_LABEL}
-                      subtitle={`Mix terms from ${courses.length} course${courses.length === 1 ? "" : "s"}`}
-                      selected={courseId === ALL_COURSES}
-                      onSelect={() => setCourseId(ALL_COURSES)}
-                    />
-                    {courses.map((course) => (
-                      <CourseOption
-                        key={course.id}
-                        title={course.title}
-                        subtitle={course.summary ?? "Course vocabulary"}
-                        selected={courseId === course.id}
-                        onSelect={() => setCourseId(course.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Difficulty */}
-              <div className="mt-6">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Difficulty
-                </p>
-                <div className="mt-3 inline-flex rounded-full border border-border bg-secondary/50 p-1">
-                  {DIFFICULTIES.map((d) => (
+            {/* Game picker */}
+            <div className="mt-6">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Game
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {GAMES.map((g) => {
+                  const Icon = g.icon;
+                  const selected = game === g.key;
+                  return (
                     <button
-                      key={d.key}
+                      key={g.key}
                       type="button"
-                      onClick={() => setDifficulty(d.key)}
+                      onClick={() => setGame(g.key)}
+                      aria-pressed={selected}
                       className={cn(
-                        "rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
-                        difficulty === d.key
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground",
+                        "flex items-start gap-3 rounded-2xl border p-3 text-left transition-colors",
+                        selected
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/40 hover:bg-secondary/50",
                       )}
                     >
-                      {d.label}
+                      <span
+                        className={cn(
+                          "grid h-9 w-9 shrink-0 place-items-center rounded-xl",
+                          selected
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-secondary text-muted-foreground",
+                        )}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{g.label}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {g.blurb}
+                        </span>
+                      </span>
                     </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Course picker */}
+            <div className="mt-6">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Course
+              </p>
+              {courses.length === 0 ? (
+                <p className="mt-3 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  Enroll in a course to unlock word puzzles.
+                </p>
+              ) : (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <CourseOption
+                    title={ALL_COURSES_LABEL}
+                    subtitle={`Mix terms from ${courses.length} course${courses.length === 1 ? "" : "s"}`}
+                    selected={courseId === ALL_COURSES}
+                    onSelect={() => setCourseId(ALL_COURSES)}
+                  />
+                  {courses.map((course) => (
+                    <CourseOption
+                      key={course.id}
+                      title={course.title}
+                      subtitle={course.summary ?? "Course vocabulary"}
+                      selected={courseId === course.id}
+                      onSelect={() => setCourseId(course.id)}
+                    />
                   ))}
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {game === "wordsearch" ? (
-                    <>
-                      Up to {activeDifficulty.words} words on a {activeDifficulty.searchSize}×
-                      {activeDifficulty.searchSize} grid
-                      {activeDifficulty.reverse
-                        ? ", hidden in any direction including backwards."
-                        : activeDifficulty.diagonals
-                          ? ", including diagonals."
-                          : ", across and down only."}
-                    </>
-                  ) : (
-                    <>
-                      Up to {activeDifficulty.words} words on a {activeDifficulty.maxSize}-square
-                      grid.
-                    </>
-                  )}
-                </p>
-              </div>
-
-              {error && (
-                <p className="mt-5 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-                  {error}
-                </p>
               )}
+            </div>
 
-              <Button
-                onClick={generate}
-                disabled={generating || courses.length === 0}
-                size="lg"
-                className="mt-6 h-12 w-full rounded-full text-base font-semibold sm:w-auto sm:px-8"
-              >
-                {generating ? (
+            {/* Difficulty */}
+            <div className="mt-6">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Difficulty
+              </p>
+              <div className="mt-3 inline-flex rounded-full border border-border bg-secondary/50 p-1">
+                {DIFFICULTIES.map((d) => (
+                  <button
+                    key={d.key}
+                    type="button"
+                    onClick={() => setDifficulty(d.key)}
+                    className={cn(
+                      "rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
+                      difficulty === d.key
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {game === "wordsearch" ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Building your puzzle…
+                    Up to {activeDifficulty.words} words on a {activeDifficulty.searchSize}×
+                    {activeDifficulty.searchSize} grid
+                    {activeDifficulty.reverse
+                      ? ", hidden in any direction including backwards."
+                      : activeDifficulty.diagonals
+                        ? ", including diagonals."
+                        : ", across and down only."}
                   </>
                 ) : (
                   <>
-                    <Sparkles className="mr-2 h-4 w-4" /> Generate puzzle
+                    Up to {activeDifficulty.words} words on a {activeDifficulty.maxSize}-square
+                    grid.
                   </>
                 )}
-              </Button>
-            </motion.section>
-          )}
+              </p>
+            </div>
+
+            {error && (
+              <p className="mt-5 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+
+            <Button
+              onClick={generate}
+              disabled={generating || courses.length === 0}
+              size="lg"
+              className="mt-6 h-12 w-full rounded-full text-base font-semibold sm:w-auto sm:px-8"
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Building your puzzle…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="mr-2 h-4 w-4" /> Generate puzzle
+                </>
+              )}
+            </Button>
+          </motion.section>
         </div>
 
         {/* ----------------------------- RIGHT RAIL ----------------------------- */}

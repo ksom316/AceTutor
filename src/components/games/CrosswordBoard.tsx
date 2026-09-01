@@ -1,16 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  CheckCheck,
-  Eraser,
-  Lightbulb,
-  RotateCcw,
-  Sparkles,
-  Timer,
-  Trophy,
-  Wand2,
-} from "lucide-react";
+import { CheckCheck, Eraser, Lightbulb, Sparkles, Timer, Trophy, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useFitSquare } from "@/hooks/use-fit-square";
 import { cellKey, wordCells, type Direction, type PlacedWord, type Puzzle } from "@/lib/crossword";
 import { formatDuration } from "@/lib/game-stats";
 import { cn } from "@/lib/utils";
@@ -22,6 +14,9 @@ type Props = {
   /** True when the puzzle mixes courses, so clue rows show their source. */
   showSources?: boolean;
   onSolved: (info: { seconds: number; hints: number }) => void;
+  /** Rebuild another puzzle of the same game and difficulty. */
+  onPlayAgain: () => void;
+  /** Leave the board and return to the setup screen. */
   onNewPuzzle: () => void;
 };
 
@@ -32,6 +27,7 @@ export function CrosswordBoard({
   courseLabel,
   showSources = false,
   onSolved,
+  onPlayAgain,
   onNewPuzzle,
 }: Props) {
   const [letters, setLetters] = useState<Record<string, string>>({});
@@ -51,6 +47,12 @@ export function CrosswordBoard({
   const inputs = useRef(new Map<string, HTMLInputElement>());
   // Notified once per puzzle, from an effect — never during render.
   const reportedRef = useRef(false);
+
+  // The grid sizes its cells to whatever space the board area has, so the whole
+  // puzzle fits the screen on start instead of pushing out a scrollbar.
+  const gridBox = useRef<HTMLDivElement>(null);
+  const cell = useFitSquare(gridBox, puzzle.cols, puzzle.rows, 2);
+  const cellPx = cell || 32;
 
   const across = useMemo(
     () => puzzle.words.filter((w) => w.dir === "across").sort((a, b) => a.number - b.number),
@@ -296,16 +298,16 @@ export function CrosswordBoard({
           This puzzle came back empty. Try generating a new one.
         </p>
         <Button onClick={onNewPuzzle} className="mt-4 rounded-full">
-          New puzzle
+          Back to setup
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <div className="flex h-full flex-col gap-4">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
         <span className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
           <Timer className="h-3.5 w-3.5" /> {formatDuration(seconds)}
         </span>
@@ -356,9 +358,6 @@ export function CrosswordBoard({
           >
             <Eraser className="mr-1.5 h-3.5 w-3.5" /> Clear
           </Button>
-          <Button type="button" size="sm" className="rounded-full" onClick={onNewPuzzle}>
-            <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> New puzzle
-          </Button>
         </div>
       </div>
 
@@ -367,7 +366,7 @@ export function CrosswordBoard({
           initial={{ opacity: 0, scale: 0.96, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          className="relative overflow-hidden rounded-3xl border border-border bg-card p-8 text-center"
+          className="relative shrink-0 overflow-hidden rounded-3xl border border-border bg-card p-8 text-center"
         >
           <div
             aria-hidden
@@ -390,24 +389,27 @@ export function CrosswordBoard({
           <p className="relative mt-2 text-sm text-muted-foreground">
             {courseLabel} · {hints} hint{hints === 1 ? "" : "s"} used · {accuracy}% solved unaided
           </p>
-          <Button onClick={onNewPuzzle} className="relative mt-6 rounded-full">
+          <Button onClick={onPlayAgain} className="relative mt-6 rounded-full">
             Play another
           </Button>
         </motion.div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]">
         {/* Grid */}
-        <div className="min-w-0 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
-          <div className="overflow-x-auto">
+        <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:flex-none">
+          <div
+            ref={gridBox}
+            className="flex min-h-0 flex-1 items-center justify-center overflow-auto"
+          >
             {/* The board frames itself against the card: blocked squares are
                 filled with the foreground colour and open squares keep a solid
                 outline, so the grid reads clearly in light and dark mode. */}
             <div
               role="grid"
               aria-label={`Crossword puzzle for ${courseLabel}`}
-              className="mx-auto grid w-max gap-[2px] rounded-lg border-2 border-neutral-800 bg-neutral-800 p-[2px]"
-              style={{ gridTemplateColumns: `repeat(${puzzle.cols}, minmax(0, 1fr))` }}
+              className="grid w-max shrink-0 gap-[2px] rounded-lg border-2 border-neutral-800 bg-neutral-800 p-[2px]"
+              style={{ gridTemplateColumns: `repeat(${puzzle.cols}, ${cellPx}px)` }}
             >
               {puzzle.grid.map((row, r) =>
                 row.map((answer, c) => {
@@ -417,7 +419,8 @@ export function CrosswordBoard({
                       <div
                         key={key}
                         aria-hidden
-                        className="h-8 w-8 rounded-[2px] bg-neutral-800 sm:h-9 sm:w-9"
+                        className="rounded-[2px] bg-neutral-800"
+                        style={{ width: cellPx, height: cellPx }}
                       />
                     );
                   }
@@ -429,7 +432,7 @@ export function CrosswordBoard({
                   const number = numberByCell.get(key);
 
                   return (
-                    <div key={key} className="relative h-8 w-8 sm:h-9 sm:w-9">
+                    <div key={key} className="relative" style={{ width: cellPx, height: cellPx }}>
                       {number !== undefined && (
                         <span className="pointer-events-none absolute left-[2px] top-0 z-10 text-[9px] font-bold leading-tight text-neutral-500">
                           {number}
@@ -460,8 +463,9 @@ export function CrosswordBoard({
                         // pointerdown (not click) fires before focus, so the
                         // direction toggle still sees the previously active cell.
                         onPointerDown={() => selectCell(r, c)}
+                        style={{ fontSize: Math.max(11, Math.round(cellPx * 0.46)) }}
                         className={cn(
-                          "h-full w-full rounded-[2px] text-center text-sm font-bold uppercase caret-transparent outline-none transition-colors sm:text-base",
+                          "h-full w-full rounded-[2px] text-center font-bold uppercase caret-transparent outline-none transition-colors",
                           // The board keeps a paper-white surface in both themes
                           // so letters and blocked squares always read clearly.
                           wrong
@@ -482,7 +486,7 @@ export function CrosswordBoard({
           </div>
 
           {activeWord && !solved && (
-            <p className="mt-4 rounded-xl bg-secondary/60 px-4 py-2.5 text-sm">
+            <p className="mt-3 shrink-0 rounded-xl bg-secondary/60 px-4 py-2.5 text-sm">
               <span className="font-semibold text-primary">
                 {activeWord.number} {activeWord.dir === "across" ? "Across" : "Down"}
               </span>{" "}
@@ -494,7 +498,7 @@ export function CrosswordBoard({
         </div>
 
         {/* Clues */}
-        <div className="space-y-4 lg:max-h-160 lg:overflow-y-auto lg:pr-1">
+        <div className="max-h-[38vh] shrink-0 space-y-4 overflow-y-auto lg:max-h-none lg:h-full lg:shrink lg:pr-1">
           <ClueList
             title="Across"
             words={across}

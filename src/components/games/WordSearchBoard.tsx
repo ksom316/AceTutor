@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Lightbulb, RotateCcw, Timer, Trophy, Wand2 } from "lucide-react";
+import { Check, Lightbulb, Timer, Trophy, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useFitSquare } from "@/hooks/use-fit-square";
 import { cellKey } from "@/lib/crossword";
 import { formatDuration } from "@/lib/game-stats";
 import { entryCells, lineBetween, type PlacedEntry, type WordSearch } from "@/lib/wordsearch";
@@ -14,6 +15,9 @@ type Props = {
   /** True when the puzzle mixes courses, so the word list shows its source. */
   showSources?: boolean;
   onSolved: (info: { seconds: number; hints: number }) => void;
+  /** Rebuild another puzzle of the same game and difficulty. */
+  onPlayAgain: () => void;
+  /** Leave the board and return to the setup screen. */
   onNewPuzzle: () => void;
 };
 
@@ -24,6 +28,7 @@ export function WordSearchBoard({
   courseLabel,
   showSources = false,
   onSolved,
+  onPlayAgain,
   onNewPuzzle,
 }: Props) {
   const [found, setFound] = useState<Set<string>>(new Set());
@@ -38,6 +43,12 @@ export function WordSearchBoard({
   const [solved, setSolved] = useState(false);
 
   const reportedRef = useRef(false);
+
+  // Cells size to the available board area so the whole grid fits the screen on
+  // start rather than pushing out a scrollbar.
+  const gridBox = useRef<HTMLDivElement>(null);
+  const cell = useFitSquare(gridBox, puzzle.size, puzzle.size, 2);
+  const cellPx = cell || 32;
 
   const total = puzzle.words.length;
   const remaining = total - found.size;
@@ -173,16 +184,16 @@ export function WordSearchBoard({
           This puzzle came back empty. Try generating a new one.
         </p>
         <Button onClick={onNewPuzzle} className="mt-4 rounded-full">
-          New puzzle
+          Back to setup
         </Button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5">
+    <div className="flex h-full flex-col gap-4">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
         <span className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
           <Timer className="h-3.5 w-3.5" /> {formatDuration(seconds)}
         </span>
@@ -192,9 +203,6 @@ export function WordSearchBoard({
         <span className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1.5 text-xs font-medium text-muted-foreground">
           <Lightbulb className="h-3.5 w-3.5" /> {hints} hint{hints === 1 ? "" : "s"}
         </span>
-        <Button type="button" size="sm" className="ml-auto rounded-full" onClick={onNewPuzzle}>
-          <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> New puzzle
-        </Button>
       </div>
 
       {solved && (
@@ -202,7 +210,7 @@ export function WordSearchBoard({
           initial={{ opacity: 0, scale: 0.96, y: 16 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          className="relative overflow-hidden rounded-3xl border border-border bg-card p-8 text-center"
+          className="relative shrink-0 overflow-hidden rounded-3xl border border-border bg-card p-8 text-center"
         >
           <div
             aria-hidden
@@ -225,16 +233,19 @@ export function WordSearchBoard({
           <p className="relative mt-2 text-sm text-muted-foreground">
             {courseLabel} · {total} words · {hints} hint{hints === 1 ? "" : "s"} used
           </p>
-          <Button onClick={onNewPuzzle} className="relative mt-6 rounded-full">
+          <Button onClick={onPlayAgain} className="relative mt-6 rounded-full">
             Play another
           </Button>
         </motion.div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)]">
         {/* Letter grid */}
-        <div className="min-w-0 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
-          <div className="overflow-x-auto">
+        <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:flex-none">
+          <div
+            ref={gridBox}
+            className="flex min-h-0 flex-1 items-center justify-center overflow-auto"
+          >
             <motion.div
               animate={rejected ? { x: [0, -6, 6, -4, 0] } : { x: 0 }}
               transition={{ duration: 0.3 }}
@@ -242,8 +253,8 @@ export function WordSearchBoard({
               aria-label={`Word search for ${courseLabel}`}
               // Paper-white board with dark letters, so it reads the same in
               // light and dark mode.
-              className="mx-auto grid w-max gap-[2px] rounded-lg border-2 border-neutral-800 bg-neutral-800 p-[2px] select-none"
-              style={{ gridTemplateColumns: `repeat(${puzzle.size}, minmax(0, 1fr))` }}
+              className="grid w-max shrink-0 gap-[2px] rounded-lg border-2 border-neutral-800 bg-neutral-800 p-[2px] select-none"
+              style={{ gridTemplateColumns: `repeat(${puzzle.size}, ${cellPx}px)` }}
             >
               {puzzle.grid.map((row, r) =>
                 row.map((letter, c) => {
@@ -260,8 +271,13 @@ export function WordSearchBoard({
                       onPointerDown={() => handlePointerDown(r, c)}
                       onPointerEnter={() => handlePointerEnter(r, c)}
                       onPointerUp={() => handlePointerUp(r, c)}
+                      style={{
+                        width: cellPx,
+                        height: cellPx,
+                        fontSize: Math.max(11, Math.round(cellPx * 0.46)),
+                      }}
                       className={cn(
-                        "h-8 w-8 rounded-[2px] text-center text-sm font-bold uppercase leading-8 transition-colors sm:h-9 sm:w-9 sm:text-base sm:leading-9",
+                        "grid place-items-center rounded-[2px] text-center font-bold uppercase leading-none transition-colors",
                         isFound
                           ? "bg-emerald-200 text-emerald-900"
                           : isSelected
@@ -278,13 +294,13 @@ export function WordSearchBoard({
             </motion.div>
           </div>
 
-          <p className="mt-4 text-center text-xs text-muted-foreground">
+          <p className="mt-3 shrink-0 text-center text-xs text-muted-foreground">
             Drag across a word — or tap its first and last letter. Words run in any direction.
           </p>
         </div>
 
         {/* Word list */}
-        <div className="rounded-3xl border border-border bg-card p-4 shadow-sm lg:max-h-160 lg:overflow-y-auto">
+        <div className="max-h-[38vh] shrink-0 overflow-y-auto rounded-3xl border border-border bg-card p-4 shadow-sm lg:max-h-none lg:h-full lg:shrink">
           <div className="flex items-baseline justify-between">
             <h3 className="font-display text-base">Words to find</h3>
             <span className="text-xs text-muted-foreground">{remaining} left</span>
