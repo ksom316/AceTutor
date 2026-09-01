@@ -193,9 +193,9 @@ function LightSlide() {
             viewport={{ once: true }}
             whileHover={{ x: 4 }}
             transition={{ delay: 0.1 + i * 0.1, duration: 0.4, ease: EASE }}
-            className="flex items-center gap-2.5 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-foreground shadow-md"
+            className="flex items-center gap-2.5 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-[oklch(0.24_0.13_282)] shadow-md dark:bg-white/10 dark:text-white dark:shadow-none dark:ring-1 dark:ring-white/15 dark:backdrop-blur-sm"
           >
-            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/10 text-primary dark:bg-white/15 dark:text-white">
               <Icon className="h-3.5 w-3.5" />
             </span>
             {text}
