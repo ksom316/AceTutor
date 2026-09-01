@@ -22,6 +22,7 @@ import { Footer } from "@/components/site/Footer";
 import { HeroPreview } from "@/components/site/HeroPreview";
 import { FeatureCarousel } from "@/components/site/FeatureCarousel";
 import { EnrolledCoursesCarousel } from "@/components/site/EnrolledCoursesCarousel";
+import { BrandShowcaseCarousel } from "@/components/site/BrandShowcaseCarousel";
 import { CourseCard } from "@/components/site/CourseCard";
 import { useEnrolledCourses } from "@/hooks/use-enrolled-courses";
 import { Button } from "@/components/ui/button";
@@ -187,6 +188,11 @@ function VisitorHome() {
 
       {/* Feature carousel */}
       <FeatureCarousel />
+
+      {/* Brand showcase — the three poster designs, recreated as scrollable slides. */}
+      <section className="container mx-auto max-w-6xl px-4 pb-16">
+        <BrandShowcaseCarousel cta={{ label: "Get started", to: "/signup" }} />
+      </section>
 
       {/* Courses preview */}
       <section className="container mx-auto max-w-6xl px-4 py-16">
@@ -369,7 +375,11 @@ function AuthedHome({ userId }: { userId: string }) {
         </p>
       </motion.header>
 
-      {isLecturer ? <LecturerPanels /> : <StudentHub userId={userId} />}
+      {isLecturer ? (
+        <LecturerPanels />
+      ) : (
+        <StudentHub userId={userId} hasVark={!!profile?.vark_primary} />
+      )}
 
       {!profile?.vark_primary && !isLecturer && (
         <Link
@@ -419,7 +429,7 @@ const HUB_ACTIONS = [
   },
 ] as const;
 
-function StudentHub({ userId }: { userId: string }) {
+function StudentHub({ userId, hasVark }: { userId: string; hasVark: boolean }) {
   const { continueCourse, perCourse } = useStudentDashboard(userId);
 
   return (
@@ -449,6 +459,15 @@ function StudentHub({ userId }: { userId: string }) {
           </motion.div>
         ))}
       </motion.div>
+
+      {/* Brand showcase — the three poster designs, recreated as scrollable slides. */}
+      <BrandShowcaseCarousel
+        cta={
+          hasVark
+            ? { label: "Browse courses", to: "/courses" }
+            : { label: "Take the VARK intake", to: "/onboarding/vark" }
+        }
+      />
     </>
   );
 }

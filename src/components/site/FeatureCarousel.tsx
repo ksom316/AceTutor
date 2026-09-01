@@ -20,7 +20,7 @@ import {
 import { viewportOnce } from "@/lib/motion";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
-const AUTOPLAY_MS = 6000;
+const AUTOPLAY_MS = 3000;
 
 /* --------------------------------- Slides --------------------------------- */
 
