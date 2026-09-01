@@ -431,6 +431,54 @@ export type Database = {
           },
         ];
       };
+      study_paths: {
+        Row: {
+          id: string;
+          user_id: string;
+          topic_id: string;
+          attempt_id: string;
+          weak_question_ids: string[];
+          content: Json;
+          created_at: string;
+          completed_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          topic_id: string;
+          attempt_id: string;
+          weak_question_ids?: string[];
+          content: Json;
+          created_at?: string;
+          completed_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          topic_id?: string;
+          attempt_id?: string;
+          weak_question_ids?: string[];
+          content?: Json;
+          created_at?: string;
+          completed_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "study_paths_topic_id_fkey";
+            columns: ["topic_id"];
+            isOneToOne: false;
+            referencedRelation: "topics";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "study_paths_attempt_id_fkey";
+            columns: ["attempt_id"];
+            isOneToOne: true;
+            referencedRelation: "quiz_attempts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       study_sessions: {
         Row: {
           course_id: string | null;
@@ -715,6 +763,32 @@ export type Database = {
       replace_course_quiz: {
         Args: { _questions: Json; _quiz_id: string };
         Returns: string;
+      };
+      save_study_path: {
+        Args: { _attempt_id: string; _content: Json; _weak_question_ids: string[] };
+        Returns: {
+          id: string;
+          user_id: string;
+          topic_id: string;
+          attempt_id: string;
+          weak_question_ids: string[];
+          content: Json;
+          created_at: string;
+          completed_at: string | null;
+        };
+      };
+      mark_study_path_completed: {
+        Args: { _id: string };
+        Returns: {
+          id: string;
+          user_id: string;
+          topic_id: string;
+          attempt_id: string;
+          weak_question_ids: string[];
+          content: Json;
+          created_at: string;
+          completed_at: string | null;
+        };
       };
     };
     Enums: {
