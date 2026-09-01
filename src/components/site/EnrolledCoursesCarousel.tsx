@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, BookOpen, Play } from "lucide-react";
 import type { PerCourse } from "@/hooks/use-student-dashboard";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
-const AUTOPLAY_MS = 4500;
+const AUTOPLAY_MS = 3000;
 
 /** Bold panel gradients, cycled by position — mirrors the marketing palette. */
 const GRADIENTS = [
@@ -143,7 +143,7 @@ export function EnrolledCoursesCarousel({
       <div className="overflow-hidden" ref={emblaRef}>
         <div className="flex gap-4 [touch-action:pan-y]">
           {ordered.map((c, i) => (
-            <div key={c.id} className="min-w-0 shrink-0 grow-0 basis-[86%] sm:basis-[360px]">
+            <div key={c.id} className="min-w-0 shrink-0 grow-0 basis-full">
               <CourseSlide
                 course={c}
                 gradient={GRADIENTS[i % GRADIENTS.length]}
@@ -206,25 +206,27 @@ function CourseSlide({
     <motion.div
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2, ease: EASE }}
-      className={`relative flex h-52 select-none flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br ${gradient} p-5 text-primary-foreground shadow-lg shadow-primary/10`}
+      className={`relative flex h-56 select-none flex-col justify-between overflow-hidden rounded-3xl bg-gradient-to-br ${gradient} p-6 text-primary-foreground shadow-lg shadow-primary/10 md:h-64 md:p-8`}
     >
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <span className="absolute -right-10 -top-12 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
+        <span className="absolute -right-10 -top-16 h-52 w-52 rounded-full bg-white/15 blur-3xl" />
         <BookOpen
-          className="absolute -bottom-5 -right-3 h-32 w-32 text-white/10"
+          className="absolute -bottom-8 -right-4 h-40 w-40 text-white/10 md:h-48 md:w-48"
           strokeWidth={1.25}
         />
       </div>
 
-      <div className="relative">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-primary-foreground/80">
+      <div className="relative max-w-lg">
+        <p className="text-xs font-semibold uppercase tracking-widest text-primary-foreground/80">
           {status}
         </p>
-        <h3 className="mt-1 line-clamp-2 font-display text-xl leading-tight">{course.title}</h3>
+        <h3 className="mt-1.5 line-clamp-2 font-display text-2xl leading-tight md:text-3xl">
+          {course.title}
+        </h3>
       </div>
 
-      <div className="relative">
-        <div className="flex items-center justify-between text-[11px] text-primary-foreground/85">
+      <div className="relative max-w-sm">
+        <div className="flex items-center justify-between text-xs text-primary-foreground/85">
           <span>
             {course.total > 0 ? `${course.done}/${course.total} modules` : "Modules coming soon"}
           </span>
