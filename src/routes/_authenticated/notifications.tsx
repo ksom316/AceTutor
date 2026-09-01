@@ -1,13 +1,14 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Bell, BookOpen, ClipboardList } from "lucide-react";
+import { Bell, CheckCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { fadeUp, staggerContainer, staggerItem } from "@/lib/motion";
-import { supabase } from "@/integrations/supabase/client";
+import { useNotifications } from "@/hooks/use-notifications";
+import { NotificationList } from "@/components/site/NotificationList";
 
 export const Route = createFileRoute("/_authenticated/notifications")({
   component: NotificationsPage,
@@ -58,20 +59,8 @@ const storageKey = (userId: string) => `acetutor:notif-prefs:${userId}`;
 function NotificationsPage() {
   const { user } = useAuth();
   const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>(DEFAULTS);
-
-  const { data: notifications = [] } = useQuery({
-    queryKey: ["notifications", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("id, kind, title, message, created_at, read_at, courses(title, slug)")
-        .order("created_at", { ascending: false })
-        .limit(25);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  const { notifications, unreadCount, isLoading, markRead, markAllRead, markingAll } =
+    useNotifications();
 
   // Preferences are stored locally per user (no schema change required).
   useEffect(() => {
@@ -118,56 +107,75 @@ function NotificationsPage() {
         </div>
       </motion.div>
 
-      <motion.div
-        variants={staggerContainer}
-        initial="hidden"
-        animate="show"
-        className="mt-8 overflow-hidden rounded-2xl border border-border bg-card"
-      >
-        {PREFS.map((p) => (
-          <motion.label
-            key={p.key}
-            variants={staggerItem}
-            htmlFor={`notif-${p.key}`}
-            className="flex cursor-pointer items-center gap-4 border-b border-border p-4 transition-colors last:border-b-0 hover:bg-secondary/40"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">{p.title}</p>
-              <p className="text-xs text-muted-foreground">{p.description}</p>
-            </div>
-            <Switch
-              id={`notif-${p.key}`}
-              checked={prefs[p.key]}
-              onCheckedChange={() => toggle(p.key)}
-            />
-          </motion.label>
-        ))}
-      </motion.div>
-
+      {/* Feed */}
       <section className="mt-8">
-        <h2 className="font-display text-2xl">From your teachers</h2>
-        <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-card">
-          {notifications.length > 0 ? notifications.map((notification) => {
-            const course = Array.isArray(notification.courses) ? notification.courses[0] : notification.courses;
-            const Icon = notification.kind === "quiz" ? ClipboardList : BookOpen;
-            return (
-              <div key={notification.id} className={`flex gap-3 border-b border-border p-4 last:border-b-0 ${notification.read_at ? "" : "bg-primary/5"}`}>
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><Icon className="h-4 w-4" /></span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">{notification.title}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{notification.message}</p>
-                  <p className="mt-2 text-xs text-muted-foreground">{new Date(notification.created_at).toLocaleString()}</p>
-                </div>
-                {course?.slug && <Link to="/courses/$slug" params={{ slug: course.slug }} className="self-center text-xs font-semibold text-primary hover:underline">Open course</Link>}
-              </div>
-            );
-          }) : <p className="p-5 text-sm text-muted-foreground">New notes and quizzes from your teachers will appear here.</p>}
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="font-display text-2xl">
+            Recent activity
+            {unreadCount > 0 && (
+              <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                {unreadCount} new
+              </span>
+            )}
+          </h2>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-full"
+            disabled={unreadCount === 0 || markingAll}
+            onClick={() => markAllRead()}
+          >
+            <CheckCheck className="mr-1.5 h-4 w-4" /> Mark all read
+          </Button>
         </div>
+
+        {isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-16 w-full animate-pulse rounded-2xl bg-muted" />
+            ))}
+          </div>
+        ) : (
+          <NotificationList
+            notifications={notifications}
+            onOpen={markRead}
+            empty="New materials and quizzes from your lecturer will appear here."
+          />
+        )}
       </section>
 
-      <p className="mt-4 px-1 text-xs text-muted-foreground">
-        These preferences are saved on this device.
-      </p>
+      {/* Preferences */}
+      <section className="mt-10">
+        <h2 className="font-display text-2xl">Preferences</h2>
+        <motion.div
+          variants={staggerContainer}
+          initial="hidden"
+          animate="show"
+          className="mt-4 overflow-hidden rounded-2xl border border-border bg-card"
+        >
+          {PREFS.map((p) => (
+            <motion.label
+              key={p.key}
+              variants={staggerItem}
+              htmlFor={`notif-${p.key}`}
+              className="flex cursor-pointer items-center gap-4 border-b border-border p-4 transition-colors last:border-b-0 hover:bg-secondary/40"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">{p.title}</p>
+                <p className="text-xs text-muted-foreground">{p.description}</p>
+              </div>
+              <Switch
+                id={`notif-${p.key}`}
+                checked={prefs[p.key]}
+                onCheckedChange={() => toggle(p.key)}
+              />
+            </motion.label>
+          ))}
+        </motion.div>
+        <p className="mt-4 px-1 text-xs text-muted-foreground">
+          These preferences are saved on this device.
+        </p>
+      </section>
     </main>
   );
 }

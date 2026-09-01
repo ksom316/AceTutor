@@ -54,6 +54,7 @@ import { QuizQuestionDialog } from "@/components/lecturer/QuizQuestionDialog";
 import {
   blankDraft,
   cleanDraft,
+  draftToRow,
   MAX_QUESTIONS,
   type QuizDraft,
   type QuizQuestionRow,
@@ -81,19 +82,39 @@ import { DifficultyModeField } from "@/components/lecturer/DifficultyModeField";
 import {
   DEFAULT_MODULE_QUIZ_DURATION,
   durationLabel,
-  MODULE_QUIZ_DURATIONS,
+  MAX_QUIZ_DURATION,
+  MIN_QUIZ_DURATION,
+  parseQuizDuration,
 } from "@/lib/quiz-timer";
 
 /**
- * Shared quiz builder for both a module quiz (`kind: "topic"`) and one of a
- * course's lecturer-created General Course Quizzes (`kind: "course"`, keyed on a
- * specific `course_quizzes.id`). The course quiz id identifies which assessment
- * is being edited; every write and the AI call still derive/verify the course
- * server-side from current_lecturer_course().
+ * Shared quiz builder for a module quiz (`kind: "topic"`), an existing General
+ * Course Quiz (`kind: "course"`, keyed on a `course_quizzes.id`), and the
+ * creation of a new General Course Quiz (`kind: "course-new"`). In the
+ * `course-new` state nothing is persisted until the lecturer has a title, a
+ * valid time limit and at least one valid question; "Create quiz" then writes
+ * the quiz + its questions atomically via create_course_quiz_with_questions()
+ * and hands off to the persisted `kind: "course"` state. Every write and the AI
+ * call still derive/verify the course server-side from current_lecturer_course().
  */
 export type QuizBuilderScope =
   | { kind: "topic"; topicId: string }
-  | { kind: "course"; courseQuizId: string };
+  | { kind: "course"; courseQuizId: string }
+  | { kind: "course-new" };
+
+const NEW_QUIZ_DATA = {
+  available: true,
+  containerId: undefined as string | undefined,
+  headerTitle: "New General Course Quiz",
+  headerSubtitle: "General Course Quiz · covers the whole course",
+  questions: [] as QuizQuestionRow[],
+  lessons: [] as LessonForCapability[],
+  quizTitle: "",
+  quizDescription: "",
+  quizDeadline: null as string | null,
+  quizMaxAttempts: null as number | null,
+  quizDurationMinutes: DEFAULT_MODULE_QUIZ_DURATION,
+};
 
 export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const { lecturerCourseId } = useRole();
@@ -101,12 +122,15 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const runGenerate = useServerFn(generateModuleQuiz);
-  const isCourse = scope.kind === "course";
+  const isNew = scope.kind === "course-new";
+  const isCourse = scope.kind === "course" || isNew;
 
   const quizKey =
     scope.kind === "topic"
       ? (["lecturer-quiz", "topic", scope.topicId] as const)
-      : (["lecturer-quiz", "course-quiz", scope.courseQuizId] as const);
+      : scope.kind === "course"
+        ? (["lecturer-quiz", "course-quiz", scope.courseQuizId] as const)
+        : (["lecturer-quiz", "course-new"] as const);
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: quizKey });
     qc.invalidateQueries({ queryKey: ["lecturer-quiz-overview", lecturerCourseId] });
@@ -119,6 +143,8 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     | null
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<QuizQuestionRow | null>(null);
+  // Local question list while creating a new general quiz (scope "course-new").
+  const [draftQuestions, setDraftQuestions] = useState<QuizQuestionRow[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiCount, setAiCount] = useState("10");
   const [aiDifficulty, setAiDifficulty] = useState<DifficultyMode>(DEFAULT_DIFFICULTY_MODE);
@@ -136,8 +162,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const quizQuery = useQuery({
     queryKey: quizKey,
-    enabled,
+    enabled: enabled && !isNew,
     queryFn: async () => {
+      if (scope.kind === "course-new") throw new Error("course-new has no persisted quiz");
       let containerId: string; // topic id OR course_quiz id
       let headerTitle: string;
       let headerSubtitle: string | null = null;
@@ -251,7 +278,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       scope.kind === "course"
         ? (["lecturer-course-quiz-attempts", scope.courseQuizId] as const)
         : (["lecturer-quiz-performance", lecturerCourseId] as const),
-    enabled,
+    enabled: enabled && !isNew,
     queryFn: async () => {
       if (scope.kind === "course") {
         const { data, error } = await supabase.rpc("course_quiz_has_attempts", {
@@ -266,15 +293,34 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     },
   });
 
-  const data = quizQuery.data;
-  const questions = useMemo(() => data?.questions ?? [], [data]);
+  const data = isNew ? NEW_QUIZ_DATA : quizQuery.data;
+  const questions = useMemo<QuizQuestionRow[]>(
+    () => (isNew ? draftQuestions : (quizQuery.data?.questions ?? [])),
+    [isNew, draftQuestions, quizQuery.data],
+  );
+
+  const moveDraft = (id: string, dir: "up" | "down") =>
+    setDraftQuestions((prev) => {
+      const i = prev.findIndex((q) => q.id === id);
+      const j = dir === "up" ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = prev.slice();
+      [next[i], next[j]] = [next[j], next[i]];
+      return next.map((q, k) => ({ ...q, order_index: k }));
+    });
   const capability = useMemo(() => analyseModuleCapability(data?.lessons ?? []), [data?.lessons]);
   const canGenerate = capability.analysableCount > 0;
   const atLimit = questions.length >= MAX_QUESTIONS;
   const room = Math.max(0, MAX_QUESTIONS - questions.length);
-  // A module quiz must always keep at least one question (the DB enforces this
-  // too). A general course quiz may legitimately have zero.
-  const lastModuleQuestion = !isCourse && questions.length <= 1;
+  // Both a module quiz and a general course quiz must always keep at least one
+  // question — the DB enforces this too (assert_topic_has_questions /
+  // assert_course_quiz_has_questions). A quiz with no questions yet (a legacy
+  // empty general quiz) has nothing to delete, so the guard is harmless there.
+  const lastQuestion = questions.length <= 1;
+  const validDraftCount = useMemo(
+    () => draftQuestions.filter((q) => cleanDraft(q) !== null).length,
+    [draftQuestions],
+  );
   const hasAttempts = useMemo(() => {
     const a = attemptsQuery.data;
     if (!a) return false;
@@ -294,20 +340,30 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     }
   }, [isCourse, data]);
 
-  const durationOptions = useMemo(() => {
-    const current = String(data?.quizDurationMinutes ?? DEFAULT_MODULE_QUIZ_DURATION);
-    if ((MODULE_QUIZ_DURATIONS as readonly number[]).some((m) => String(m) === current)) {
-      return MODULE_QUIZ_DURATIONS.map((m) => String(m));
-    }
-    return [current, ...MODULE_QUIZ_DURATIONS.map((m) => String(m))];
-  }, [data?.quizDurationMinutes]);
+  const parsedDuration = parseQuizDuration(infoDuration);
+  const durationInputError =
+    parsedDuration === null
+      ? `Enter a whole number of minutes between ${MIN_QUIZ_DURATION} and ${MAX_QUIZ_DURATION}.`
+      : null;
 
-  const durationDirty = !isCourse && !!data && Number(infoDuration) !== data.quizDurationMinutes;
+  const durationDirty =
+    !isCourse && !!data && parsedDuration !== null && parsedDuration !== data.quizDurationMinutes;
+
+  // New-general-quiz gate: title + valid duration + >= 1 valid question. The
+  // create_course_quiz_with_questions RPC re-checks the question requirement
+  // server-side; this only drives the button state.
+  const canCreateNew =
+    isNew &&
+    infoTitle.trim().length > 0 &&
+    infoTitle.trim().length <= 200 &&
+    !durationInputError &&
+    validDraftCount >= 1;
 
   const updateDuration = useMutation({
     mutationFn: async () => {
       if (scope.kind !== "topic") return;
-      const minutes = Number(infoDuration) || DEFAULT_MODULE_QUIZ_DURATION;
+      const minutes = parseQuizDuration(infoDuration);
+      if (minutes === null) throw new Error("duration");
       const { error } = await supabase
         .from("topics")
         .update({ quiz_duration_minutes: minutes })
@@ -319,6 +375,12 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       toast.success("Time limit saved");
     },
     onError: (e) => {
+      if (e instanceof Error && e.message === "duration") {
+        toast.error(
+          `Enter a whole number of minutes between ${MIN_QUIZ_DURATION} and ${MAX_QUIZ_DURATION}.`,
+        );
+        return;
+      }
       console.error("[quiz-builder] update module quiz duration failed:", e);
       toast.error("Couldn't save the time limit. Please try again.");
     },
@@ -341,7 +403,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       infoDescription.trim() !== (data.quizDescription ?? "").trim() ||
       fromDatetimeLocalValue(infoDeadline) !== (data.quizDeadline ?? null) ||
       maxAttemptsFromSelectValue(infoMaxAttempts) !== (data.quizMaxAttempts ?? null) ||
-      Number(infoDuration) !== data.quizDurationMinutes);
+      parsedDuration !== data.quizDurationMinutes);
 
   /* ---- mutations ---- */
 
@@ -351,13 +413,15 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     mutationFn: async () => {
       if (scope.kind !== "course") return;
       if (!infoTitle.trim()) throw new Error("title");
+      const minutes = parseQuizDuration(infoDuration);
+      if (minutes === null) throw new Error("duration");
       const { error } = await supabase.rpc("update_course_quiz", {
         _quiz_id: scope.courseQuizId,
         _title: infoTitle.trim(),
         _description: infoDescription.trim() || undefined,
         _deadline: fromDatetimeLocalValue(infoDeadline) ?? undefined,
         _max_attempts: maxAttemptsFromSelectValue(infoMaxAttempts) ?? undefined,
-        _duration_minutes: Number(infoDuration) || DEFAULT_MODULE_QUIZ_DURATION,
+        _duration_minutes: minutes,
       });
       if (error) throw error;
     },
@@ -370,8 +434,68 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         toast.error("Give the quiz a title.");
         return;
       }
+      if (e instanceof Error && e.message === "duration") {
+        toast.error(
+          `Enter a whole number of minutes between ${MIN_QUIZ_DURATION} and ${MAX_QUIZ_DURATION} for the time limit.`,
+        );
+        return;
+      }
       console.error("[quiz-builder] update course quiz failed:", e);
       toast.error("Couldn't save the quiz details. Please try again.");
+    },
+  });
+
+  // Create a brand-new general course quiz atomically with its questions. The
+  // create_course_quiz_with_questions() RPC is the authoritative check — it
+  // rejects an empty question list and derives the course from
+  // current_lecturer_course(). On success we hand off to the persisted builder.
+  const createNew = useMutation({
+    mutationFn: async () => {
+      if (scope.kind !== "course-new") return null;
+      const cleanQ = draftQuestions.map(cleanDraft).filter((d): d is QuizDraft => d !== null);
+      if (!infoTitle.trim()) throw new Error("title");
+      if (cleanQ.length < 1) throw new Error("no-questions");
+      const minutes = parseQuizDuration(infoDuration);
+      if (minutes === null) throw new Error("duration");
+      const { data: quizId, error } = await supabase.rpc("create_course_quiz_with_questions", {
+        _title: infoTitle.trim(),
+        _questions: cleanQ.slice(0, MAX_QUESTIONS).map((d, i) => draftToRow(d, i)),
+        _description: infoDescription.trim() || undefined,
+        _deadline: fromDatetimeLocalValue(infoDeadline) ?? undefined,
+        _max_attempts: maxAttemptsFromSelectValue(infoMaxAttempts) ?? undefined,
+        _duration_minutes: minutes,
+      });
+      if (error) throw error;
+      return quizId as string;
+    },
+    onSuccess: (quizId) => {
+      if (!quizId) return;
+      qc.invalidateQueries({ queryKey: ["lecturer-quiz-overview", lecturerCourseId] });
+      toast.success("General course quiz created");
+      navigate({ to: "/lecturer/quizzes/general/$quizId", params: { quizId } });
+    },
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === "title") {
+        toast.error("Give the quiz a title.");
+        return;
+      }
+      if (msg === "no-questions") {
+        toast.error("Add at least one question before creating the quiz.");
+        return;
+      }
+      if (msg === "duration") {
+        toast.error(
+          `Enter a whole number of minutes between ${MIN_QUIZ_DURATION} and ${MAX_QUIZ_DURATION} for the time limit.`,
+        );
+        return;
+      }
+      console.error("[quiz-builder] create general quiz failed:", e);
+      toast.error(
+        /at least one question|at most 50|Only a lecturer/i.test(msg)
+          ? msg
+          : "Couldn't create this quiz. Please try again.",
+      );
     },
   });
 
@@ -394,6 +518,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const saveQuestion = useMutation({
     mutationFn: async (input: { id?: string; draft: QuizDraft }) => {
+      if (scope.kind === "course-new") throw new Error("unreachable: course-new is local-only");
       const clean = cleanDraft(input.draft);
       if (!clean) throw new Error("invalid");
       const fields = {
@@ -433,7 +558,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const deleteQuestion = useMutation({
     mutationFn: async (id: string) => {
-      if (lastModuleQuestion) throw new Error("last-question");
+      if (lastQuestion) throw new Error("last-question");
       const { error } = await supabase.from("questions").delete().eq("id", id);
       if (error) throw error;
     },
@@ -445,7 +570,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     onError: (e) => {
       const msg = e instanceof Error ? e.message : "";
       if (msg === "last-question" || /at least one question/i.test(msg)) {
-        toast.error("A module quiz must keep at least one question. Edit this one instead.");
+        toast.error(
+          `A ${isCourse ? "general course quiz" : "module quiz"} must keep at least one question. Edit this one instead.`,
+        );
         setDeleteTarget(null);
         return;
       }
@@ -475,6 +602,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const addGenerated = useMutation({
     mutationFn: async (drafts: QuizDraft[]) => {
+      if (scope.kind === "course-new") throw new Error("unreachable: course-new is local-only");
       if (!containerId) throw new Error("no container");
       const cleaned = drafts
         .map(cleanDraft)
@@ -517,6 +645,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const replaceGenerated = useMutation({
     mutationFn: async (drafts: QuizDraft[]) => {
+      if (scope.kind === "course-new") throw new Error("unreachable: course-new is local-only");
       const cleaned = drafts
         .map(cleanDraft)
         .filter((d): d is QuizDraft => d !== null)
@@ -556,6 +685,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   });
 
   const generate = async () => {
+    if (scope.kind === "course-new") return; // AI generation is offered after creation
     const n = Number(aiCount);
     if (!Number.isInteger(n) || n < 1 || n > MAX_QUESTIONS) {
       toast.error(QUIZ_GEN_ERROR_MESSAGES.INVALID_QUESTION_COUNT);
@@ -591,7 +721,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   /* ---- render ---- */
 
-  if (quizQuery.isLoading) {
+  if (!isNew && quizQuery.isLoading) {
     return (
       <main className="container mx-auto max-w-3xl px-4 py-10">
         <Skeleton className="h-4 w-24" />
@@ -606,7 +736,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     );
   }
 
-  if (quizQuery.isError || !data || !data.available) {
+  if ((!isNew && quizQuery.isError) || !data || !data.available) {
     return (
       <main className="container mx-auto max-w-3xl px-4 py-16 text-center">
         <h1 className="font-display text-2xl">
@@ -664,7 +794,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             <AlertTriangle className="h-3 w-3" /> {requiredLabel}
           </Badge>
         )}
-        {isCourse && data.quizDeadline && (
+        {isCourse && !isNew && data.quizDeadline && (
           <Badge
             variant="outline"
             className={cn(
@@ -677,8 +807,17 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             {deadlineStatus(data.quizDeadline) === "passed" ? "Deadline passed" : "Has a deadline"}
           </Badge>
         )}
-        {isCourse && <Badge variant="outline">{maxAttemptsLabel(data.quizMaxAttempts)}</Badge>}
-        <Badge variant="outline">{durationLabel(data.quizDurationMinutes)} time limit</Badge>
+        {isCourse && !isNew && (
+          <Badge variant="outline">{maxAttemptsLabel(data.quizMaxAttempts)}</Badge>
+        )}
+        {!isNew && (
+          <Badge variant="outline">{durationLabel(data.quizDurationMinutes)} time limit</Badge>
+        )}
+        {isNew && (
+          <Badge variant="outline" className="gap-1 text-muted-foreground">
+            Not saved yet
+          </Badge>
+        )}
       </div>
 
       {!isCourse && (
@@ -690,29 +829,32 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             runs out.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Select value={infoDuration} onValueChange={setInfoDuration}>
-              <SelectTrigger className="w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {durationOptions.map((v) => (
-                  <SelectItem key={v} value={v}>
-                    {durationLabel(Number(v))}
-                    {Number(v) === DEFAULT_MODULE_QUIZ_DURATION ? " (default)" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={MIN_QUIZ_DURATION}
+              max={MAX_QUIZ_DURATION}
+              value={infoDuration}
+              onChange={(e) => setInfoDuration(e.target.value)}
+              className="h-9 w-24"
+              aria-label="Module quiz time limit in minutes"
+            />
+            <span className="text-xs text-muted-foreground">
+              minutes (default {DEFAULT_MODULE_QUIZ_DURATION})
+            </span>
             <Button
               size="sm"
               className="rounded-full"
-              disabled={!durationDirty || updateDuration.isPending}
+              disabled={!durationDirty || !!durationInputError || updateDuration.isPending}
               onClick={() => updateDuration.mutate()}
             >
               {updateDuration.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
               Save time limit
             </Button>
           </div>
+          {durationInputError && (
+            <p className="mt-2 text-xs text-destructive">{durationInputError}</p>
+          )}
         </div>
       )}
 
@@ -720,8 +862,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         <div className="mt-6 rounded-2xl border border-border bg-card p-5">
           <p className="text-sm font-medium">Basic information</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Shown to students on the course page. This assessment covers the whole course and is
-            separate from the module quizzes.
+            {isNew
+              ? "Enter a title and time limit, add at least one question below, then create the quiz. Nothing is saved until you press Create quiz."
+              : "Shown to students on the course page. This assessment covers the whole course and is separate from the module quizzes."}
           </p>
           <div className="mt-4 space-y-4">
             <div className="space-y-1.5">
@@ -792,43 +935,69 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="cq-duration">Time limit</Label>
-              <Select value={infoDuration} onValueChange={setInfoDuration}>
-                <SelectTrigger id="cq-duration" className="w-full sm:w-72">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {durationOptions.map((v) => (
-                    <SelectItem key={v} value={v}>
-                      {durationLabel(Number(v))}
-                      {Number(v) === DEFAULT_MODULE_QUIZ_DURATION ? " (default)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="cq-duration"
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_QUIZ_DURATION}
+                  max={MAX_QUIZ_DURATION}
+                  value={infoDuration}
+                  onChange={(e) => setInfoDuration(e.target.value)}
+                  className="h-9 w-24"
+                />
+                <span className="text-xs text-muted-foreground">
+                  minutes (default {DEFAULT_MODULE_QUIZ_DURATION})
+                </span>
+              </div>
+              {durationInputError && (
+                <p className="text-xs text-destructive">{durationInputError}</p>
+              )}
               <p className="text-xs text-muted-foreground">
-                How long a student has once they start. Enforced on the server — the timer keeps
-                running if they leave, and the quiz auto-submits when it runs out.
+                How long a student has once they start — any whole number of minutes. Enforced on
+                the server; the timer keeps running if they leave.
               </p>
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              className="rounded-full"
-              disabled={!infoDirty || updateInfo.isPending}
-              onClick={() => updateInfo.mutate()}
-            >
-              {updateInfo.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              Save details
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="rounded-full text-destructive hover:text-destructive"
-              onClick={() => setConfirmDeleteQuiz(true)}
-            >
-              <Trash2 className="mr-1.5 h-4 w-4" /> Delete quiz
-            </Button>
+            {isNew ? (
+              <>
+                <Button
+                  size="sm"
+                  className="rounded-full"
+                  disabled={!canCreateNew || createNew.isPending}
+                  onClick={() => createNew.mutate()}
+                >
+                  {createNew.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                  Create quiz
+                </Button>
+                {validDraftCount < 1 && (
+                  <span className="text-xs text-muted-foreground">
+                    Add at least one question below to create this quiz.
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  className="rounded-full"
+                  disabled={!infoDirty || !!durationInputError || updateInfo.isPending}
+                  onClick={() => updateInfo.mutate()}
+                >
+                  {updateInfo.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                  Save details
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="rounded-full text-destructive hover:text-destructive"
+                  onClick={() => setConfirmDeleteQuiz(true)}
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" /> Delete quiz
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -861,14 +1030,16 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             >
               <Plus className="mr-1.5 h-4 w-4" /> Add question
             </Button>
-            <Button
-              variant="outline"
-              className="rounded-full"
-              disabled={atLimit}
-              onClick={() => setAiOpen(true)}
-            >
-              <Sparkles className="mr-1.5 h-4 w-4" /> Generate with AI
-            </Button>
+            {!isNew && (
+              <Button
+                variant="outline"
+                className="rounded-full"
+                disabled={atLimit}
+                onClick={() => setAiOpen(true)}
+              >
+                <Sparkles className="mr-1.5 h-4 w-4" /> Generate with AI
+              </Button>
+            )}
             {atLimit && (
               <span className="text-xs text-muted-foreground">
                 Maximum {MAX_QUESTIONS} questions per quiz.
@@ -879,22 +1050,32 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
           {questions.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed border-border bg-card/50 p-10 text-center">
               <h2 className="font-display text-xl">
-                {isCourse
-                  ? "This general quiz has no questions yet"
-                  : "No quiz has been created for this module"}
+                {isNew
+                  ? "Add your first question"
+                  : isCourse
+                    ? "This general quiz has no questions yet"
+                    : "No quiz has been created for this module"}
               </h2>
               <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-                {isCourse
-                  ? "This assessment covers the whole course. Students take it in addition to the module quizzes. Add questions manually or generate a first draft with AI. Students only see it once it has at least one question."
-                  : "Students must complete a quiz after studying this module before it counts as complete. Add questions manually or generate a first draft with AI."}
+                {isNew
+                  ? "A general course quiz must have at least one question. Add one below, then press Create quiz."
+                  : isCourse
+                    ? "This assessment covers the whole course. Students take it in addition to the module quizzes. Add questions manually or generate a first draft with AI. Students only see it once it has at least one question."
+                    : "Students must complete a quiz after studying this module before it counts as complete. Add questions manually or generate a first draft with AI."}
               </p>
               <div className="mt-5 flex flex-wrap justify-center gap-2">
                 <Button className="rounded-full" onClick={() => setDialog({ kind: "new" })}>
-                  <Plus className="mr-1.5 h-4 w-4" /> Create manually
+                  <Plus className="mr-1.5 h-4 w-4" /> {isNew ? "Add question" : "Create manually"}
                 </Button>
-                <Button variant="outline" className="rounded-full" onClick={() => setAiOpen(true)}>
-                  <Sparkles className="mr-1.5 h-4 w-4" /> Generate with AI
-                </Button>
+                {!isNew && (
+                  <Button
+                    variant="outline"
+                    className="rounded-full"
+                    onClick={() => setAiOpen(true)}
+                  >
+                    <Sparkles className="mr-1.5 h-4 w-4" /> Generate with AI
+                  </Button>
+                )}
               </div>
             </div>
           ) : (
@@ -940,7 +1121,11 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                           className="h-7 w-7"
                           aria-label="Move up"
                           disabled={i === 0 || moveQuestion.isPending}
-                          onClick={() => moveQuestion.mutate({ id: q.id, dir: "up" })}
+                          onClick={() =>
+                            isNew
+                              ? moveDraft(q.id, "up")
+                              : moveQuestion.mutate({ id: q.id, dir: "up" })
+                          }
                         >
                           <ChevronUp className="h-4 w-4" />
                         </Button>
@@ -950,7 +1135,11 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                           className="h-7 w-7"
                           aria-label="Move down"
                           disabled={i === questions.length - 1 || moveQuestion.isPending}
-                          onClick={() => moveQuestion.mutate({ id: q.id, dir: "down" })}
+                          onClick={() =>
+                            isNew
+                              ? moveDraft(q.id, "down")
+                              : moveQuestion.mutate({ id: q.id, dir: "down" })
+                          }
                         >
                           <ChevronDown className="h-4 w-4" />
                         </Button>
@@ -965,10 +1154,10 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                           size="sm"
                           variant="ghost"
                           className="text-destructive hover:text-destructive"
-                          disabled={lastModuleQuestion}
+                          disabled={lastQuestion}
                           title={
-                            lastModuleQuestion
-                              ? "A module quiz must keep at least one question — edit this one instead."
+                            lastQuestion
+                              ? `A ${isCourse ? "general course quiz" : "module quiz"} must keep at least one question — edit this one instead.`
                               : undefined
                           }
                           onClick={() => setDeleteTarget(q)}
@@ -1003,6 +1192,22 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             setReview((r) =>
               r ? { ...r, items: r.items.map((it, i) => (i === dialog.index ? draft : it)) } : r,
             );
+            setDialog(null);
+            return;
+          }
+          if (isNew) {
+            // New general quiz — questions stay in local state until Create quiz.
+            if (dialog?.kind === "edit") {
+              const id = dialog.question.id;
+              setDraftQuestions((prev) =>
+                prev.map((q) => (q.id === id ? { ...draft, id, order_index: q.order_index } : q)),
+              );
+            } else if (draftQuestions.length < MAX_QUESTIONS) {
+              setDraftQuestions((prev) => [
+                ...prev,
+                { ...draft, id: crypto.randomUUID(), order_index: prev.length },
+              ]);
+            }
             setDialog(null);
             return;
           }
@@ -1159,7 +1364,17 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
               disabled={deleteQuestion.isPending}
               onClick={(e) => {
                 e.preventDefault();
-                if (deleteTarget) deleteQuestion.mutate(deleteTarget.id);
+                if (!deleteTarget) return;
+                if (isNew) {
+                  setDraftQuestions((prev) =>
+                    prev
+                      .filter((q) => q.id !== deleteTarget.id)
+                      .map((q, k) => ({ ...q, order_index: k })),
+                  );
+                  setDeleteTarget(null);
+                } else {
+                  deleteQuestion.mutate(deleteTarget.id);
+                }
               }}
             >
               {deleteQuestion.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}

@@ -192,6 +192,9 @@ export type Database = {
           message: string;
           created_at: string;
           read_at: string | null;
+          audience: string;
+          topic_id: string | null;
+          quiz_id: string | null;
         };
         Insert: {
           id?: string;
@@ -202,6 +205,9 @@ export type Database = {
           message: string;
           created_at?: string;
           read_at?: string | null;
+          audience?: string;
+          topic_id?: string | null;
+          quiz_id?: string | null;
         };
         Update: { read_at?: string | null };
         Relationships: [
@@ -576,6 +582,17 @@ export type Database = {
           _description?: string | null;
           _duration_minutes?: number;
           _max_attempts?: number | null;
+          _title: string;
+        };
+        Returns: string;
+      };
+      create_course_quiz_with_questions: {
+        Args: {
+          _deadline?: string | null;
+          _description?: string | null;
+          _duration_minutes?: number;
+          _max_attempts?: number | null;
+          _questions: Json;
           _title: string;
         };
         Returns: string;

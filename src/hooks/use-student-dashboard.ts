@@ -32,8 +32,28 @@ type AttemptRow = {
   finished_at: string | null;
   topics: { title: string; courses: { title: string; slug: string } | null } | null;
 };
+type GeneralAttemptRow = {
+  id: string;
+  score: number | null;
+  total: number | null;
+  finished_at: string | null;
+  course_quizzes: { title: string; courses: { title: string } | null } | null;
+};
 type TopicRow = { id: string; course_id: string };
 type ModuleAttemptRow = { topic_id: string; finished_at: string | null };
+
+/** A finished quiz attempt (module or general course quiz) for the "Recent quiz
+ *  attempts" list. Module-centric summary stats are computed separately and are
+ *  unaffected by the general-quiz rows. */
+export type RecentAttempt = {
+  id: string;
+  score: number | null;
+  total: number | null;
+  finished_at: string | null;
+  kind: "module" | "general";
+  title: string;
+  courseTitle: string | null;
+};
 
 /**
  * Shared student-dashboard data + derived stats, used by both the logged-in
@@ -117,12 +137,31 @@ export function useStudentDashboard(userId: string | undefined) {
         .from("quiz_attempts")
         .select("id, score, total, finished_at, topics(title, courses(title, slug))")
         .not("finished_at", "is", null)
-        // Module quizzes only — the General Course Quiz is surfaced on the course
-        // page and must not affect module-centric dashboard stats.
+        // Module quizzes only — module-centric dashboard stats (donut, avg score,
+        // quiz count) are derived from this set and must not change.
         .not("topic_id", "is", null)
         .order("finished_at", { ascending: false })
         .limit(6);
       return (data ?? []) as unknown as AttemptRow[];
+    },
+  });
+
+  // Finished General Course Quiz attempts — shown in the "Recent quiz attempts"
+  // list alongside module attempts, but deliberately NOT fed into the summary
+  // stats above. RLS already scopes quiz_attempts to the caller.
+  const { data: generalAttempts } = useQuery({
+    queryKey: ["dash-general-attempts", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("quiz_attempts")
+        .select("id, score, total, finished_at, course_quizzes(title, courses(title))")
+        .eq("user_id", userId!)
+        .not("finished_at", "is", null)
+        .not("course_quiz_id", "is", null)
+        .order("finished_at", { ascending: false })
+        .limit(6);
+      return (data ?? []) as unknown as GeneralAttemptRow[];
     },
   });
 
@@ -273,6 +312,30 @@ export function useStudentDashboard(userId: string | undefined) {
     [enrolledCourses, stats.perCourse],
   );
 
+  // Module + general finished attempts, newest first — display only.
+  const recentAttempts = useMemo<RecentAttempt[]>(() => {
+    const mod: RecentAttempt[] = (attempts ?? []).map((a) => ({
+      id: a.id,
+      score: a.score,
+      total: a.total,
+      finished_at: a.finished_at,
+      kind: "module",
+      title: a.topics?.title ?? "Quiz",
+      courseTitle: a.topics?.courses?.title ?? null,
+    }));
+    const gen: RecentAttempt[] = (generalAttempts ?? []).map((a) => ({
+      id: a.id,
+      score: a.score,
+      total: a.total,
+      finished_at: a.finished_at,
+      kind: "general",
+      title: a.course_quizzes?.title ?? "General Course Quiz",
+      courseTitle: a.course_quizzes?.courses?.title ?? null,
+    }));
+    const ts = (iso: string | null) => (iso ? new Date(iso).getTime() : 0);
+    return [...mod, ...gen].sort((a, b) => ts(b.finished_at) - ts(a.finished_at)).slice(0, 6);
+  }, [attempts, generalAttempts]);
+
   return {
     enrolledCourses,
     perCourse: stats.perCourse,
@@ -280,7 +343,7 @@ export function useStudentDashboard(userId: string | undefined) {
     donut: stats.donut,
     continueCourse,
     recommended,
-    recentAttempts: attempts ?? [],
+    recentAttempts,
     quizzes: stats.quizzes,
     avgScore: stats.avgScore,
     totalSeconds: stats.totalSeconds,

@@ -5,9 +5,24 @@
  * display / client-hint only.
  */
 
-/** Lecturer-selectable module quiz time limits, in minutes. 30 is the default. */
+/** Optional quick-pick presets (minutes). The lecturer types any whole-minute
+ *  value; these are only convenience suggestions and are no longer the only
+ *  allowed choices. */
 export const MODULE_QUIZ_DURATIONS = [10, 15, 20, 30, 45, 60, 90, 120] as const;
 export const DEFAULT_MODULE_QUIZ_DURATION = 30;
+
+/** Bounds for a manually-entered quiz time limit, in whole minutes. Mirrors the
+ *  DB CHECK constraints (topics_quiz_duration_ck / course_quizzes_duration_ck)
+ *  and the create/update RPC clamps. */
+export const MIN_QUIZ_DURATION = 1;
+export const MAX_QUIZ_DURATION = 240;
+
+/** Parse a free-text minutes field → a valid whole-minute duration, or null. */
+export function parseQuizDuration(raw: string): number | null {
+  const n = Number(raw.trim());
+  if (!Number.isInteger(n) || n < MIN_QUIZ_DURATION || n > MAX_QUIZ_DURATION) return null;
+  return n;
+}
 
 export function durationLabel(minutes: number): string {
   if (minutes % 60 === 0 && minutes >= 60) {

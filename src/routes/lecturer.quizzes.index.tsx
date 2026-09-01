@@ -1,6 +1,6 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -8,10 +8,8 @@ import {
   CalendarClock,
   CheckCircle2,
   GraduationCap,
-  Loader2,
   Plus,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,8 +36,6 @@ type GeneralQuizRow = {
 function LecturerQuizzes() {
   const { lecturerCourseId } = useRole();
   const enabled = !!lecturerCourseId;
-  const qc = useQueryClient();
-  const navigate = useNavigate();
 
   const courseQuery = useQuery({
     queryKey: ["lecturer-course", lecturerCourseId],
@@ -91,24 +87,6 @@ function LecturerQuizzes() {
         modules: list.map((t) => ({ ...t, questionCount: counts.get(t.id) ?? 0 })),
         generalQuizzes: (gq ?? []) as GeneralQuizRow[],
       };
-    },
-  });
-
-  const createQuiz = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.rpc("create_course_quiz", {
-        _title: "New general quiz",
-      });
-      if (error) throw error;
-      return data as string;
-    },
-    onSuccess: (quizId) => {
-      qc.invalidateQueries({ queryKey: ["lecturer-quiz-overview", lecturerCourseId] });
-      navigate({ to: "/lecturer/quizzes/general/$quizId", params: { quizId } });
-    },
-    onError: (e) => {
-      console.error("[lecturer-quizzes] create general quiz failed:", e);
-      toast.error("Couldn't create a new general quiz. Please try again.");
     },
   });
 
@@ -177,18 +155,11 @@ function LecturerQuizzes() {
                     </p>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  className="shrink-0 rounded-full"
-                  disabled={createQuiz.isPending}
-                  onClick={() => createQuiz.mutate()}
-                >
-                  {createQuiz.isPending ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : (
+                <Button asChild size="sm" className="shrink-0 rounded-full">
+                  <Link to="/lecturer/quizzes/general/new">
                     <Plus className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  Create General Quiz
+                    Create General Quiz
+                  </Link>
                 </Button>
               </div>
 

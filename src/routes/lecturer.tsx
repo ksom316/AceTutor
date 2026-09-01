@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
+  Bell,
   BookOpen,
   ClipboardList,
   LayoutDashboard,
@@ -17,10 +18,22 @@ import {
   Users,
 } from "lucide-react";
 import logoAsset from "@/assets/ace-logo.jpg";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useRole } from "@/hooks/use-role";
+import { useNotifications } from "@/hooks/use-notifications";
 import { finishPendingLecturerClaim, hasPendingLecturerId } from "@/lib/lecturer-claim";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +47,7 @@ const LECTURER_NAV = [
   { to: "/lecturer/materials", label: "Materials", icon: BookOpen, exact: false },
   { to: "/lecturer/quizzes", label: "Quizzes", icon: ClipboardList, exact: false },
   { to: "/lecturer/performance", label: "Performance", icon: BarChart3, exact: false },
+  { to: "/lecturer/notifications", label: "Notifications", icon: Bell, exact: false },
 ] as const;
 
 function LoadingScreen() {
@@ -61,6 +75,7 @@ function LecturerLayout() {
   const qc = useQueryClient();
   const claimingRef = useRef(false);
   const isMobile = useIsMobile();
+  const { unreadCount } = useNotifications();
   // The left navigation sidebar. Visible by default; collapsible with the
   // header button. On desktop it occupies space beside the content; on mobile
   // it is an off-canvas drawer (no dark overlay either way).
@@ -175,14 +190,45 @@ function LecturerLayout() {
               </span>
             )}
 
-            <button
-              type="button"
-              onClick={signOut}
-              className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <Link
+                to="/lecturer/notifications"
+                aria-label={
+                  unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"
+                }
+                className="relative grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <Bell className="h-4 w-4" />
+                {unreadCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </Link>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span className="hidden sm:inline">Sign out</span>
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Sign out?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Are you sure you want to sign out of AceTutor?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={signOut}>Sign out</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
         </div>
       </header>
@@ -206,6 +252,7 @@ function LecturerLayout() {
             {LECTURER_NAV.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.to, item.exact);
+              const showUnread = item.to === "/lecturer/notifications" && unreadCount > 0;
               return (
                 <Link
                   key={item.to}
@@ -223,6 +270,11 @@ function LecturerLayout() {
                 >
                   <Icon className="h-4 w-4 shrink-0" />
                   <span className="truncate">{item.label}</span>
+                  {showUnread && (
+                    <span className="ml-auto grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import logoAsset from "@/assets/ace-logo.jpg";
 import {
   BarChart3,
+  Bell,
   BookOpen,
   ClipboardList,
   Gamepad2,
@@ -17,12 +18,24 @@ import {
   Users,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
+import { useNotifications } from "@/hooks/use-notifications";
 import { cn } from "@/lib/utils";
 import type { User } from "@supabase/supabase-js";
 
@@ -36,6 +49,7 @@ const studentItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "My Courses", icon: BookOpen, to: "/my-courses" },
   { label: "Progress & Analytics", icon: BarChart3, to: "/analytics" },
+  { label: "Notifications", icon: Bell, to: "/notifications" },
   { label: "Games", icon: Gamepad2, to: "/games" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/settings" },
@@ -50,16 +64,20 @@ const lecturerItems: NavItem[] = [
   { label: "Materials", icon: BookOpen, to: "/lecturer/materials" },
   { label: "Quizzes", icon: ClipboardList, to: "/lecturer/quizzes" },
   { label: "Performance", icon: BarChart3, to: "/lecturer/performance" },
+  { label: "Notifications", icon: Bell, to: "/lecturer/notifications" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/settings" },
   { label: "Contact", icon: Mail, to: "/contact" },
 ];
+
+const NOTIFICATION_PATHS = ["/notifications", "/lecturer/notifications"];
 
 export function AppNavSheet({ user }: { user: User }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { isLecturer } = useRole();
+  const { unreadCount } = useNotifications();
 
   const { data: profile } = useQuery({
     queryKey: ["nav-profile", user.id],
@@ -112,6 +130,7 @@ export function AppNavSheet({ user }: { user: User }) {
   const renderItem = (item: NavItem) => {
     const Icon = item.icon;
     const active = pathname === item.to;
+    const showUnread = NOTIFICATION_PATHS.includes(item.to) && unreadCount > 0;
     const base = cn(
       "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
       active
@@ -122,6 +141,11 @@ export function AppNavSheet({ user }: { user: User }) {
       <Link key={item.label} to={item.to} className={base}>
         <Icon className="h-4 w-4 shrink-0" />
         <span className="truncate">{item.label}</span>
+        {showUnread && (
+          <span className="ml-auto grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
       </Link>
     );
   };
@@ -186,14 +210,29 @@ export function AppNavSheet({ user }: { user: User }) {
           <Separator className="my-1" />
 
           <nav className="flex flex-col gap-1 py-3">
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
-            >
-              <LogOut className="h-4 w-4 shrink-0" />
-              <span>Logout</span>
-            </button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <LogOut className="h-4 w-4 shrink-0" />
+                  <span>Logout</span>
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Sign out?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to sign out of AceTutor?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleSignOut}>Sign out</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </nav>
         </ScrollArea>
       </SheetContent>
