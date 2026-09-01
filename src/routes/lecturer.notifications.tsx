@@ -1,8 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { CheckCheck } from "lucide-react";
+import { CheckCheck, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
 import { fadeUp } from "@/lib/motion";
@@ -15,8 +27,20 @@ export const Route = createFileRoute("/lecturer/notifications")({
 
 function LecturerNotifications() {
   const { lecturerCourseId } = useRole();
-  const { notifications, unreadCount, isLoading, isError, markRead, markAllRead, markingAll } =
-    useNotifications();
+  const [clearOpen, setClearOpen] = useState(false);
+  const {
+    notifications,
+    unreadCount,
+    isLoading,
+    isError,
+    markRead,
+    markAllRead,
+    markingAll,
+    deleteOne,
+    deletingId,
+    clearAll,
+    clearingAll,
+  } = useNotifications();
 
   const courseQuery = useQuery({
     queryKey: ["lecturer-course", lecturerCourseId],
@@ -48,19 +72,60 @@ function LecturerNotifications() {
         — new enrollments, quiz completions and module completions.
       </p>
 
-      <div className="mt-6 flex items-center justify-between gap-3">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           {unreadCount > 0 ? `${unreadCount} unread` : "You're all caught up"}
         </p>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="rounded-full"
-          disabled={unreadCount === 0 || markingAll}
-          onClick={() => markAllRead()}
-        >
-          <CheckCheck className="mr-1.5 h-4 w-4" /> Mark all read
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="rounded-full"
+            disabled={unreadCount === 0 || markingAll}
+            onClick={() => markAllRead()}
+          >
+            <CheckCheck className="mr-1.5 h-4 w-4" /> Mark all read
+          </Button>
+          <AlertDialog
+            open={clearOpen}
+            onOpenChange={(o) => {
+              if (!clearingAll) setClearOpen(o);
+            }}
+          >
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full text-destructive hover:text-destructive"
+                disabled={notifications.length === 0 || clearingAll}
+              >
+                <Trash2 className="mr-1.5 h-4 w-4" /> Clear all
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear all notifications?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently removes all of your notifications. This can&apos;t be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={clearingAll}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={clearingAll}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    clearAll({ onSuccess: () => setClearOpen(false) });
+                  }}
+                >
+                  {clearingAll && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                  Clear all
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
 
       <div className="mt-4">
@@ -81,6 +146,8 @@ function LecturerNotifications() {
           <NotificationList
             notifications={notifications}
             onOpen={markRead}
+            onDelete={deleteOne}
+            deletingId={deletingId}
             empty="Enrollments and quiz activity for your course will appear here."
           />
         )}

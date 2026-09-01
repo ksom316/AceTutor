@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useRole } from "@/hooks/use-role";
@@ -17,7 +18,7 @@ import { useRole } from "@/hooks/use-role";
  *
  * There is no Supabase realtime channel anywhere in the app, so this polls
  * (60s + refetch on window focus) and invalidates immediately after the user's
- * own read / mark-all-read actions.
+ * own read / mark-all-read / delete / clear-all actions.
  */
 
 export type NotificationAudience = "student" | "lecturer";
@@ -120,6 +121,29 @@ export function useNotifications() {
     onSuccess: invalidate,
   });
 
+  // Deletion relies entirely on RLS (notifications_delete_own: auth.uid() =
+  // user_id) for ownership — the query below never filters by user_id itself,
+  // so there is nothing client-supplied for a caller to spoof. A failed delete
+  // leaves the cache untouched (no optimistic removal), so the row/list stays
+  // visible exactly as it was until a successful delete invalidates the query.
+  const deleteOne = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("notifications").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: () => toast.error("Couldn't delete this notification. Please try again."),
+  });
+
+  const clearAll = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("notifications").delete().eq("audience", audience);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: () => toast.error("Couldn't clear your notifications. Please try again."),
+  });
+
   return {
     audience,
     notifications,
@@ -130,6 +154,11 @@ export function useNotifications() {
     markRead: (id: string) => markRead.mutate(id),
     markAllRead: () => markAllRead.mutate(),
     markingAll: markAllRead.isPending,
+    deleteOne: (id: string) => deleteOne.mutate(id),
+    /** The id of the notification currently being deleted, or null. */
+    deletingId: deleteOne.isPending ? (deleteOne.variables ?? null) : null,
+    clearAll: (opts?: { onSuccess?: () => void }) => clearAll.mutate(undefined, opts),
+    clearingAll: clearAll.isPending,
   };
 }
 

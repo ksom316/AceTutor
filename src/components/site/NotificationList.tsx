@@ -6,7 +6,9 @@ import {
   CheckCircle2,
   ClipboardList,
   GraduationCap,
+  Loader2,
   Pencil,
+  Trash2,
   Trophy,
   UserPlus,
 } from "lucide-react";
@@ -68,19 +70,19 @@ function RowInner({ n }: { n: AppNotification }) {
   );
 }
 
-function Row({ n, onOpen }: { n: AppNotification; onOpen: (id: string) => void }) {
+/** The row's own clickable area — mark-read + navigate. Kept separate from the
+ *  delete button below so the two are flex siblings, never nested interactive
+ *  elements. */
+function RowContent({ n, onOpen }: { n: AppNotification; onOpen: (id: string) => void }) {
   const target = notificationTarget(n);
-  const base = cn(
-    "flex gap-3 border-b border-border p-4 text-left last:border-b-0",
-    !n.read_at && "bg-primary/5",
-  );
-  const linkCls = cn(base, "transition-colors hover:bg-secondary/50");
+  const base = "flex min-w-0 flex-1 gap-3 p-4 text-left";
+  const cls = cn(base, "transition-colors hover:bg-secondary/50");
   const handle = () => onOpen(n.id);
   const inner = <RowInner n={n} />;
 
   if (!target) {
     return (
-      <button type="button" onClick={handle} className={cn(base, "w-full")}>
+      <button type="button" onClick={handle} className={base}>
         {inner}
       </button>
     );
@@ -93,7 +95,7 @@ function Row({ n, onOpen }: { n: AppNotification; onOpen: (id: string) => void }
           to="/topic/$topicId"
           params={{ topicId: target.topicId }}
           onClick={handle}
-          className={linkCls}
+          className={cls}
         >
           {inner}
         </Link>
@@ -104,49 +106,89 @@ function Row({ n, onOpen }: { n: AppNotification; onOpen: (id: string) => void }
           to="/course-quiz/$quizId"
           params={{ quizId: target.quizId }}
           onClick={handle}
-          className={linkCls}
+          className={cls}
         >
           {inner}
         </Link>
       );
     case "course":
       return (
-        <Link
-          to="/courses/$slug"
-          params={{ slug: target.slug }}
-          onClick={handle}
-          className={linkCls}
-        >
+        <Link to="/courses/$slug" params={{ slug: target.slug }} onClick={handle} className={cls}>
           {inner}
         </Link>
       );
     case "lecturer-students":
       return (
-        <Link to="/lecturer/students" onClick={handle} className={linkCls}>
+        <Link to="/lecturer/students" onClick={handle} className={cls}>
           {inner}
         </Link>
       );
     case "lecturer-performance":
       return (
-        <Link to="/lecturer/performance" onClick={handle} className={linkCls}>
+        <Link to="/lecturer/performance" onClick={handle} className={cls}>
           {inner}
         </Link>
       );
   }
 }
 
+function Row({
+  n,
+  onOpen,
+  onDelete,
+  deleting,
+}: {
+  n: AppNotification;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+  deleting: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-stretch border-b border-border last:border-b-0",
+        !n.read_at && "bg-primary/5",
+      )}
+    >
+      <RowContent n={n} onOpen={onOpen} />
+      <button
+        type="button"
+        aria-label="Delete notification"
+        title="Delete notification"
+        disabled={deleting}
+        onClick={(e) => {
+          // The row's own Link/button is a flex sibling, not an ancestor, so
+          // this click can never trigger onOpen/navigation on its own — the
+          // stop is just an extra guard in case the row markup ever nests.
+          e.stopPropagation();
+          onDelete(n.id);
+        }}
+        className="m-1 flex shrink-0 items-center rounded-md px-2 text-muted-foreground/50 transition-colors hover:text-destructive focus-visible:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+      >
+        {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
+
 /**
  * Shared notification feed used by the student and lecturer notification pages.
  * Clicking a row marks it read (via `onOpen`) and navigates to the relevant
- * page; rows with no navigable target still mark read on click.
+ * page; rows with no navigable target still mark read on click. Each row also
+ * has a delete control (`onDelete`) that deletes without marking read or
+ * navigating; `deletingId` is the row currently being deleted.
  */
 export function NotificationList({
   notifications,
   onOpen,
+  onDelete,
+  deletingId,
   empty,
 }: {
   notifications: AppNotification[];
   onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+  deletingId?: string | null;
   empty: ReactNode;
 }) {
   if (notifications.length === 0) {
@@ -155,7 +197,7 @@ export function NotificationList({
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
       {notifications.map((n) => (
-        <Row key={n.id} n={n} onOpen={onOpen} />
+        <Row key={n.id} n={n} onOpen={onOpen} onDelete={onDelete} deleting={deletingId === n.id} />
       ))}
     </div>
   );
