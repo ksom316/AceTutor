@@ -327,10 +327,15 @@ function Dashboard() {
                   return (
                     <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{a.topics?.title ?? "Quiz"}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {a.topics?.courses?.title}
+                        <p className="truncate text-sm font-medium">
+                          {a.title}
+                          {a.kind === "general" && (
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                              · General
+                            </span>
+                          )}
                         </p>
+                        <p className="truncate text-xs text-muted-foreground">{a.courseTitle}</p>
                       </div>
                       <span
                         className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${

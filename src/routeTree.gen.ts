@@ -23,6 +23,7 @@ import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as TeachersAuthRouteImport } from './routes/teachers.auth'
 import { Route as LecturerStudentsRouteImport } from './routes/lecturer.students'
 import { Route as LecturerPerformanceRouteImport } from './routes/lecturer.performance'
+import { Route as LecturerNotificationsRouteImport } from './routes/lecturer.notifications'
 import { Route as LecturerMaterialsRouteImport } from './routes/lecturer.materials'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as AuthGoogleRouteImport } from './routes/auth.google'
@@ -43,6 +44,7 @@ import { Route as AuthenticatedResultAttemptIdRouteImport } from './routes/_auth
 import { Route as AuthenticatedQuizTopicIdRouteImport } from './routes/_authenticated/quiz.$topicId'
 import { Route as AuthenticatedOnboardingVarkRouteImport } from './routes/_authenticated/onboarding.vark'
 import { Route as AuthenticatedCourseQuizQuizIdRouteImport } from './routes/_authenticated/course-quiz.$quizId'
+import { Route as LecturerQuizzesGeneralNewRouteImport } from './routes/lecturer.quizzes.general.new'
 import { Route as LecturerQuizzesGeneralQuizIdRouteImport } from './routes/lecturer.quizzes.general.$quizId'
 
 const TermsRoute = TermsRouteImport.update({
@@ -112,6 +114,11 @@ const LecturerStudentsRoute = LecturerStudentsRouteImport.update({
 const LecturerPerformanceRoute = LecturerPerformanceRouteImport.update({
   id: '/performance',
   path: '/performance',
+  getParentRoute: () => LecturerRoute,
+} as any)
+const LecturerNotificationsRoute = LecturerNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
   getParentRoute: () => LecturerRoute,
 } as any)
 const LecturerMaterialsRoute = LecturerMaterialsRouteImport.update({
@@ -220,6 +227,12 @@ const AuthenticatedCourseQuizQuizIdRoute =
     path: '/course-quiz/$quizId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const LecturerQuizzesGeneralNewRoute =
+  LecturerQuizzesGeneralNewRouteImport.update({
+    id: '/quizzes/general/new',
+    path: '/quizzes/general/new',
+    getParentRoute: () => LecturerRoute,
+  } as any)
 const LecturerQuizzesGeneralQuizIdRoute =
   LecturerQuizzesGeneralQuizIdRouteImport.update({
     id: '/quizzes/general/$quizId',
@@ -249,6 +262,7 @@ export interface FileRoutesByFullPath {
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
+  '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
   '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
@@ -262,6 +276,7 @@ export interface FileRoutesByFullPath {
   '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
   '/lecturer/quizzes/': typeof LecturerQuizzesIndexRoute
   '/lecturer/quizzes/general/$quizId': typeof LecturerQuizzesGeneralQuizIdRoute
+  '/lecturer/quizzes/general/new': typeof LecturerQuizzesGeneralNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -284,6 +299,7 @@ export interface FileRoutesByTo {
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
+  '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
   '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
@@ -297,6 +313,7 @@ export interface FileRoutesByTo {
   '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
   '/lecturer/quizzes': typeof LecturerQuizzesIndexRoute
   '/lecturer/quizzes/general/$quizId': typeof LecturerQuizzesGeneralQuizIdRoute
+  '/lecturer/quizzes/general/new': typeof LecturerQuizzesGeneralNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -322,6 +339,7 @@ export interface FileRoutesById {
   '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
+  '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
   '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
@@ -335,6 +353,7 @@ export interface FileRoutesById {
   '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
   '/lecturer/quizzes/': typeof LecturerQuizzesIndexRoute
   '/lecturer/quizzes/general/$quizId': typeof LecturerQuizzesGeneralQuizIdRoute
+  '/lecturer/quizzes/general/new': typeof LecturerQuizzesGeneralNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -360,6 +379,7 @@ export interface FileRouteTypes {
     | '/auth/google'
     | '/courses/$slug'
     | '/lecturer/materials'
+    | '/lecturer/notifications'
     | '/lecturer/performance'
     | '/lecturer/students'
     | '/teachers/auth'
@@ -373,6 +393,7 @@ export interface FileRouteTypes {
     | '/lecturer/quizzes/$topicId'
     | '/lecturer/quizzes/'
     | '/lecturer/quizzes/general/$quizId'
+    | '/lecturer/quizzes/general/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -395,6 +416,7 @@ export interface FileRouteTypes {
     | '/auth/google'
     | '/courses/$slug'
     | '/lecturer/materials'
+    | '/lecturer/notifications'
     | '/lecturer/performance'
     | '/lecturer/students'
     | '/teachers/auth'
@@ -408,6 +430,7 @@ export interface FileRouteTypes {
     | '/lecturer/quizzes/$topicId'
     | '/lecturer/quizzes'
     | '/lecturer/quizzes/general/$quizId'
+    | '/lecturer/quizzes/general/new'
   id:
     | '__root__'
     | '/'
@@ -432,6 +455,7 @@ export interface FileRouteTypes {
     | '/auth/google'
     | '/courses/$slug'
     | '/lecturer/materials'
+    | '/lecturer/notifications'
     | '/lecturer/performance'
     | '/lecturer/students'
     | '/teachers/auth'
@@ -445,6 +469,7 @@ export interface FileRouteTypes {
     | '/lecturer/quizzes/$topicId'
     | '/lecturer/quizzes/'
     | '/lecturer/quizzes/general/$quizId'
+    | '/lecturer/quizzes/general/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -561,6 +586,13 @@ declare module '@tanstack/react-router' {
       path: '/performance'
       fullPath: '/lecturer/performance'
       preLoaderRoute: typeof LecturerPerformanceRouteImport
+      parentRoute: typeof LecturerRoute
+    }
+    '/lecturer/notifications': {
+      id: '/lecturer/notifications'
+      path: '/notifications'
+      fullPath: '/lecturer/notifications'
+      preLoaderRoute: typeof LecturerNotificationsRouteImport
       parentRoute: typeof LecturerRoute
     }
     '/lecturer/materials': {
@@ -703,6 +735,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCourseQuizQuizIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/lecturer/quizzes/general/new': {
+      id: '/lecturer/quizzes/general/new'
+      path: '/quizzes/general/new'
+      fullPath: '/lecturer/quizzes/general/new'
+      preLoaderRoute: typeof LecturerQuizzesGeneralNewRouteImport
+      parentRoute: typeof LecturerRoute
+    }
     '/lecturer/quizzes/general/$quizId': {
       id: '/lecturer/quizzes/general/$quizId'
       path: '/quizzes/general/$quizId'
@@ -753,22 +792,26 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 interface LecturerRouteChildren {
   LecturerMaterialsRoute: typeof LecturerMaterialsRoute
+  LecturerNotificationsRoute: typeof LecturerNotificationsRoute
   LecturerPerformanceRoute: typeof LecturerPerformanceRoute
   LecturerStudentsRoute: typeof LecturerStudentsRoute
   LecturerIndexRoute: typeof LecturerIndexRoute
   LecturerQuizzesTopicIdRoute: typeof LecturerQuizzesTopicIdRoute
   LecturerQuizzesIndexRoute: typeof LecturerQuizzesIndexRoute
   LecturerQuizzesGeneralQuizIdRoute: typeof LecturerQuizzesGeneralQuizIdRoute
+  LecturerQuizzesGeneralNewRoute: typeof LecturerQuizzesGeneralNewRoute
 }
 
 const LecturerRouteChildren: LecturerRouteChildren = {
   LecturerMaterialsRoute: LecturerMaterialsRoute,
+  LecturerNotificationsRoute: LecturerNotificationsRoute,
   LecturerPerformanceRoute: LecturerPerformanceRoute,
   LecturerStudentsRoute: LecturerStudentsRoute,
   LecturerIndexRoute: LecturerIndexRoute,
   LecturerQuizzesTopicIdRoute: LecturerQuizzesTopicIdRoute,
   LecturerQuizzesIndexRoute: LecturerQuizzesIndexRoute,
   LecturerQuizzesGeneralQuizIdRoute: LecturerQuizzesGeneralQuizIdRoute,
+  LecturerQuizzesGeneralNewRoute: LecturerQuizzesGeneralNewRoute,
 }
 
 const LecturerRouteWithChildren = LecturerRoute._addFileChildren(

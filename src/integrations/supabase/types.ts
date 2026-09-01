@@ -192,6 +192,9 @@ export type Database = {
           message: string;
           created_at: string;
           read_at: string | null;
+          audience: string;
+          topic_id: string | null;
+          quiz_id: string | null;
         };
         Insert: {
           id?: string;
@@ -202,6 +205,9 @@ export type Database = {
           message: string;
           created_at?: string;
           read_at?: string | null;
+          audience?: string;
+          topic_id?: string | null;
+          quiz_id?: string | null;
         };
         Update: { read_at?: string | null };
         Relationships: [
@@ -282,6 +288,7 @@ export type Database = {
           created_at: string;
           deadline: string | null;
           description: string | null;
+          duration_minutes: number;
           id: string;
           max_attempts: number | null;
           title: string;
@@ -291,6 +298,7 @@ export type Database = {
           created_at?: string;
           deadline?: string | null;
           description?: string | null;
+          duration_minutes?: number;
           id?: string;
           max_attempts?: number | null;
           title?: string;
@@ -300,6 +308,7 @@ export type Database = {
           created_at?: string;
           deadline?: string | null;
           description?: string | null;
+          duration_minutes?: number;
           id?: string;
           max_attempts?: number | null;
           title?: string;
@@ -367,31 +376,40 @@ export type Database = {
       };
       quiz_attempts: {
         Row: {
+          answered_count: number | null;
           course_quiz_id: string | null;
+          expires_at: string | null;
           finished_at: string | null;
           id: string;
           score: number;
           started_at: string;
+          timed_out: boolean;
           topic_id: string | null;
           total: number;
           user_id: string;
         };
         Insert: {
+          answered_count?: number | null;
           course_quiz_id?: string | null;
+          expires_at?: string | null;
           finished_at?: string | null;
           id?: string;
           score?: number;
           started_at?: string;
+          timed_out?: boolean;
           topic_id?: string | null;
           total?: number;
           user_id: string;
         };
         Update: {
+          answered_count?: number | null;
           course_quiz_id?: string | null;
+          expires_at?: string | null;
           finished_at?: string | null;
           id?: string;
           score?: number;
           started_at?: string;
+          timed_out?: boolean;
           topic_id?: string | null;
           total?: number;
           user_id?: string;
@@ -456,6 +474,7 @@ export type Database = {
           course_id: string;
           id: string;
           order_index: number;
+          quiz_duration_minutes: number;
           slug: string;
           summary: string | null;
           title: string;
@@ -464,6 +483,7 @@ export type Database = {
           course_id: string;
           id?: string;
           order_index?: number;
+          quiz_duration_minutes?: number;
           slug: string;
           summary?: string | null;
           title: string;
@@ -472,6 +492,7 @@ export type Database = {
           course_id?: string;
           id?: string;
           order_index?: number;
+          quiz_duration_minutes?: number;
           slug?: string;
           summary?: string | null;
           title?: string;
@@ -542,14 +563,36 @@ export type Database = {
         Returns: string;
       };
       create_module_with_quiz: {
-        Args: { _lessons: Json; _questions: Json; _summary: string; _title: string };
+        Args: {
+          _duration_minutes?: number;
+          _lessons: Json;
+          _questions: Json;
+          _summary: string;
+          _title: string;
+        };
         Returns: string;
+      };
+      finalize_expired_quiz_attempts: {
+        Args: Record<PropertyKey, never>;
+        Returns: number;
       };
       create_course_quiz: {
         Args: {
           _deadline?: string | null;
           _description?: string | null;
+          _duration_minutes?: number;
           _max_attempts?: number | null;
+          _title: string;
+        };
+        Returns: string;
+      };
+      create_course_quiz_with_questions: {
+        Args: {
+          _deadline?: string | null;
+          _description?: string | null;
+          _duration_minutes?: number;
+          _max_attempts?: number | null;
+          _questions: Json;
           _title: string;
         };
         Returns: string;
@@ -558,6 +601,7 @@ export type Database = {
         Args: {
           _deadline?: string | null;
           _description?: string | null;
+          _duration_minutes?: number;
           _max_attempts?: number | null;
           _quiz_id: string;
           _title: string;
@@ -578,6 +622,7 @@ export type Database = {
           created_at: string;
           deadline: string | null;
           description: string | null;
+          duration_minutes: number;
           id: string;
           max_attempts: number | null;
           question_count: number;
@@ -596,13 +641,19 @@ export type Database = {
       get_course_quiz_performance: {
         Args: Record<PropertyKey, never>;
         Returns: {
+          answered_count: number;
           attempt_id: string;
           completed: boolean;
+          course_quiz_id: string;
+          expired: boolean;
           finished_at: string;
           pct: number;
+          quiz_title: string;
+          quiz_type: string;
           score: number;
           started_at: string;
           student: string;
+          timed_out: boolean;
           topic: string;
           topic_id: string;
           total: number;
@@ -630,7 +681,7 @@ export type Database = {
         }[];
       };
       grade_quiz: {
-        Args: { _answers: Json; _attempt_id: string };
+        Args: { _answers: Json; _attempt_id: string; _timed_out?: boolean };
         Returns: {
           correct_index: number;
           explanation: string;

@@ -2,7 +2,9 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
+  Bell,
   BookOpen,
+  ClipboardList,
   Gamepad2,
   GraduationCap,
   Home,
@@ -23,19 +25,34 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
+import { useNotifications } from "@/hooks/use-notifications";
 import type { User } from "@supabase/supabase-js";
 
 type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   to: string;
+  /** Match this route only on an exact pathname, not its descendants. */
+  exact?: boolean;
 };
 
 const studentItems: NavItem[] = [
@@ -43,15 +60,18 @@ const studentItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
   { label: "My Courses", icon: BookOpen, to: "/my-courses" },
   { label: "Progress & Analytics", icon: BarChart3, to: "/analytics" },
+  { label: "Notifications", icon: Bell, to: "/notifications" },
   { label: "Games", icon: Gamepad2, to: "/games" },
 ];
 
+// Lecturers navigate their own workspace (/lecturer/*), not the student pages.
+// The route guard in routes/lecturer.tsx + RLS remain the security boundary.
 const lecturerItems: NavItem[] = [
-  { label: "Home", icon: Home, to: "/" },
-  { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
-  { label: "Course Management", icon: BookOpen, to: "/courses" },
-  { label: "Student Analytics", icon: Users, to: "/analytics" },
-  { label: "Games", icon: Gamepad2, to: "/games" },
+  { label: "Dashboard", icon: LayoutDashboard, to: "/lecturer", exact: true },
+  { label: "Students", icon: Users, to: "/lecturer/students" },
+  { label: "Materials", icon: BookOpen, to: "/lecturer/materials" },
+  { label: "Quizzes", icon: ClipboardList, to: "/lecturer/quizzes" },
+  { label: "Performance", icon: BarChart3, to: "/lecturer/performance" },
 ];
 
 const accountItems: NavItem[] = [
@@ -64,6 +84,7 @@ export function AppSidebar({ user }: { user: User }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { isLecturer } = useRole();
+  const { unreadCount } = useNotifications();
 
   const { data: profile } = useQuery({
     queryKey: ["nav-profile", user.id],
@@ -107,18 +128,25 @@ export function AppSidebar({ user }: { user: User }) {
     navigate({ to: "/" });
   };
 
-  const isActive = (to: string) => pathname === to || pathname.startsWith(to + "/");
+  const isActive = (to: string, exact = false) =>
+    exact ? pathname === to : pathname === to || pathname.startsWith(to + "/");
 
   const renderItem = (item: NavItem) => {
     const Icon = item.icon;
+    const showUnread = item.to === "/notifications" && unreadCount > 0;
     return (
       <SidebarMenuItem key={item.label}>
-        <SidebarMenuButton asChild isActive={isActive(item.to)} tooltip={item.label}>
+        <SidebarMenuButton asChild isActive={isActive(item.to, item.exact)} tooltip={item.label}>
           <Link to={item.to}>
             <Icon className="h-4 w-4" />
             <span>{item.label}</span>
           </Link>
         </SidebarMenuButton>
+        {showUnread && (
+          <SidebarMenuBadge className="bg-primary text-primary-foreground">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </SidebarMenuBadge>
+        )}
       </SidebarMenuItem>
     );
   };
@@ -182,14 +210,29 @@ export function AppSidebar({ user }: { user: User }) {
               {isLecturer ? "Teacher" : "Student"}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            aria-label="Sign out"
-            className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive group-data-[collapsible=icon]:hidden"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                type="button"
+                aria-label="Sign out"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive group-data-[collapsible=icon]:hidden"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Sign out?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to sign out of AceTutor?
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={handleSignOut}>Sign out</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </SidebarFooter>
       <SidebarRail />

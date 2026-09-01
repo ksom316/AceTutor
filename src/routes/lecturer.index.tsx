@@ -13,13 +13,18 @@ export const Route = createFileRoute("/lecturer/")({
   component: LecturerDashboard,
 });
 
-/** One row from get_course_quiz_performance(). `finished_at` is null while an
- *  attempt is in progress (the generated type flattens it to string). */
+/** One row from get_course_quiz_performance() — a module quiz or a General
+ *  Course Quiz attempt in the lecturer's course. `finished_at` is null while an
+ *  attempt is in progress; `topic` / `topic_id` are null for general quizzes
+ *  (the generated type flattens both to string). */
 type QuizPerfRow = {
   attempt_id: string;
   student: string;
-  topic: string;
-  topic_id: string;
+  quiz_type: "module" | "general";
+  quiz_title: string;
+  topic: string | null;
+  topic_id: string | null;
+  course_quiz_id: string | null;
   score: number;
   total: number;
   pct: number;
@@ -183,7 +188,9 @@ function LecturerDashboard() {
     const map = new Map<string, { topic: string; sum: number; n: number }>();
     for (const row of perf) {
       if (!row.completed) continue;
-      const entry = map.get(row.topic_id) ?? { topic: row.topic, sum: 0, n: 0 };
+      // "Average score per module" is module quizzes only.
+      if (row.quiz_type !== "module" || !row.topic_id) continue;
+      const entry = map.get(row.topic_id) ?? { topic: row.topic ?? "Module", sum: 0, n: 0 };
       entry.sum += row.pct;
       entry.n += 1;
       map.set(row.topic_id, entry);
@@ -193,13 +200,41 @@ function LecturerDashboard() {
       .sort((a, b) => b.avg - a.avg);
   }, [perf]);
 
-  const activity = perf.slice(0, ACTIVITY_LIMIT).map((row) => ({
-    id: row.attempt_id,
-    text: row.completed
-      ? `${row.student} completed a quiz on ${row.topic}`
-      : `${row.student} started a quiz on ${row.topic}`,
-    when: timeAgo(row.completed && row.finished_at ? row.finished_at : row.started_at),
-  }));
+  // A student "completes the module" only on their FIRST finished attempt of
+  // that module quiz — any later finished attempt is just another go at the
+  // quiz. Determined from the full completed-attempt history (every `perf` row),
+  // not the truncated activity slice, so it stays right no matter what the feed
+  // happens to show. Keyed by student + module quiz; in-progress attempts are
+  // excluded by the `completed` check.
+  const firstModuleCompletions = useMemo(() => {
+    const earliest = new Map<string, { attemptId: string; at: number }>();
+    for (const row of perf) {
+      if (row.quiz_type !== "module" || !row.topic_id || !row.completed) continue;
+      const key = `${row.student} ${row.topic_id}`;
+      const at = new Date(row.finished_at ?? row.started_at).getTime();
+      const current = earliest.get(key);
+      if (!current || at < current.at) earliest.set(key, { attemptId: row.attempt_id, at });
+    }
+    return new Set(Array.from(earliest.values()).map((e) => e.attemptId));
+  }, [perf]);
+
+  const activity = perf.slice(0, ACTIVITY_LIMIT).map((row) => {
+    let text: string;
+    if (!row.completed) {
+      text = `${row.student} started ${row.quiz_title}`;
+    } else if (row.quiz_type === "module") {
+      text = firstModuleCompletions.has(row.attempt_id)
+        ? `${row.student} completed the ${row.quiz_title} module`
+        : `${row.student} completed another attempt of the ${row.quiz_title} module quiz`;
+    } else {
+      text = `${row.student} completed ${row.quiz_title}`;
+    }
+    return {
+      id: row.attempt_id,
+      text,
+      when: timeAgo(row.completed && row.finished_at ? row.finished_at : row.started_at),
+    };
+  });
 
   return (
     <motion.main
@@ -295,7 +330,7 @@ function LecturerDashboard() {
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="pb-2 font-medium">Student</th>
-                      <th className="pb-2 font-medium">Topic</th>
+                      <th className="pb-2 font-medium">Quiz</th>
                       <th className="pb-2 text-right font-medium">Score</th>
                       <th className="pb-2 text-right font-medium">%</th>
                       <th className="pb-2 pl-3 font-medium">Status</th>
@@ -305,7 +340,12 @@ function LecturerDashboard() {
                     {recent.map((row) => (
                       <tr key={row.attempt_id}>
                         <td className="max-w-[8rem] truncate py-2 pr-2">{row.student}</td>
-                        <td className="max-w-[9rem] truncate py-2 pr-2">{row.topic}</td>
+                        <td className="max-w-[9rem] truncate py-2 pr-2">
+                          {row.quiz_title}
+                          {row.quiz_type === "general" && (
+                            <span className="ml-1 text-xs text-muted-foreground">· General</span>
+                          )}
+                        </td>
                         <td className="py-2 text-right tabular-nums">
                           {row.completed ? `${row.score}/${row.total}` : "—"}
                         </td>

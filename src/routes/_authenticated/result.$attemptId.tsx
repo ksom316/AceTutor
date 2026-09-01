@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { canAttemptCourseQuiz } from "@/lib/course-quiz";
+import { attemptStatus } from "@/lib/quiz-timer";
 
 export const Route = createFileRoute("/_authenticated/result/$attemptId")({
   component: ResultPage,
@@ -19,6 +20,10 @@ type AttemptDetail = {
   id: string;
   score: number | null;
   total: number | null;
+  answered_count: number | null;
+  finished_at: string | null;
+  expires_at: string | null;
+  timed_out: boolean;
   topic_id: string | null;
   course_quiz_id: string | null;
   topics: { title: string; course_id: string } | null;
@@ -62,10 +67,13 @@ function ResultPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["result", attemptId],
     queryFn: async () => {
+      // Finalise the attempt server-side first if its timer lapsed while the
+      // student was away, so the result below reflects the graded state.
+      await supabase.rpc("finalize_expired_quiz_attempts");
       const { data: attempt } = await supabase
         .from("quiz_attempts")
         .select(
-          "id, score, total, topic_id, course_quiz_id, topics(title, course_id), course_quizzes(title, max_attempts, courses(id, title, slug))",
+          "id, score, total, answered_count, finished_at, expires_at, timed_out, topic_id, course_quiz_id, topics(title, course_id), course_quizzes(title, max_attempts, courses(id, title, slug))",
         )
         .eq("id", attemptId)
         .maybeSingle();
@@ -126,6 +134,20 @@ function ResultPage() {
     ? Math.round(((data.attempt.score ?? 0) / data.attempt.total) * 100)
     : 0;
   const passed = pct >= 70;
+  const status = attemptStatus({
+    finished: !!data.attempt.finished_at,
+    answered: data.attempt.answered_count,
+    total: data.attempt.total,
+    timedOut: data.attempt.timed_out,
+    expired:
+      !data.attempt.finished_at &&
+      !!data.attempt.expires_at &&
+      Date.now() >= Date.parse(data.attempt.expires_at),
+  });
+  const unansweredCount =
+    data.attempt.answered_count != null && data.attempt.total != null
+      ? data.attempt.total - data.attempt.answered_count
+      : 0;
   const headline =
     pct >= 90
       ? "Outstanding!"
@@ -185,6 +207,29 @@ function ResultPage() {
         <p className="relative mt-1 text-muted-foreground">
           {data.attempt.score} of {data.attempt.total} correct
         </p>
+        <div className="relative mt-3 flex flex-wrap items-center justify-center gap-2 text-sm">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-medium ${
+              status.key === "completed-full"
+                ? "border-success/40 bg-success/10 text-success"
+                : status.key === "completed-incomplete"
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+                  : "border-border bg-card text-muted-foreground"
+            }`}
+          >
+            {status.marker} {status.label}
+          </span>
+          {status.note && (
+            <span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
+              {status.note}
+            </span>
+          )}
+          {unansweredCount > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {unansweredCount} question{unansweredCount === 1 ? "" : "s"} left unanswered
+            </span>
+          )}
+        </div>
       </motion.div>
 
       {/* Answer breakdown */}

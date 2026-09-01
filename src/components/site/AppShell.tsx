@@ -6,10 +6,13 @@ import { useTheme } from "@/hooks/use-theme";
 import { AppSidebar } from "@/components/site/AppSidebar";
 import { SearchBar } from "@/components/site/SearchBar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { ActiveQuizBanner } from "@/components/course/ActiveQuizBanner";
+import { useNotifications } from "@/hooks/use-notifications";
 
 function TopBar() {
   const { theme, toggle } = useTheme();
   const router = useRouter();
+  const { unreadCount } = useNotifications();
   return (
     <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-xl">
       <button
@@ -25,11 +28,16 @@ function TopBar() {
       <div className="ml-auto flex items-center gap-1.5">
         <button
           type="button"
-          aria-label="Notifications"
+          aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"}
           onClick={() => router.navigate({ to: "/notifications" })}
-          className="grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          className="relative grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           <Bell className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -65,6 +73,7 @@ export function AppShell({ user, children }: { user: User; children: React.React
       <AppSidebar user={user} />
       <div className="relative flex w-full flex-1 flex-col bg-background">
         <TopBar />
+        <ActiveQuizBanner />
         <div className="min-h-[calc(100svh-4rem)]">{children}</div>
       </div>
     </SidebarProvider>

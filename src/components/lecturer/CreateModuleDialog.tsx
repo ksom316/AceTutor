@@ -46,6 +46,12 @@ import { generateModuleQuiz, type QuizGenResult } from "@/lib/lecturer-quiz.func
 import { quizGenErrorMessage } from "@/lib/quiz-capability";
 import { DEFAULT_DIFFICULTY_MODE, type DifficultyMode } from "@/lib/quiz-difficulty";
 import { DifficultyModeField } from "@/components/lecturer/DifficultyModeField";
+import {
+  DEFAULT_MODULE_QUIZ_DURATION,
+  MAX_QUIZ_DURATION,
+  MIN_QUIZ_DURATION,
+  parseQuizDuration,
+} from "@/lib/quiz-timer";
 
 /**
  * Three-step "Create module" flow: module details → course content → quiz.
@@ -82,6 +88,7 @@ export function CreateModuleDialog({
   );
   const [aiCount, setAiCount] = useState("10");
   const [aiDifficulty, setAiDifficulty] = useState<DifficultyMode>(DEFAULT_DIFFICULTY_MODE);
+  const [durationMinutes, setDurationMinutes] = useState(String(DEFAULT_MODULE_QUIZ_DURATION));
   const [generating, setGenerating] = useState(false);
   const [review, setReview] = useState<{ items: QuizDraft[]; result: QuizGenResult } | null>(null);
 
@@ -98,6 +105,7 @@ export function CreateModuleDialog({
     setQDialog(null);
     setAiCount("10");
     setAiDifficulty(DEFAULT_DIFFICULTY_MODE);
+    setDurationMinutes(String(DEFAULT_MODULE_QUIZ_DURATION));
     setReview(null);
     setSubmitting(false);
   };
@@ -118,9 +126,18 @@ export function CreateModuleDialog({
 
   const validLessons = lessons.filter(isLessonValueComplete);
   const validQuestions = questions.filter((q) => cleanDraft(q) !== null);
+  const parsedDuration = parseQuizDuration(durationMinutes);
+  const durationError =
+    parsedDuration === null
+      ? `Enter a whole number of minutes between ${MIN_QUIZ_DURATION} and ${MAX_QUIZ_DURATION}.`
+      : null;
   const canProceedToQuiz = validLessons.length >= 1;
   const canCreate =
-    !titleError && validLessons.length >= 1 && validQuestions.length >= 1 && !submitting;
+    !titleError &&
+    validLessons.length >= 1 &&
+    validQuestions.length >= 1 &&
+    !durationError &&
+    !submitting;
   const room = Math.max(0, MAX_QUESTIONS - questions.length);
 
   const moveLesson = (i: number, dir: -1 | 1) =>
@@ -201,6 +218,14 @@ export function CreateModuleDialog({
       toast.error("Add at least one quiz question before creating the module.");
       return;
     }
+    const durationValue = parseQuizDuration(durationMinutes);
+    if (durationValue === null) {
+      toast.error(
+        `Enter a whole number of minutes between ${MIN_QUIZ_DURATION} and ${MAX_QUIZ_DURATION} for the time limit.`,
+      );
+      setStep(3);
+      return;
+    }
 
     setSubmitting(true);
     const folderId = crypto.randomUUID();
@@ -246,6 +271,7 @@ export function CreateModuleDialog({
         _summary: summary.trim(),
         _lessons: lessonRows,
         _questions: cleanQ.slice(0, MAX_QUESTIONS).map((d, i) => draftToRow(d, i)),
+        _duration_minutes: durationValue,
       });
       if (error) throw error;
 
@@ -453,8 +479,34 @@ export function CreateModuleDialog({
 
           {step === 3 && (
             <>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Questions: {questions.length} / {MAX_QUESTIONS}
+                </p>
+                <div className="space-y-1">
+                  <Label htmlFor="cm-quiz-duration" className="text-xs">
+                    Time limit
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="cm-quiz-duration"
+                      type="number"
+                      inputMode="numeric"
+                      min={MIN_QUIZ_DURATION}
+                      max={MAX_QUIZ_DURATION}
+                      value={durationMinutes}
+                      onChange={(e) => setDurationMinutes(e.target.value)}
+                      className="h-9 w-24"
+                    />
+                    <span className="text-xs text-muted-foreground">minutes</span>
+                  </div>
+                  {durationError && <p className="text-xs text-destructive">{durationError}</p>}
+                </div>
+              </div>
               <p className="text-xs text-muted-foreground">
-                Questions: {questions.length} / {MAX_QUESTIONS}
+                Students have this long once they start the quiz. Enter any whole number of minutes
+                (default {DEFAULT_MODULE_QUIZ_DURATION}). The timer runs on the server and keeps
+                counting even if they leave — you can change it later.
               </p>
 
               {review ? (

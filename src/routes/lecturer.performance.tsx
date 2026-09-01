@@ -1,8 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
-import { BarChart3, CheckCircle2, Clock, Target, Users } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { BarChart3, CheckCircle2, Clock, Loader2, Sparkles, Target } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,34 +31,62 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
 import { fadeUp } from "@/lib/motion";
+import {
+  analyseCoursePerformance,
+  perfAnalysisErrorMessage,
+} from "@/lib/lecturer-performance.functions";
+import { attemptStatus } from "@/lib/quiz-timer";
 
 export const Route = createFileRoute("/lecturer/performance")({
   component: LecturerPerformance,
 });
 
 /**
- * One row from get_course_quiz_performance() — one module-quiz attempt in the
- * lecturer's own course. The RPC is SECURITY DEFINER and derives the course from
- * current_lecturer_course(); it never accepts a course id and never returns
- * email / VARK. General Course Quiz attempts (topic_id NULL) are excluded by the
- * RPC's join, so this page is module quizzes only. `finished_at` is null while an
- * attempt is in progress (the generated type flattens it to string).
+ * One row from get_course_quiz_performance() — one module-quiz OR General Course
+ * Quiz attempt in the lecturer's own course. The RPC is SECURITY DEFINER and
+ * derives the course from current_lecturer_course(); it never accepts a course
+ * id and never returns email / VARK. `finished_at` is null while an attempt is
+ * in progress; `topic` / `topic_id` are null for general quizzes and
+ * `course_quiz_id` is null for module quizzes (the generated type flattens all
+ * of these to string).
  */
 type QuizPerfRow = {
   attempt_id: string;
   student: string;
-  topic: string;
-  topic_id: string;
+  quiz_type: "module" | "general";
+  quiz_title: string;
+  topic: string | null;
+  topic_id: string | null;
+  course_quiz_id: string | null;
   score: number;
   total: number;
   pct: number;
+  answered_count: number | null;
   started_at: string;
   finished_at: string | null;
   completed: boolean;
+  timed_out: boolean;
+  expired: boolean;
 };
 
 type StatusFilter = "all" | "completed" | "in-progress";
 type SortKey = "recent" | "pct-desc" | "pct-asc" | "student";
+
+/** Stable identity for a quiz across attempts (topic id or course-quiz id). */
+const quizKeyOf = (r: QuizPerfRow) => r.topic_id ?? r.course_quiz_id ?? r.quiz_title;
+
+/** Shared recharts tooltip styling — matches the student analytics page. */
+const tooltipStyle = {
+  contentStyle: {
+    background: "var(--card)",
+    border: "1px solid var(--border)",
+    borderRadius: "0.75rem",
+    fontSize: "0.8rem",
+    boxShadow: "0 10px 30px -12px rgba(0,0,0,0.35)",
+  },
+  labelStyle: { color: "var(--foreground)", fontWeight: 600 },
+  itemStyle: { color: "var(--muted-foreground)" },
+};
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -97,7 +138,7 @@ function LecturerPerformance() {
   const enabled = !!lecturerCourseId;
 
   const [search, setSearch] = useState("");
-  const [moduleFilter, setModuleFilter] = useState("all");
+  const [quizFilter, setQuizFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("recent");
 
@@ -140,11 +181,15 @@ function LecturerPerformance() {
   const perf = useMemo<QuizPerfRow[]>(() => perfQuery.data ?? [], [perfQuery.data]);
   const enrolledCount = studentsQuery.data?.length ?? 0;
 
-  const modules = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of perf) map.set(r.topic_id, r.topic);
-    return Array.from(map, ([id, title]) => ({ id, title })).sort((a, b) =>
-      a.title.localeCompare(b.title),
+  // Every quiz that has an attempt — module topics and General Course Quizzes.
+  const quizList = useMemo(() => {
+    const map = new Map<string, { id: string; title: string; type: "module" | "general" }>();
+    for (const r of perf) {
+      const id = quizKeyOf(r);
+      if (!map.has(id)) map.set(id, { id, title: r.quiz_title, type: r.quiz_type });
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => a.type.localeCompare(b.type) || a.title.localeCompare(b.title),
     );
   }, [perf]);
 
@@ -163,23 +208,38 @@ function LecturerPerformance() {
     };
   }, [perf]);
 
-  const byModule = useMemo(() => {
+  // Per-quiz averages — module topics and General Course Quizzes alike.
+  const byQuiz = useMemo(() => {
     const map = new Map<
       string,
-      { topic: string; attempts: number; completed: number; sum: number }
+      {
+        title: string;
+        type: "module" | "general";
+        attempts: number;
+        completed: number;
+        sum: number;
+      }
     >();
     for (const r of perf) {
-      const e = map.get(r.topic_id) ?? { topic: r.topic, attempts: 0, completed: 0, sum: 0 };
+      const id = quizKeyOf(r);
+      const e = map.get(id) ?? {
+        title: r.quiz_title,
+        type: r.quiz_type,
+        attempts: 0,
+        completed: 0,
+        sum: 0,
+      };
       e.attempts += 1;
       if (r.completed) {
         e.completed += 1;
         e.sum += r.pct;
       }
-      map.set(r.topic_id, e);
+      map.set(id, e);
     }
     return Array.from(map.values())
       .map((e) => ({
-        topic: e.topic,
+        title: e.title,
+        type: e.type,
         attempts: e.attempts,
         completed: e.completed,
         avg: e.completed ? Math.round(e.sum / e.completed) : null,
@@ -242,11 +302,60 @@ function LecturerPerformance() {
       }));
   }, [perf]);
 
+  // Weekly buckets for the overview chart: completed vs unfinished attempt
+  // volume, plus the completed-attempt average, over the last 10 weeks.
+  const chartData = useMemo(() => {
+    const map = new Map<
+      string,
+      { sum: number; n: number; completed: number; inProgress: number }
+    >();
+    for (const r of perf) {
+      const stamp = r.completed && r.finished_at ? r.finished_at : r.started_at;
+      const key = weekStartKey(stamp);
+      const e = map.get(key) ?? { sum: 0, n: 0, completed: 0, inProgress: 0 };
+      if (r.completed) {
+        e.completed += 1;
+        e.sum += r.pct;
+        e.n += 1;
+      } else {
+        e.inProgress += 1;
+      }
+      map.set(key, e);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-10)
+      .map(([key, e]) => ({
+        label: new Date(key).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        avg: e.n ? Math.round(e.sum / e.n) : 0,
+        completed: e.completed,
+        inProgress: e.inProgress,
+      }));
+  }, [perf]);
+
+  // Students who most / least need attention — from completed attempts only.
+  const strugglingStudents = useMemo(
+    () =>
+      byStudent
+        .filter((s) => s.avg != null && s.avg < 70)
+        .sort((a, b) => (a.avg ?? 0) - (b.avg ?? 0))
+        .slice(0, 6),
+    [byStudent],
+  );
+  const strongStudents = useMemo(
+    () =>
+      byStudent
+        .filter((s) => s.avg != null && s.avg >= 80)
+        .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0))
+        .slice(0, 6),
+    [byStudent],
+  );
+
   const attempts = useMemo(() => {
     const term = search.trim().toLowerCase();
     let list = perf.filter((r) => {
       if (term && !r.student.toLowerCase().includes(term)) return false;
-      if (moduleFilter !== "all" && r.topic_id !== moduleFilter) return false;
+      if (quizFilter !== "all" && quizKeyOf(r) !== quizFilter) return false;
       if (statusFilter === "completed" && !r.completed) return false;
       if (statusFilter === "in-progress" && r.completed) return false;
       return true;
@@ -268,10 +377,56 @@ function LecturerPerformance() {
       }
     });
     return list;
-  }, [perf, search, moduleFilter, statusFilter, sort]);
+  }, [perf, search, quizFilter, statusFilter, sort]);
 
   const courseName = courseQuery.data?.title;
   const loading = perfQuery.isLoading;
+  const hasData = perf.length > 0;
+
+  // AI analysis of the aggregated numbers above. Only the small summary payload
+  // is sent — no raw attempt rows, ids, emails or timestamps.
+  const runAnalyse = useServerFn(analyseCoursePerformance);
+  const analyse = useMutation({
+    mutationFn: async () => {
+      const res = await runAnalyse({
+        data: {
+          courseTitle: courseName ?? "This course",
+          totals: {
+            enrolled: enrolledCount,
+            studentsAssessed: summary.studentsAssessed,
+            totalAttempts: summary.total,
+            completed: summary.completed,
+            inProgress: summary.inProgress,
+            averageScore: summary.completed ? summary.avg : null,
+          },
+          quizzes: byQuiz.map((q) => ({
+            title: q.title,
+            type: q.type,
+            attempts: q.attempts,
+            completed: q.completed,
+            avg: q.avg,
+          })),
+          struggling: strugglingStudents.map((s) => ({
+            name: s.student,
+            completed: s.completed,
+            avg: s.avg,
+          })),
+          strong: strongStudents.map((s) => ({
+            name: s.student,
+            completed: s.completed,
+            avg: s.avg,
+          })),
+          trend: chartData.map((w) => ({
+            label: w.label,
+            avg: w.avg,
+            completed: w.completed,
+            inProgress: w.inProgress,
+          })),
+        },
+      });
+      return res.analysis;
+    },
+  });
 
   return (
     <motion.main
@@ -282,7 +437,7 @@ function LecturerPerformance() {
     >
       <h1 className="font-display text-4xl">Performance</h1>
       <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-        Module-quiz results for students enrolled in{" "}
+        Module quiz and General Course Quiz results for students enrolled in{" "}
         <span className="font-medium text-foreground">{courseName ?? "your assigned course"}</span>.
         {studentsQuery.isSuccess && enrolledCount > 0 && (
           <>
@@ -323,11 +478,11 @@ function LecturerPerformance() {
               value={String(summary.completed)}
               loading={loading}
             />
-            <StatTile
-              icon={Clock}
-              label="In progress"
-              value={String(summary.inProgress)}
-              loading={loading}
+            <StatTile 
+              icon={Clock} 
+              label="Started but did not finish" 
+              value={String(summary.inProgress)} 
+              loading={loading} 
             />
             <StatTile
               icon={Target}
@@ -337,23 +492,169 @@ function LecturerPerformance() {
             />
           </div>
 
+          {/* Performance overview — graded attempts only, by week */}
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="text-lg">Performance overview</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Graded attempts per week and their average score. In-progress attempts are excluded
+                from every graph and average.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <Skeleton className="h-64 w-full" />
+              ) : chartData.length === 0 ? (
+                <p className="py-16 text-center text-sm text-muted-foreground">
+                  Not enough quiz activity to chart yet.
+                </p>
+              ) : (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={chartData} margin={{ left: -12, right: 8, top: 6 }}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        yAxisId="count"
+                        allowDecimals={false}
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        yAxisId="pct"
+                        orientation="right"
+                        domain={[0, 100]}
+                        unit="%"
+                        tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <Tooltip {...tooltipStyle} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar
+                        yAxisId="count"
+                        dataKey="completed"
+                        name="Graded attempts"
+                        fill="var(--chart-1)"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Line
+                        yAxisId="pct"
+                        type="monotone"
+                        dataKey="avg"
+                        name="Avg score %"
+                        stroke="var(--chart-2)"
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: "var(--chart-2)" }}
+                        activeDot={{ r: 6 }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* AI performance insights */}
+          <Card className="mt-6">
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Sparkles className="h-4 w-4 text-primary" /> AI Performance Insights
+                </CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A practical read of the aggregated numbers above — where to focus teaching, and
+                  which students to support.
+                </p>
+              </div>
+              {analyse.data && !analyse.isPending && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full"
+                  onClick={() => analyse.mutate()}
+                >
+                  Regenerate
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <SkeletonRows />
+              ) : !hasData || summary.completed === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  There are no completed quiz attempts to analyse yet.
+                </p>
+              ) : analyse.isPending ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Analysing performance…
+                </div>
+              ) : analyse.isError ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-destructive">
+                    {perfAnalysisErrorMessage(analyse.error)}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => analyse.mutate()}
+                  >
+                    Try again
+                  </Button>
+                </div>
+              ) : analyse.data ? (
+                <div className="prose-lesson max-w-none text-sm text-foreground">
+                  <ReactMarkdown>{analyse.data}</ReactMarkdown>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Generate an AI summary of strong and weak topics, students who may need support,
+                    recent trends, and suggested teaching actions and follow-up assessments.
+                  </p>
+                  <Button className="rounded-full" onClick={() => analyse.mutate()}>
+                    <Sparkles className="mr-1.5 h-4 w-4" /> Analyse performance
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="mt-6 grid gap-6 lg:grid-cols-2">
-            {/* Average score per module */}
+            {/* Average score per quiz */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Average score per module</CardTitle>
+                <CardTitle className="text-lg">Average score per quiz</CardTitle>
               </CardHeader>
               <CardContent>
                 {loading ? (
                   <SkeletonRows />
-                ) : byModule.length === 0 ? (
+                ) : byQuiz.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No quiz attempts yet.</p>
                 ) : (
                   <ul className="space-y-3">
-                    {byModule.map((m) => (
-                      <li key={m.topic}>
+                    {byQuiz.map((m) => (
+                      <li key={`${m.type}-${m.title}`}>
                         <div className="flex items-center justify-between gap-3 text-sm">
-                          <span className="min-w-0 truncate">{m.topic}</span>
+                          <span className="flex min-w-0 items-center gap-1.5 truncate">
+                            <span className="truncate">{m.title}</span>
+                            {m.type === "general" && (
+                              <Badge variant="outline" className="shrink-0 text-[10px]">
+                                General
+                              </Badge>
+                            )}
+                          </span>
                           <span className="shrink-0 tabular-nums font-semibold">
                             {m.avg == null ? "—" : `${m.avg}%`}
                           </span>
@@ -469,15 +770,16 @@ function LecturerPerformance() {
                   className="rounded-xl sm:w-52"
                   aria-label="Search attempts by student"
                 />
-                <Select value={moduleFilter} onValueChange={setModuleFilter}>
-                  <SelectTrigger className="rounded-xl sm:w-48" aria-label="Filter by module">
+                <Select value={quizFilter} onValueChange={setQuizFilter}>
+                  <SelectTrigger className="rounded-xl sm:w-48" aria-label="Filter by quiz">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All modules</SelectItem>
-                    {modules.map((m) => (
+                    <SelectItem value="all">All quizzes</SelectItem>
+                    {quizList.map((m) => (
                       <SelectItem key={m.id} value={m.id}>
                         {m.title}
+                        {m.type === "general" ? " · General" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -527,7 +829,8 @@ function LecturerPerformance() {
                       <thead>
                         <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                           <th className="pb-2 font-medium">Student</th>
-                          <th className="pb-2 font-medium">Module</th>
+                          <th className="pb-2 font-medium">Quiz</th>
+                          <th className="pb-2 font-medium">Type</th>
                           <th className="pb-2 text-right font-medium">Score</th>
                           <th className="pb-2 text-right font-medium">%</th>
                           <th className="pb-2 pl-3 font-medium">Status</th>
@@ -538,7 +841,12 @@ function LecturerPerformance() {
                         {attempts.map((r) => (
                           <tr key={r.attempt_id}>
                             <td className="max-w-[10rem] truncate py-2 pr-2">{r.student}</td>
-                            <td className="max-w-[10rem] truncate py-2 pr-2">{r.topic}</td>
+                            <td className="max-w-[10rem] truncate py-2 pr-2">{r.quiz_title}</td>
+                            <td className="py-2 pr-2">
+                              <Badge variant={r.quiz_type === "general" ? "secondary" : "outline"}>
+                                {r.quiz_type === "general" ? "General" : "Module"}
+                              </Badge>
+                            </td>
                             <td className="py-2 text-right tabular-nums">
                               {r.completed ? `${r.score}/${r.total}` : "—"}
                             </td>
@@ -546,13 +854,35 @@ function LecturerPerformance() {
                               {r.completed ? `${r.pct}%` : "—"}
                             </td>
                             <td className="py-2 pl-3">
-                              {r.completed ? (
-                                <Badge variant={r.pct >= 70 ? "default" : "destructive"}>
-                                  Completed
-                                </Badge>
-                              ) : (
-                                <Badge variant="secondary">Started but did not finish</Badge>
-                              )}
+                              {(() => {
+                                const st = attemptStatus({
+                                  finished: r.completed,
+                                  answered: r.answered_count,
+                                  total: r.total,
+                                  timedOut: r.timed_out,
+                                  expired: r.expired,
+                                });
+                                return (
+                                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                                    <span
+                                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                                        st.key === "completed-full"
+                                          ? "border-success/40 bg-success/10 text-success"
+                                          : st.key === "completed-incomplete"
+                                            ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+                                            : "border-border bg-muted text-muted-foreground"
+                                      }`}
+                                    >
+                                      {st.marker} {st.label}
+                                    </span>
+                                    {st.note && (
+                                      <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                                        {st.note}
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="py-2 pl-3 text-muted-foreground">
                               {formatDate(r.finished_at ?? r.started_at)}

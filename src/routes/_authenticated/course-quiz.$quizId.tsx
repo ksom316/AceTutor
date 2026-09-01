@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ function GeneralCourseQuizRoute() {
   const { quizId } = Route.useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   const [status, setStatus] = useState<Status>("loading");
   const [quiz, setQuiz] = useState<{
@@ -36,6 +38,7 @@ function GeneralCourseQuizRoute() {
   const [course, setCourse] = useState<{ id: string; title: string; slug: string } | null>(null);
   const [questions, setQuestions] = useState<RunnerQuestion[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [deadlineIso, setDeadlineIso] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useStudyCourse(course?.id ?? null);
@@ -45,6 +48,11 @@ function GeneralCourseQuizRoute() {
     let active = true;
     (async () => {
       setStatus("loading");
+
+      // Server finalises the student's own timed-out attempts (module or
+      // general) that were never submitted, so a late return is graded.
+      await supabase.rpc("finalize_expired_quiz_attempts");
+      if (!active) return;
 
       const { data: cq } = await supabase
         .from("course_quizzes")
@@ -85,25 +93,9 @@ function GeneralCourseQuizRoute() {
         return;
       }
 
-      // Client-side attempt-cap gate for a clear message. The DB trigger
-      // (enforce_course_quiz_attempt) is the authoritative check and counts
-      // every attempt row for this student + quiz, abandoned ones included.
-      if (cq.max_attempts != null) {
-        const { count } = await supabase
-          .from("quiz_attempts")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
-          .eq("course_quiz_id", quizId);
-        if (!active) return;
-        if (!canAttemptCourseQuiz(count ?? 0, cq.max_attempts)) {
-          setStatus("limit-reached");
-          return;
-        }
-      }
-
       const { data: qs, error } = await supabase.rpc("get_course_quiz_questions", {
         _quiz_id: quizId,
-        _limit: 30,
+        _limit: 50,
       });
       if (!active) return;
       if (error) {
@@ -118,10 +110,50 @@ function GeneralCourseQuizRoute() {
         return;
       }
 
+      // Resume an existing in-progress, non-expired attempt so a refresh /
+      // return continues the same attempt (and does not consume another). Only
+      // when there is none do we start a new one — the max-attempts cap is
+      // enforced on that insert by enforce_course_quiz_attempt().
+      const nowIso = new Date().toISOString();
+      const { data: existing } = await supabase
+        .from("quiz_attempts")
+        .select("id, expires_at")
+        .eq("user_id", user.id)
+        .eq("course_quiz_id", quizId)
+        .is("finished_at", null)
+        .gt("expires_at", nowIso)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!active) return;
+
+      if (existing) {
+        setAttemptId(existing.id);
+        setDeadlineIso(existing.expires_at);
+        setStatus("ready");
+        return;
+      }
+
+      // Client-side attempt-cap gate for a clear message. The DB trigger
+      // (enforce_course_quiz_attempt) is the authoritative check and counts
+      // every attempt row for this student + quiz.
+      if (cq.max_attempts != null) {
+        const { count } = await supabase
+          .from("quiz_attempts")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .eq("course_quiz_id", quizId);
+        if (!active) return;
+        if (!canAttemptCourseQuiz(count ?? 0, cq.max_attempts)) {
+          setStatus("limit-reached");
+          return;
+        }
+      }
+
       const { data: attempt, error: aErr } = await supabase
         .from("quiz_attempts")
         .insert({ user_id: user.id, course_quiz_id: quizId })
-        .select("id")
+        .select("id, expires_at")
         .single();
       if (!active) return;
       if (aErr) {
@@ -140,25 +172,29 @@ function GeneralCourseQuizRoute() {
         return;
       }
       setAttemptId(attempt.id);
+      setDeadlineIso(attempt.expires_at);
       setStatus("ready");
+      qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
     })();
     return () => {
       active = false;
     };
-  }, [user, quizId]);
+  }, [user, quizId, qc]);
 
-  const onSubmit = async (answers: Record<string, number>) => {
+  const onSubmit = async (answers: Record<string, number>, timedOut: boolean) => {
     if (!attemptId) return;
     setSubmitting(true);
     const { error } = await supabase.rpc("grade_quiz", {
       _attempt_id: attemptId,
       _answers: answers,
+      _timed_out: timedOut,
     });
     setSubmitting(false);
     if (error) {
       toast.error(error.message);
       return;
     }
+    qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
     navigate({ to: "/result/$attemptId", params: { attemptId } });
   };
 
@@ -223,6 +259,7 @@ function GeneralCourseQuizRoute() {
       submitting={submitting}
       attemptReady={!!attemptId}
       questions={questions}
+      deadlineIso={deadlineIso}
       onSubmit={onSubmit}
     />
   );
