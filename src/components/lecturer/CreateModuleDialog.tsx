@@ -24,6 +24,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { LessonFormDialog } from "@/components/lecturer/LessonFormDialog";
@@ -46,6 +53,11 @@ import { generateModuleQuiz, type QuizGenResult } from "@/lib/lecturer-quiz.func
 import { quizGenErrorMessage } from "@/lib/quiz-capability";
 import { DEFAULT_DIFFICULTY_MODE, type DifficultyMode } from "@/lib/quiz-difficulty";
 import { DifficultyModeField } from "@/components/lecturer/DifficultyModeField";
+import {
+  DEFAULT_MODULE_QUIZ_DURATION,
+  durationLabel,
+  MODULE_QUIZ_DURATIONS,
+} from "@/lib/quiz-timer";
 
 /**
  * Three-step "Create module" flow: module details → course content → quiz.
@@ -82,6 +94,7 @@ export function CreateModuleDialog({
   );
   const [aiCount, setAiCount] = useState("10");
   const [aiDifficulty, setAiDifficulty] = useState<DifficultyMode>(DEFAULT_DIFFICULTY_MODE);
+  const [durationMinutes, setDurationMinutes] = useState(String(DEFAULT_MODULE_QUIZ_DURATION));
   const [generating, setGenerating] = useState(false);
   const [review, setReview] = useState<{ items: QuizDraft[]; result: QuizGenResult } | null>(null);
 
@@ -98,6 +111,7 @@ export function CreateModuleDialog({
     setQDialog(null);
     setAiCount("10");
     setAiDifficulty(DEFAULT_DIFFICULTY_MODE);
+    setDurationMinutes(String(DEFAULT_MODULE_QUIZ_DURATION));
     setReview(null);
     setSubmitting(false);
   };
@@ -246,6 +260,7 @@ export function CreateModuleDialog({
         _summary: summary.trim(),
         _lessons: lessonRows,
         _questions: cleanQ.slice(0, MAX_QUESTIONS).map((d, i) => draftToRow(d, i)),
+        _duration_minutes: Number(durationMinutes) || DEFAULT_MODULE_QUIZ_DURATION,
       });
       if (error) throw error;
 
@@ -453,8 +468,32 @@ export function CreateModuleDialog({
 
           {step === 3 && (
             <>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Questions: {questions.length} / {MAX_QUESTIONS}
+                </p>
+                <div className="space-y-1">
+                  <Label htmlFor="cm-quiz-duration" className="text-xs">
+                    Time limit
+                  </Label>
+                  <Select value={durationMinutes} onValueChange={setDurationMinutes}>
+                    <SelectTrigger id="cm-quiz-duration" className="h-9 w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MODULE_QUIZ_DURATIONS.map((m) => (
+                        <SelectItem key={m} value={String(m)}>
+                          {durationLabel(m)}
+                          {m === DEFAULT_MODULE_QUIZ_DURATION ? " (default)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
               <p className="text-xs text-muted-foreground">
-                Questions: {questions.length} / {MAX_QUESTIONS}
+                Students have this long once they start the quiz. The timer runs on the server and
+                keeps counting even if they leave — you can change it later.
               </p>
 
               {review ? (

@@ -149,6 +149,7 @@
 // }
 
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -165,8 +166,10 @@ function ModuleQuizRoute() {
   const { topicId } = Route.useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [questions, setQuestions] = useState<RunnerQuestion[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [deadlineIso, setDeadlineIso] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [topicTitle, setTopicTitle] = useState("");
   const [courseId, setCourseId] = useState<string | null>(null);
@@ -182,6 +185,13 @@ function ModuleQuizRoute() {
     let active = true;
     (async () => {
       setLoading(true);
+
+      // Server finalises any of the student's module attempts whose timer ran
+      // out while they were away (closed tab) — so a late return is graded and
+      // never left dangling.
+      await supabase.rpc("finalize_expired_quiz_attempts");
+      if (!active) return;
+
       const { data: topic } = await supabase
         .from("topics")
         .select("title, course_id")
@@ -209,7 +219,7 @@ function ModuleQuizRoute() {
 
       const { data: qs, error } = await supabase.rpc("get_quiz_questions", {
         _topic_id: topicId,
-        _limit: 30,
+        _limit: 50,
       });
       if (!active) return;
       if (error) {
@@ -228,33 +238,61 @@ function ModuleQuizRoute() {
         return;
       }
 
-      const { data: attempt, error: aErr } = await supabase
+      // Resume an existing in-progress, non-expired attempt so a refresh / return
+      // does not reset the timer. Otherwise start a new one (the DB trigger
+      // stamps expires_at = started_at + the module's quiz duration).
+      const nowIso = new Date().toISOString();
+      const { data: existing } = await supabase
         .from("quiz_attempts")
-        .insert({ user_id: user.id, topic_id: topicId })
-        .select("id")
-        .single();
+        .select("id, expires_at")
+        .eq("user_id", user.id)
+        .eq("topic_id", topicId)
+        .is("finished_at", null)
+        .gt("expires_at", nowIso)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
       if (!active) return;
-      if (aErr) toast.error(aErr.message);
-      else setAttemptId(attempt.id);
+
+      if (existing) {
+        setAttemptId(existing.id);
+        setDeadlineIso(existing.expires_at);
+      } else {
+        const { data: attempt, error: aErr } = await supabase
+          .from("quiz_attempts")
+          .insert({ user_id: user.id, topic_id: topicId })
+          .select("id, expires_at")
+          .single();
+        if (!active) return;
+        if (aErr) {
+          toast.error(aErr.message);
+        } else {
+          setAttemptId(attempt.id);
+          setDeadlineIso(attempt.expires_at);
+          qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
+        }
+      }
       setLoading(false);
     })();
     return () => {
       active = false;
     };
-  }, [user, topicId]);
+  }, [user, topicId, qc]);
 
-  const onSubmit = async (answers: Record<string, number>) => {
+  const onSubmit = async (answers: Record<string, number>, timedOut: boolean) => {
     if (!attemptId) return;
     setSubmitting(true);
     const { error } = await supabase.rpc("grade_quiz", {
       _attempt_id: attemptId,
       _answers: answers,
+      _timed_out: timedOut,
     });
     setSubmitting(false);
     if (error) {
       toast.error(error.message);
       return;
     }
+    qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
     navigate({ to: "/result/$attemptId", params: { attemptId } });
   };
 
@@ -305,6 +343,7 @@ function ModuleQuizRoute() {
       submitting={submitting}
       attemptReady={!!attemptId}
       questions={questions}
+      deadlineIso={deadlineIso}
       onSubmit={onSubmit}
     />
   );

@@ -35,6 +35,7 @@ import {
   analyseCoursePerformance,
   perfAnalysisErrorMessage,
 } from "@/lib/lecturer-performance.functions";
+import { attemptStatus } from "@/lib/quiz-timer";
 
 export const Route = createFileRoute("/lecturer/performance")({
   component: LecturerPerformance,
@@ -60,9 +61,12 @@ type QuizPerfRow = {
   score: number;
   total: number;
   pct: number;
+  answered_count: number | null;
   started_at: string;
   finished_at: string | null;
   completed: boolean;
+  timed_out: boolean;
+  expired: boolean;
 };
 
 type StatusFilter = "all" | "completed" | "in-progress";
@@ -488,13 +492,13 @@ function LecturerPerformance() {
             />
           </div>
 
-          {/* Performance overview — attempt volume + average score by week */}
+          {/* Performance overview — graded attempts only, by week */}
           <Card className="mt-6">
             <CardHeader>
               <CardTitle className="text-lg">Performance overview</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Attempts started each week (completed vs unfinished) and the average score of
-                completed attempts
+                Graded attempts per week and their average score. In-progress attempts are excluded
+                from every graph and average.
               </p>
             </CardHeader>
             <CardContent>
@@ -540,17 +544,8 @@ function LecturerPerformance() {
                       <Bar
                         yAxisId="count"
                         dataKey="completed"
-                        name="Completed"
-                        stackId="a"
+                        name="Graded attempts"
                         fill="var(--chart-1)"
-                        radius={[0, 0, 0, 0]}
-                      />
-                      <Bar
-                        yAxisId="count"
-                        dataKey="inProgress"
-                        name="Unfinished"
-                        stackId="a"
-                        fill="var(--chart-4)"
                         radius={[4, 4, 0, 0]}
                       />
                       <Line
@@ -859,13 +854,35 @@ function LecturerPerformance() {
                               {r.completed ? `${r.pct}%` : "—"}
                             </td>
                             <td className="py-2 pl-3">
-                              {r.completed ? (
-                                <Badge variant={r.pct >= 70 ? "default" : "destructive"}>
-                                  Completed
-                                </Badge>
-                              ) : (
-                                <Badge variant="secondary">Started but did not finish</Badge>
-                              )}
+                              {(() => {
+                                const st = attemptStatus({
+                                  finished: r.completed,
+                                  answered: r.answered_count,
+                                  total: r.total,
+                                  timedOut: r.timed_out,
+                                  expired: r.expired,
+                                });
+                                return (
+                                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                                    <span
+                                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                                        st.key === "completed-full"
+                                          ? "border-success/40 bg-success/10 text-success"
+                                          : st.key === "completed-incomplete"
+                                            ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+                                            : "border-border bg-muted text-muted-foreground"
+                                      }`}
+                                    >
+                                      {st.marker} {st.label}
+                                    </span>
+                                    {st.note && (
+                                      <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                                        {st.note}
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="py-2 pl-3 text-muted-foreground">
                               {formatDate(r.finished_at ?? r.started_at)}

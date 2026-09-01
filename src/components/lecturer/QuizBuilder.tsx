@@ -78,6 +78,11 @@ import {
 } from "@/lib/course-quiz";
 import { DEFAULT_DIFFICULTY_MODE, type DifficultyMode } from "@/lib/quiz-difficulty";
 import { DifficultyModeField } from "@/components/lecturer/DifficultyModeField";
+import {
+  DEFAULT_MODULE_QUIZ_DURATION,
+  durationLabel,
+  MODULE_QUIZ_DURATIONS,
+} from "@/lib/quiz-timer";
 
 /**
  * Shared quiz builder for both a module quiz (`kind: "topic"`) and one of a
@@ -126,6 +131,8 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const [infoDescription, setInfoDescription] = useState("");
   const [infoDeadline, setInfoDeadline] = useState("");
   const [infoMaxAttempts, setInfoMaxAttempts] = useState("unlimited");
+  // Module quiz time limit (topic scope only).
+  const [infoDuration, setInfoDuration] = useState(String(DEFAULT_MODULE_QUIZ_DURATION));
 
   const quizQuery = useQuery({
     queryKey: quizKey,
@@ -139,11 +146,12 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       let quizDescription = "";
       let quizDeadline: string | null = null;
       let quizMaxAttempts: number | null = null;
+      let quizDurationMinutes = DEFAULT_MODULE_QUIZ_DURATION;
 
       if (scope.kind === "topic") {
         const { data: topic, error } = await supabase
           .from("topics")
-          .select("id, title, summary, course_id")
+          .select("id, title, summary, course_id, quiz_duration_minutes")
           .eq("id", scope.topicId)
           .maybeSingle();
         if (error) throw error;
@@ -151,15 +159,17 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         containerId = scope.topicId;
         headerTitle = topic?.title ?? "Module";
         headerSubtitle = topic?.summary ?? null;
+        quizDurationMinutes = topic?.quiz_duration_minutes ?? DEFAULT_MODULE_QUIZ_DURATION;
       } else {
         const { data: cq, error } = await supabase
           .from("course_quizzes")
-          .select("id, title, description, deadline, max_attempts, course_id")
+          .select("id, title, description, deadline, max_attempts, duration_minutes, course_id")
           .eq("id", scope.courseQuizId)
           .maybeSingle();
         if (error) throw error;
         available = !!cq && cq.course_id === lecturerCourseId;
         containerId = scope.courseQuizId;
+        quizDurationMinutes = cq?.duration_minutes ?? DEFAULT_MODULE_QUIZ_DURATION;
         quizTitle = cq?.title ?? "General Course Quiz";
         quizDescription = cq?.description ?? "";
         quizDeadline = cq?.deadline ?? null;
@@ -231,6 +241,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         quizDescription,
         quizDeadline,
         quizMaxAttempts,
+        quizDurationMinutes,
       };
     },
   });
@@ -261,6 +272,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const canGenerate = capability.analysableCount > 0;
   const atLimit = questions.length >= MAX_QUESTIONS;
   const room = Math.max(0, MAX_QUESTIONS - questions.length);
+  // A module quiz must always keep at least one question (the DB enforces this
+  // too). A general course quiz may legitimately have zero.
+  const lastModuleQuestion = !isCourse && questions.length <= 1;
   const hasAttempts = useMemo(() => {
     const a = attemptsQuery.data;
     if (!a) return false;
@@ -268,14 +282,47 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     return scope.kind === "topic" && (a.rows ?? []).some((r) => r.topic_id === scope.topicId);
   }, [attemptsQuery.data, scope]);
 
-  // Keep the basic-info form in step with the loaded course quiz.
+  // Keep the basic-info form in step with the loaded quiz.
   useEffect(() => {
-    if (!isCourse || !data) return;
-    setInfoTitle(data.quizTitle);
-    setInfoDescription(data.quizDescription);
-    setInfoDeadline(toDatetimeLocalValue(data.quizDeadline));
-    setInfoMaxAttempts(maxAttemptsToSelectValue(data.quizMaxAttempts));
+    if (!data) return;
+    setInfoDuration(String(data.quizDurationMinutes));
+    if (isCourse) {
+      setInfoTitle(data.quizTitle);
+      setInfoDescription(data.quizDescription);
+      setInfoDeadline(toDatetimeLocalValue(data.quizDeadline));
+      setInfoMaxAttempts(maxAttemptsToSelectValue(data.quizMaxAttempts));
+    }
   }, [isCourse, data]);
+
+  const durationOptions = useMemo(() => {
+    const current = String(data?.quizDurationMinutes ?? DEFAULT_MODULE_QUIZ_DURATION);
+    if ((MODULE_QUIZ_DURATIONS as readonly number[]).some((m) => String(m) === current)) {
+      return MODULE_QUIZ_DURATIONS.map((m) => String(m));
+    }
+    return [current, ...MODULE_QUIZ_DURATIONS.map((m) => String(m))];
+  }, [data?.quizDurationMinutes]);
+
+  const durationDirty = !isCourse && !!data && Number(infoDuration) !== data.quizDurationMinutes;
+
+  const updateDuration = useMutation({
+    mutationFn: async () => {
+      if (scope.kind !== "topic") return;
+      const minutes = Number(infoDuration) || DEFAULT_MODULE_QUIZ_DURATION;
+      const { error } = await supabase
+        .from("topics")
+        .update({ quiz_duration_minutes: minutes })
+        .eq("id", scope.topicId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("Time limit saved");
+    },
+    onError: (e) => {
+      console.error("[quiz-builder] update module quiz duration failed:", e);
+      toast.error("Couldn't save the time limit. Please try again.");
+    },
+  });
 
   // A stored value outside the standard choices (e.g. set directly in SQL) is
   // shown as its own option so it is never silently lost on save.
@@ -293,7 +340,8 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     (infoTitle.trim() !== (data.quizTitle ?? "").trim() ||
       infoDescription.trim() !== (data.quizDescription ?? "").trim() ||
       fromDatetimeLocalValue(infoDeadline) !== (data.quizDeadline ?? null) ||
-      maxAttemptsFromSelectValue(infoMaxAttempts) !== (data.quizMaxAttempts ?? null));
+      maxAttemptsFromSelectValue(infoMaxAttempts) !== (data.quizMaxAttempts ?? null) ||
+      Number(infoDuration) !== data.quizDurationMinutes);
 
   /* ---- mutations ---- */
 
@@ -309,6 +357,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         _description: infoDescription.trim() || undefined,
         _deadline: fromDatetimeLocalValue(infoDeadline) ?? undefined,
         _max_attempts: maxAttemptsFromSelectValue(infoMaxAttempts) ?? undefined,
+        _duration_minutes: Number(infoDuration) || DEFAULT_MODULE_QUIZ_DURATION,
       });
       if (error) throw error;
     },
@@ -384,6 +433,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const deleteQuestion = useMutation({
     mutationFn: async (id: string) => {
+      if (lastModuleQuestion) throw new Error("last-question");
       const { error } = await supabase.from("questions").delete().eq("id", id);
       if (error) throw error;
     },
@@ -392,7 +442,15 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       toast.success("Question deleted");
       setDeleteTarget(null);
     },
-    onError: () => toast.error("Couldn't delete this question. Please try again."),
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === "last-question" || /at least one question/i.test(msg)) {
+        toast.error("A module quiz must keep at least one question. Edit this one instead.");
+        setDeleteTarget(null);
+        return;
+      }
+      toast.error("Couldn't delete this question. Please try again.");
+    },
   });
 
   const moveQuestion = useMutation({
@@ -620,7 +678,43 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
           </Badge>
         )}
         {isCourse && <Badge variant="outline">{maxAttemptsLabel(data.quizMaxAttempts)}</Badge>}
+        <Badge variant="outline">{durationLabel(data.quizDurationMinutes)} time limit</Badge>
       </div>
+
+      {!isCourse && (
+        <div className="mt-6 rounded-2xl border border-border bg-card p-5">
+          <p className="text-sm font-medium">Time limit</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            How long a student has once they start this module quiz. Enforced on the server — the
+            timer keeps running if they navigate away or refresh, and the quiz auto-submits when it
+            runs out.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Select value={infoDuration} onValueChange={setInfoDuration}>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {durationOptions.map((v) => (
+                  <SelectItem key={v} value={v}>
+                    {durationLabel(Number(v))}
+                    {Number(v) === DEFAULT_MODULE_QUIZ_DURATION ? " (default)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              className="rounded-full"
+              disabled={!durationDirty || updateDuration.isPending}
+              onClick={() => updateDuration.mutate()}
+            >
+              {updateDuration.isPending && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              Save time limit
+            </Button>
+          </div>
+        </div>
+      )}
 
       {isCourse && (
         <div className="mt-6 rounded-2xl border border-border bg-card p-5">
@@ -694,6 +788,26 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
               <p className="text-xs text-muted-foreground">
                 How many times each student may take this assessment. &ldquo;Unlimited&rdquo; keeps
                 the current behaviour. Enforced on the server — abandoned attempts still count.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cq-duration">Time limit</Label>
+              <Select value={infoDuration} onValueChange={setInfoDuration}>
+                <SelectTrigger id="cq-duration" className="w-full sm:w-72">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {durationOptions.map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {durationLabel(Number(v))}
+                      {Number(v) === DEFAULT_MODULE_QUIZ_DURATION ? " (default)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                How long a student has once they start. Enforced on the server — the timer keeps
+                running if they leave, and the quiz auto-submits when it runs out.
               </p>
             </div>
           </div>
@@ -851,6 +965,12 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                           size="sm"
                           variant="ghost"
                           className="text-destructive hover:text-destructive"
+                          disabled={lastModuleQuestion}
+                          title={
+                            lastModuleQuestion
+                              ? "A module quiz must keep at least one question — edit this one instead."
+                              : undefined
+                          }
                           onClick={() => setDeleteTarget(q)}
                         >
                           Delete

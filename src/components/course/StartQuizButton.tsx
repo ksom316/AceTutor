@@ -1,9 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveQuiz } from "@/hooks/use-active-quiz";
 
 /**
  * Launches the AI quiz runner (/quiz/$topicId — 10 questions generated from
@@ -30,6 +31,13 @@ export function StartQuizButton({
 } & ButtonProps) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const activeQuiz = useActiveQuiz();
+
+  // When the student already has an unfinished, non-expired attempt for THIS
+  // module quiz, offer to resume it. The /quiz/$topicId runner resumes an
+  // existing in-progress attempt, so this consumes no extra retry.
+  const isContinue =
+    !!topicId && activeQuiz?.kind === "module" && activeQuiz.paramId === topicId;
 
   const start = async () => {
     if (loading) return;
@@ -90,8 +98,14 @@ export function StartQuizButton({
 
   return (
     <Button {...buttonProps} disabled={loading || buttonProps.disabled} onClick={start}>
-      {loading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : icon}
-      {children}
+      {loading ? (
+        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+      ) : isContinue ? (
+        <Play className="mr-1.5 h-4 w-4" />
+      ) : (
+        icon
+      )}
+      {isContinue ? "Continue quiz" : children}
     </Button>
   );
 }

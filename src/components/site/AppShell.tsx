@@ -6,6 +6,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { AppSidebar } from "@/components/site/AppSidebar";
 import { SearchBar } from "@/components/site/SearchBar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { ActiveQuizBanner } from "@/components/course/ActiveQuizBanner";
 
 function TopBar() {
   const { theme, toggle } = useTheme();
@@ -65,6 +66,7 @@ export function AppShell({ user, children }: { user: User; children: React.React
       <AppSidebar user={user} />
       <div className="relative flex w-full flex-1 flex-col bg-background">
         <TopBar />
+        <ActiveQuizBanner />
         <div className="min-h-[calc(100svh-4rem)]">{children}</div>
       </div>
     </SidebarProvider>

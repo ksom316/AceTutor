@@ -200,13 +200,41 @@ function LecturerDashboard() {
       .sort((a, b) => b.avg - a.avg);
   }, [perf]);
 
-  const activity = perf.slice(0, ACTIVITY_LIMIT).map((row) => ({
-    id: row.attempt_id,
-    text: row.completed
-      ? `${row.student} completed ${row.quiz_title}`
-      : `${row.student} started ${row.quiz_title}`,
-    when: timeAgo(row.completed && row.finished_at ? row.finished_at : row.started_at),
-  }));
+  // A student "completes the module" only on their FIRST finished attempt of
+  // that module quiz — any later finished attempt is just another go at the
+  // quiz. Determined from the full completed-attempt history (every `perf` row),
+  // not the truncated activity slice, so it stays right no matter what the feed
+  // happens to show. Keyed by student + module quiz; in-progress attempts are
+  // excluded by the `completed` check.
+  const firstModuleCompletions = useMemo(() => {
+    const earliest = new Map<string, { attemptId: string; at: number }>();
+    for (const row of perf) {
+      if (row.quiz_type !== "module" || !row.topic_id || !row.completed) continue;
+      const key = `${row.student} ${row.topic_id}`;
+      const at = new Date(row.finished_at ?? row.started_at).getTime();
+      const current = earliest.get(key);
+      if (!current || at < current.at) earliest.set(key, { attemptId: row.attempt_id, at });
+    }
+    return new Set(Array.from(earliest.values()).map((e) => e.attemptId));
+  }, [perf]);
+
+  const activity = perf.slice(0, ACTIVITY_LIMIT).map((row) => {
+    let text: string;
+    if (!row.completed) {
+      text = `${row.student} started ${row.quiz_title}`;
+    } else if (row.quiz_type === "module") {
+      text = firstModuleCompletions.has(row.attempt_id)
+        ? `${row.student} completed the ${row.quiz_title} module`
+        : `${row.student} completed another attempt of the ${row.quiz_title} module quiz`;
+    } else {
+      text = `${row.student} completed ${row.quiz_title}`;
+    }
+    return {
+      id: row.attempt_id,
+      text,
+      when: timeAgo(row.completed && row.finished_at ? row.finished_at : row.started_at),
+    };
+  });
 
   return (
     <motion.main
