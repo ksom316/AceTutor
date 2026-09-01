@@ -8,6 +8,9 @@ import {
   ArrowUpRight,
   BookOpen,
   Brain,
+  Check,
+  ClipboardList,
+  GraduationCap,
   Headphones,
   Play,
   PlayCircle,
@@ -130,11 +133,12 @@ function VisitorHome() {
                 <Sparkles className="h-3 w-3" /> Next-Gen Adaptive Tutor
               </span> */}
               <h1 className="mt-6 text-5xl font-bold leading-[1.02] tracking-tight md:text-7xl">
-                One Tutor. <span className="text-primary">Three Ways</span> to Learn.
+                Learning and <span className="text-primary">Teaching</span>, Connected.
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-base text-muted-foreground md:text-lg lg:mx-0">
-                AceTutor adapts every lesson to your VARK learning style — switching between text,
-                video, and audio — and tests what you know with quizzes that get smarter as you do.
+                Students get personalised lessons, adaptive quizzes and an AI tutor. Lecturers get
+                one workspace for their course — materials, modules, quizzes, students and
+                performance.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
                 <Button asChild size="lg" className="h-12 rounded-full px-6 text-base">
@@ -151,6 +155,12 @@ function VisitorHome() {
                   <Link to="/login">Login</Link>
                 </Button>
               </div>
+              <p className="mt-4 text-sm text-muted-foreground">
+                Teaching a course?{" "}
+                <Link to="/teachers" className="font-medium text-primary hover:underline">
+                  Set up your lecturer workspace
+                </Link>
+              </p>
 
               <motion.div
                 variants={staggerContainer}
@@ -188,8 +198,22 @@ function VisitorHome() {
         </div>
       </section>
 
-      {/* Pillars */}
+      {/* Pillars — the student side */}
       <section className="container mx-auto max-w-6xl px-4 py-16">
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="show"
+          viewport={viewportOnce}
+          className="mb-8"
+        >
+          <p className="text-xs font-semibold uppercase tracking-widest text-primary">
+            For students
+          </p>
+          <h2 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">
+            Learning that adapts to you
+          </h2>
+        </motion.div>
         <motion.div
           variants={staggerContainer}
           initial="hidden"
@@ -227,6 +251,91 @@ function VisitorHome() {
               <p className="mt-2 text-sm text-muted-foreground">{body}</p>
             </motion.div>
           ))}
+        </motion.div>
+      </section>
+
+      {/* Who it's for — students & lecturers */}
+      <section className="container mx-auto max-w-6xl px-4 py-16">
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="show"
+          viewport={viewportOnce}
+          className="mb-8 text-center"
+        >
+          <h2 className="text-3xl font-bold tracking-tight md:text-4xl">
+            Built for students and lecturers
+          </h2>
+          <p className="mx-auto mt-2 max-w-2xl text-muted-foreground">
+            One platform, two experiences — personalised learning for students, and full course
+            control for the lecturer who runs it.
+          </p>
+        </motion.div>
+
+        <motion.div
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={viewportOnce}
+          className="grid gap-4 md:grid-cols-2"
+        >
+          {/* For Students */}
+          <motion.div
+            variants={staggerItem}
+            className="rounded-2xl border border-border bg-card p-6 md:p-8"
+          >
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+              <GraduationCap className="h-5 w-5" />
+            </span>
+            <h3 className="mt-4 text-lg font-semibold text-foreground">For students</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Learn each topic the way you take it in best.
+            </p>
+            <ul className="mt-5 space-y-3">
+              {[
+                "Discover your VARK learning style with a quick 16-question intake",
+                "Study every topic as readable notes, an explainer video, or a focused audio lesson",
+                "Take adaptive quizzes that scale with your rolling accuracy",
+                "Track progress across your courses, modules and quiz attempts",
+                "Ask the built-in AI tutor about any course, any time",
+              ].map((item) => (
+                <li key={item} className="flex gap-2.5 text-sm">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span className="text-muted-foreground">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+
+          {/* For Lecturers */}
+          <motion.div
+            variants={staggerItem}
+            className="rounded-2xl border border-border bg-card p-6 md:p-8"
+          >
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+              <ClipboardList className="h-5 w-5" />
+            </span>
+            <h3 className="mt-4 text-lg font-semibold text-foreground">For lecturers</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Everything you need to run your assigned course.
+            </p>
+            <ul className="mt-5 space-y-3">
+              {[
+                "Manage your assigned course from a dedicated lecturer workspace",
+                "Create and manage learning materials across every modality",
+                "Organise the course into modules and topics",
+                "Create quizzes and edit their questions",
+                "Preview quizzes exactly as students see them",
+                "Monitor enrolled students at a glance",
+                "View quiz performance across the whole course",
+              ].map((item) => (
+                <li key={item} className="flex gap-2.5 text-sm">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span className="text-muted-foreground">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
         </motion.div>
       </section>
 
@@ -278,7 +387,9 @@ function VisitorHome() {
           viewport={viewportOnce}
           className="rounded-3xl border border-border bg-card p-8 md:p-12"
         >
-          <h2 className="text-3xl font-bold tracking-tight md:text-4xl">How AceTutor works</h2>
+          <h2 className="text-3xl font-bold tracking-tight md:text-4xl">
+            How students learn with AceTutor
+          </h2>
           <motion.ol
             variants={staggerContainer}
             initial="hidden"
@@ -342,11 +453,12 @@ function VisitorHome() {
             className="absolute -bottom-16 -left-6 h-44 w-44 rounded-full bg-white/10 blur-2xl"
           />
           <h2 className="relative mx-auto max-w-2xl text-3xl font-bold tracking-tight md:text-5xl">
-            Learn the way your brain actually works.
+            Start learning. Start teaching.
           </h2>
           <p className="relative mx-auto mt-4 max-w-xl text-sm text-primary-foreground/85 md:text-base">
-            Take the VARK intake, pick a course, and start studying in your modality — text, video,
-            or audio — today.
+            Students take the VARK intake and study in their modality — text, video, or audio.
+            Lecturers claim their course and manage materials, quizzes, students and performance
+            from one workspace.
           </p>
           <div className="relative mt-8 flex flex-wrap justify-center gap-3">
             <Button

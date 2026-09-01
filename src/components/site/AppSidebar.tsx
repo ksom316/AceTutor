@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   BookOpen,
+  ClipboardList,
   Gamepad2,
   GraduationCap,
   Home,
@@ -36,6 +37,8 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   to: string;
+  /** Match this route only on an exact pathname, not its descendants. */
+  exact?: boolean;
 };
 
 const studentItems: NavItem[] = [
@@ -46,12 +49,14 @@ const studentItems: NavItem[] = [
   { label: "Games", icon: Gamepad2, to: "/games" },
 ];
 
+// Lecturers navigate their own workspace (/lecturer/*), not the student pages.
+// The route guard in routes/lecturer.tsx + RLS remain the security boundary.
 const lecturerItems: NavItem[] = [
-  { label: "Home", icon: Home, to: "/" },
-  { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
-  { label: "Course Management", icon: BookOpen, to: "/courses" },
-  { label: "Student Analytics", icon: Users, to: "/analytics" },
-  { label: "Games", icon: Gamepad2, to: "/games" },
+  { label: "Dashboard", icon: LayoutDashboard, to: "/lecturer", exact: true },
+  { label: "Students", icon: Users, to: "/lecturer/students" },
+  { label: "Materials", icon: BookOpen, to: "/lecturer/materials" },
+  { label: "Quizzes", icon: ClipboardList, to: "/lecturer/quizzes" },
+  { label: "Performance", icon: BarChart3, to: "/lecturer/performance" },
 ];
 
 const accountItems: NavItem[] = [
@@ -107,13 +112,14 @@ export function AppSidebar({ user }: { user: User }) {
     navigate({ to: "/" });
   };
 
-  const isActive = (to: string) => pathname === to || pathname.startsWith(to + "/");
+  const isActive = (to: string, exact = false) =>
+    exact ? pathname === to : pathname === to || pathname.startsWith(to + "/");
 
   const renderItem = (item: NavItem) => {
     const Icon = item.icon;
     return (
       <SidebarMenuItem key={item.label}>
-        <SidebarMenuButton asChild isActive={isActive(item.to)} tooltip={item.label}>
+        <SidebarMenuButton asChild isActive={isActive(item.to, item.exact)} tooltip={item.label}>
           <Link to={item.to}>
             <Icon className="h-4 w-4" />
             <span>{item.label}</span>

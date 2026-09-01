@@ -5,6 +5,7 @@ import logoAsset from "@/assets/ace-logo.jpg";
 import {
   BarChart3,
   BookOpen,
+  ClipboardList,
   Gamepad2,
   Home,
   LayoutDashboard,
@@ -41,11 +42,14 @@ const studentItems: NavItem[] = [
   { label: "Contact", icon: Mail, to: "/contact" },
 ];
 
+// Lecturers navigate their own workspace (/lecturer/*); the route guard in
+// routes/lecturer.tsx + RLS remain the security boundary, not this list.
 const lecturerItems: NavItem[] = [
-  { label: "Dashboard", icon: LayoutDashboard, to: "/dashboard" },
-  { label: "Course Management", icon: BookOpen, to: "/courses" },
-  { label: "Student Analytics", icon: Users, to: "/analytics" },
-  { label: "Games", icon: Gamepad2, to: "/games" },
+  { label: "Dashboard", icon: LayoutDashboard, to: "/lecturer" },
+  { label: "Students", icon: Users, to: "/lecturer/students" },
+  { label: "Materials", icon: BookOpen, to: "/lecturer/materials" },
+  { label: "Quizzes", icon: ClipboardList, to: "/lecturer/quizzes" },
+  { label: "Performance", icon: BarChart3, to: "/lecturer/performance" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/settings" },
   { label: "Contact", icon: Mail, to: "/contact" },
@@ -162,18 +166,20 @@ export function AppNavSheet({ user }: { user: User }) {
         {/* Nav */}
         <ScrollArea className="mt-4 flex-1 px-3">
           <nav className="flex flex-col gap-1 pb-4">
-            <Link
-              to="/"
-              className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                pathname === "/"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-              )}
-            >
-              <Home className="h-4 w-4 shrink-0" />
-              <span>Home</span>
-            </Link>
+            {!isLecturer && (
+              <Link
+                to="/"
+                className={cn(
+                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  pathname === "/"
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                )}
+              >
+                <Home className="h-4 w-4 shrink-0" />
+                <span>Home</span>
+              </Link>
+            )}
             {items.map(renderItem)}
           </nav>
 
