@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
+import { useStudyPath } from "@/hooks/use-study-path";
 import { canAttemptCourseQuiz } from "@/lib/course-quiz";
 import { attemptStatus } from "@/lib/quiz-timer";
+import { StudyPathPanel } from "@/components/course/StudyPathPanel";
 
 export const Route = createFileRoute("/_authenticated/result/$attemptId")({
   component: ResultPage,
@@ -96,6 +98,24 @@ function ResultPage() {
   );
 
   const isCourseQuiz = !!data?.attempt && !data.attempt.topic_id;
+  const moduleTopicId = data?.attempt && data.attempt.topic_id ? data.attempt.topic_id : null;
+  const attemptFinished = !!data?.attempt?.finished_at;
+  const imperfect =
+    !!data?.attempt &&
+    (data.attempt.total ?? 0) > 0 &&
+    (data.attempt.score ?? 0) < (data.attempt.total ?? 0);
+
+  // AI Study Path — a finished, non-perfect MODULE or GENERAL COURSE QUIZ
+  // attempt. A perfect attempt never touches the study-path table. Generation
+  // itself is on demand (button). For a general quiz, topicId is null and the
+  // path is course-level.
+  const studyPathEligible =
+    !!data?.attempt &&
+    attemptFinished &&
+    imperfect &&
+    (!!moduleTopicId || (isCourseQuiz && !!data.attempt.course_quiz_id));
+  const sp = useStudyPath(attemptId, { enabled: studyPathEligible });
+
   const courseQuizId = data?.attempt?.course_quiz_id ?? null;
   const maxAttempts = data?.attempt?.course_quizzes?.max_attempts ?? null;
   const resultTitle = isCourseQuiz
@@ -232,7 +252,26 @@ function ResultPage() {
         </div>
       </motion.div>
 
-      {/* Answer breakdown */}
+      {/* Personalized study path — offered right after the score, before the
+          detailed corrections, so the student discovers it without scrolling
+          past every wrong-answer explanation. */}
+      {studyPathEligible && (
+        <div className="mt-10">
+          <StudyPathPanel
+            studyPath={sp.studyPath}
+            isLoading={sp.isLoading}
+            generating={sp.generating}
+            generateResult={sp.generateResult}
+            onGenerate={sp.generate}
+            saved={!!sp.studyPath?.saved_at}
+            savingSaved={sp.savingSaved}
+            onSetSaved={sp.setSaved}
+          />
+        </div>
+      )}
+
+      {/* Answer breakdown — review what you missed: your answer, the correct
+          answer, and the explanation for each question. */}
       <ol className="mt-10 space-y-6">
         {data.answers.map((a, idx) => {
           const correctIdx = a.questions.correct_index;
@@ -290,7 +329,11 @@ function ResultPage() {
         {isCourseQuiz ? (
           data.attempt.course_quiz_id && canRetryCourseQuiz ? (
             <Button asChild className="transition-transform hover:scale-[1.02] active:scale-95">
-              <Link to="/course-quiz/$quizId" params={{ quizId: data.attempt.course_quiz_id }}>
+              <Link
+                to="/course-quiz/$quizId"
+                params={{ quizId: data.attempt.course_quiz_id }}
+                search={{ retake: true }}
+              >
                 <RotateCcw className="mr-1.5 h-4 w-4" /> Retry
               </Link>
             </Button>
@@ -301,7 +344,11 @@ function ResultPage() {
           ) : null
         ) : data.attempt.topic_id ? (
           <Button asChild className="transition-transform hover:scale-[1.02] active:scale-95">
-            <Link to="/quiz/$topicId" params={{ topicId: data.attempt.topic_id }}>
+            <Link
+              to="/quiz/$topicId"
+              params={{ topicId: data.attempt.topic_id }}
+              search={{ retake: true }}
+            >
               <RotateCcw className="mr-1.5 h-4 w-4" /> Retry
             </Link>
           </Button>

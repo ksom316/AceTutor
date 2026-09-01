@@ -150,7 +150,7 @@
 
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -160,13 +160,23 @@ import { QuizRunner, type RunnerQuestion } from "@/components/course/QuizRunner"
 
 export const Route = createFileRoute("/_authenticated/quiz/$topicId")({
   component: ModuleQuizRoute,
+  // `?retake=1` is a one-shot signal from a deliberate "start / retake" action
+  // (StartQuizButton, the result page "Retry", the Study Path "Retake quiz").
+  // Without it, landing here for a module that already has a graded attempt
+  // (browser Back, a bookmarked URL) redirects to that result instead of
+  // starting a fresh attempt + timer.
+  validateSearch: (search: Record<string, unknown>): { retake?: boolean } => ({
+    retake: search.retake === true || search.retake === "1" || search.retake === 1 ? true : undefined,
+  }),
 });
 
 function ModuleQuizRoute() {
   const { topicId } = Route.useParams();
+  const { retake } = Route.useSearch();
   const { user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const initialisedFor = useRef<string | null>(null);
   const [questions, setQuestions] = useState<RunnerQuestion[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [deadlineIso, setDeadlineIso] = useState<string | null>(null);
@@ -182,6 +192,11 @@ function ModuleQuizRoute() {
 
   useEffect(() => {
     if (!user) return;
+    // Resolve the attempt for this module exactly once per mount. Stripping the
+    // one-shot `?retake` flag below re-runs this effect; the guard keeps that
+    // re-run from reloading a fresh (differently randomised) question set.
+    if (initialisedFor.current === topicId) return;
+    initialisedFor.current = topicId;
     let active = true;
     (async () => {
       setLoading(true);
@@ -239,8 +254,7 @@ function ModuleQuizRoute() {
       }
 
       // Resume an existing in-progress, non-expired attempt so a refresh / return
-      // does not reset the timer. Otherwise start a new one (the DB trigger
-      // stamps expires_at = started_at + the module's quiz duration).
+      // does not reset the timer.
       const nowIso = new Date().toISOString();
       const { data: existing } = await supabase
         .from("quiz_attempts")
@@ -257,27 +271,66 @@ function ModuleQuizRoute() {
       if (existing) {
         setAttemptId(existing.id);
         setDeadlineIso(existing.expires_at);
-      } else {
-        const { data: attempt, error: aErr } = await supabase
-          .from("quiz_attempts")
-          .insert({ user_id: user.id, topic_id: topicId })
-          .select("id, expires_at")
-          .single();
-        if (!active) return;
-        if (aErr) {
-          toast.error(aErr.message);
-        } else {
-          setAttemptId(attempt.id);
-          setDeadlineIso(attempt.expires_at);
-          qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
+        setLoading(false);
+        if (retake) {
+          navigate({ to: "/quiz/$topicId", params: { topicId }, search: {}, replace: true });
         }
+        return;
       }
+
+      // No active attempt. If the student already has a graded attempt for this
+      // module and did NOT explicitly ask for a retake (browser Back from the
+      // result page, a direct/bookmarked URL, or a return after the timer
+      // lapsed and `finalize_expired_quiz_attempts` graded it), send them to
+      // that result — never silently start a new attempt or timer.
+      const { data: last } = await supabase
+        .from("quiz_attempts")
+        .select("id, finished_at")
+        .eq("user_id", user.id)
+        .eq("topic_id", topicId)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!active) return;
+
+      if (last?.finished_at && !retake) {
+        navigate({
+          to: "/result/$attemptId",
+          params: { attemptId: last.id },
+          replace: true,
+        });
+        return;
+      }
+
+      // A genuine first attempt, or a deliberate retake → start a new attempt
+      // (the DB trigger stamps expires_at = started_at + the module's quiz
+      // duration). Module retakes are unlimited by design.
+      const { data: attempt, error: aErr } = await supabase
+        .from("quiz_attempts")
+        .insert({ user_id: user.id, topic_id: topicId })
+        .select("id, expires_at")
+        .single();
+      if (!active) return;
+      if (aErr) {
+        toast.error(aErr.message);
+        setLoading(false);
+        return;
+      }
+      setAttemptId(attempt.id);
+      setDeadlineIso(attempt.expires_at);
+      qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
       setLoading(false);
+
+      // Consume the one-shot retake flag so a later Back/refresh onto this URL
+      // falls through to the redirect above instead of starting another attempt.
+      if (retake) {
+        navigate({ to: "/quiz/$topicId", params: { topicId }, search: {}, replace: true });
+      }
     })();
     return () => {
       active = false;
     };
-  }, [user, topicId, qc]);
+  }, [user, topicId, qc, navigate, retake]);
 
   const onSubmit = async (answers: Record<string, number>, timedOut: boolean) => {
     if (!attemptId) return;

@@ -435,31 +435,37 @@ export type Database = {
         Row: {
           id: string;
           user_id: string;
-          topic_id: string;
+          topic_id: string | null;
+          course_id: string;
           attempt_id: string;
           weak_question_ids: string[];
           content: Json;
           created_at: string;
+          saved_at: string | null;
           completed_at: string | null;
         };
         Insert: {
           id?: string;
           user_id: string;
-          topic_id: string;
+          topic_id?: string | null;
+          course_id: string;
           attempt_id: string;
           weak_question_ids?: string[];
           content: Json;
           created_at?: string;
+          saved_at?: string | null;
           completed_at?: string | null;
         };
         Update: {
           id?: string;
           user_id?: string;
-          topic_id?: string;
+          topic_id?: string | null;
+          course_id?: string;
           attempt_id?: string;
           weak_question_ids?: string[];
           content?: Json;
           created_at?: string;
+          saved_at?: string | null;
           completed_at?: string | null;
         };
         Relationships: [
@@ -468,6 +474,13 @@ export type Database = {
             columns: ["topic_id"];
             isOneToOne: false;
             referencedRelation: "topics";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "study_paths_course_id_fkey";
+            columns: ["course_id"];
+            isOneToOne: false;
+            referencedRelation: "courses";
             referencedColumns: ["id"];
           },
           {
@@ -769,11 +782,13 @@ export type Database = {
         Returns: {
           id: string;
           user_id: string;
-          topic_id: string;
+          topic_id: string | null;
+          course_id: string;
           attempt_id: string;
           weak_question_ids: string[];
           content: Json;
           created_at: string;
+          saved_at: string | null;
           completed_at: string | null;
         };
       };
@@ -782,11 +797,28 @@ export type Database = {
         Returns: {
           id: string;
           user_id: string;
-          topic_id: string;
+          topic_id: string | null;
+          course_id: string;
           attempt_id: string;
           weak_question_ids: string[];
           content: Json;
           created_at: string;
+          saved_at: string | null;
+          completed_at: string | null;
+        };
+      };
+      set_study_path_saved: {
+        Args: { _id: string; _saved: boolean };
+        Returns: {
+          id: string;
+          user_id: string;
+          topic_id: string | null;
+          course_id: string;
+          attempt_id: string;
+          weak_question_ids: string[];
+          content: Json;
+          created_at: string;
+          saved_at: string | null;
           completed_at: string | null;
         };
       };

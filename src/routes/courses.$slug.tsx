@@ -45,6 +45,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { toast } from "sonner";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
+import { PersonalizedLearningSection } from "@/components/course/PersonalizedLearningSection";
 
 export const Route = createFileRoute("/courses/$slug")({
   component: CourseDetail,
@@ -217,6 +218,11 @@ function CourseDetail() {
     const nextTopic = topics.find((t) => !byTopic.has(t.id)) ?? topics[0];
     return { perTopic, overall, progress, completed, weak, strong, nextTopic };
   }, [attempts, topics]);
+
+  const topicTitleById = useMemo(
+    () => new Map(topics.map((t) => [t.id, t.title] as const)),
+    [topics],
+  );
 
   const performanceSummary = useMemo(() => {
     if (analytics.perTopic.length === 0) return "";
@@ -495,7 +501,11 @@ function CourseDetail() {
                         </Badge>
                       ) : (
                         <Button asChild size="sm" className="rounded-full">
-                          <Link to="/course-quiz/$quizId" params={{ quizId: q.id }}>
+                          <Link
+                            to="/course-quiz/$quizId"
+                            params={{ quizId: q.id }}
+                            search={{ retake: true }}
+                          >
                             <Brain className="mr-1.5 h-4 w-4" />
                             {q.used > 0 ? "Retry Quiz" : "Start Quiz"}
                           </Link>
@@ -682,7 +692,74 @@ function CourseDetail() {
                 </CardContent>
               </Card>
 
-            {/* MODULES */}
+            {/* PERFORMANCE — existing course performance / analytics. Sits above
+                the curriculum and guidance sections. */}
+            {user && isEnrolled && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Your performance</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {attempts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Take a quiz to start seeing your strong and weak areas.
+                    </p>
+                  ) : (
+                    <div className="grid gap-6 md:grid-cols-3">
+                      <div className="rounded-xl border border-border p-4">
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                          Overall accuracy
+                        </p>
+                        <p className="mt-1 font-display text-3xl">{analytics.overall}%</p>
+                        <Progress value={analytics.overall} className="mt-3" />
+                      </div>
+                      <div className="rounded-xl border border-border p-4">
+                        <p className="flex items-center gap-1 text-xs uppercase tracking-wider text-muted-foreground">
+                          <TrendingDown className="h-3.5 w-3.5" /> Weak topics
+                        </p>
+                        {analytics.weak.length === 0 ? (
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            Nothing weak yet — nice.
+                          </p>
+                        ) : (
+                          <ul className="mt-2 space-y-1.5 text-sm">
+                            {analytics.weak.map((w) => (
+                              <li key={w.topic.id} className="flex items-center justify-between">
+                                <span className="truncate">{w.topic.title}</span>
+                                <Badge variant="secondary">{w.accuracy}%</Badge>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                      <div className="rounded-xl border border-border p-4">
+                        <p className="flex items-center gap-1 text-xs uppercase tracking-wider text-muted-foreground">
+                          <TrendingUp className="h-3.5 w-3.5" /> Strong topics
+                        </p>
+                        {analytics.strong.length === 0 ? (
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            Keep practicing to build strengths.
+                          </p>
+                        ) : (
+                          <ul className="mt-2 space-y-1.5 text-sm">
+                            {analytics.strong.map((w) => (
+                              <li key={w.topic.id} className="flex items-center justify-between">
+                                <span className="truncate">{w.topic.title}</span>
+                                <Badge>{w.accuracy}%</Badge>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* MODULES — the student's primary access to the official course
+                curriculum. Kept first, above guidance and personalized
+                remediation. */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Course modules</CardTitle>
@@ -776,71 +853,9 @@ function CourseDetail() {
               </CardContent>
             </Card>
 
-            {/* ANALYTICS */}
-            {user && isEnrolled && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Your performance</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {attempts.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Take a quiz to start seeing your strong and weak areas.
-                    </p>
-                  ) : (
-                    <div className="grid gap-6 md:grid-cols-3">
-                      <div className="rounded-xl border border-border p-4">
-                        <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                          Overall accuracy
-                        </p>
-                        <p className="mt-1 font-display text-3xl">{analytics.overall}%</p>
-                        <Progress value={analytics.overall} className="mt-3" />
-                      </div>
-                      <div className="rounded-xl border border-border p-4">
-                        <p className="flex items-center gap-1 text-xs uppercase tracking-wider text-muted-foreground">
-                          <TrendingDown className="h-3.5 w-3.5" /> Weak topics
-                        </p>
-                        {analytics.weak.length === 0 ? (
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            Nothing weak yet — nice.
-                          </p>
-                        ) : (
-                          <ul className="mt-2 space-y-1.5 text-sm">
-                            {analytics.weak.map((w) => (
-                              <li key={w.topic.id} className="flex items-center justify-between">
-                                <span className="truncate">{w.topic.title}</span>
-                                <Badge variant="secondary">{w.accuracy}%</Badge>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                      <div className="rounded-xl border border-border p-4">
-                        <p className="flex items-center gap-1 text-xs uppercase tracking-wider text-muted-foreground">
-                          <TrendingUp className="h-3.5 w-3.5" /> Strong topics
-                        </p>
-                        {analytics.strong.length === 0 ? (
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            Keep practicing to build strengths.
-                          </p>
-                        ) : (
-                          <ul className="mt-2 space-y-1.5 text-sm">
-                            {analytics.strong.map((w) => (
-                              <li key={w.topic.id} className="flex items-center justify-between">
-                                <span className="truncate">{w.topic.title}</span>
-                                <Badge>{w.accuracy}%</Badge>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* RECOMMENDATIONS */}
+            {/* RECOMMENDATIONS — answers "what should I do next in this course?":
+                guidance toward the official course content. Sits after Course
+                modules and before Personalized Learning (AI remediation). */}
             {user && isEnrolled && attempts.length > 0 && (
               <Card>
                 <CardHeader>
@@ -862,6 +877,18 @@ function CourseDetail() {
                   )}
                 </CardContent>
               </Card>
+            )}
+
+            {/* PERSONALIZED LEARNING — the student's own saved AI study paths: a
+                library/overview that links out to each dedicated study path page.
+                Answers "what targeted revision has AceTutor built for me?". Kept
+                separate from the official modules above and from course progress. */}
+            {course?.id && (
+              <PersonalizedLearningSection
+                courseId={course.id}
+                topicTitleById={topicTitleById}
+                enabled={!!user && isEnrolled}
+              />
             )}
           </div>
 

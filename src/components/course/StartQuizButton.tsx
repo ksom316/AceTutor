@@ -93,7 +93,15 @@ export function StartQuizButton({
       toast.error("No quiz available yet.");
       return;
     }
-    navigate({ to: "/quiz/$topicId", params: { topicId: target } });
+    // A click here is a deliberate "take this quiz now". Unless we're resuming
+    // the student's own in-progress attempt, signal an intentional (re)start so
+    // the runner route creates a fresh attempt instead of redirecting to an
+    // earlier result.
+    navigate({
+      to: "/quiz/$topicId",
+      params: { topicId: target },
+      search: isContinue ? {} : { retake: true },
+    });
   };
 
   return (
