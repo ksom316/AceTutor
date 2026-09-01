@@ -176,7 +176,12 @@ function ModuleQuizRoute() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const initialisedFor = useRef<string | null>(null);
+  // The retake intent is read once. It must NOT be an effect dependency: the
+  // loader below re-runs whenever the auth context hands back a new `user`
+  // object (Supabase fires several auth events on load), and consuming the
+  // one-shot `?retake` param via navigate() also changes the search. Keeping it
+  // out of the deps lets the loader re-run and finish normally.
+  const retakeRef = useRef(retake === true);
   const [questions, setQuestions] = useState<RunnerQuestion[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [deadlineIso, setDeadlineIso] = useState<string | null>(null);
@@ -192,11 +197,6 @@ function ModuleQuizRoute() {
 
   useEffect(() => {
     if (!user) return;
-    // Resolve the attempt for this module exactly once per mount. Stripping the
-    // one-shot `?retake` flag below re-runs this effect; the guard keeps that
-    // re-run from reloading a fresh (differently randomised) question set.
-    if (initialisedFor.current === topicId) return;
-    initialisedFor.current = topicId;
     let active = true;
     (async () => {
       setLoading(true);
@@ -272,7 +272,7 @@ function ModuleQuizRoute() {
         setAttemptId(existing.id);
         setDeadlineIso(existing.expires_at);
         setLoading(false);
-        if (retake) {
+        if (retakeRef.current) {
           navigate({ to: "/quiz/$topicId", params: { topicId }, search: {}, replace: true });
         }
         return;
@@ -293,7 +293,7 @@ function ModuleQuizRoute() {
         .maybeSingle();
       if (!active) return;
 
-      if (last?.finished_at && !retake) {
+      if (last?.finished_at && !retakeRef.current) {
         navigate({
           to: "/result/$attemptId",
           params: { attemptId: last.id },
@@ -323,14 +323,14 @@ function ModuleQuizRoute() {
 
       // Consume the one-shot retake flag so a later Back/refresh onto this URL
       // falls through to the redirect above instead of starting another attempt.
-      if (retake) {
+      if (retakeRef.current) {
         navigate({ to: "/quiz/$topicId", params: { topicId }, search: {}, replace: true });
       }
     })();
     return () => {
       active = false;
     };
-  }, [user, topicId, qc, navigate, retake]);
+  }, [user, topicId, qc, navigate]);
 
   const onSubmit = async (answers: Record<string, number>, timedOut: boolean) => {
     if (!attemptId) return;
@@ -346,7 +346,11 @@ function ModuleQuizRoute() {
       return;
     }
     qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
-    navigate({ to: "/result/$attemptId", params: { attemptId } });
+    // `replace` so the just-submitted quiz does not stay as a browser-history
+    // entry: pressing Back from the result lands on the page the student came
+    // from, not the (now completed) quiz route. Independent visits to the quiz
+    // URL are still caught by the completed-attempt guard in the loader above.
+    navigate({ to: "/result/$attemptId", params: { attemptId }, replace: true });
   };
 
   if (noQuiz) {

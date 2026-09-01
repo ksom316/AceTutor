@@ -36,7 +36,11 @@ function GeneralCourseQuizRoute() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const initialisedFor = useRef<string | null>(null);
+  // Read once. Must NOT be an effect dependency — see the note in
+  // quiz.$topicId.tsx: the loader re-runs on new `user` objects, and consuming
+  // `?retake` changes the search; keeping it out of the deps lets the loader
+  // finish normally.
+  const retakeRef = useRef(retake === true);
 
   const [status, setStatus] = useState<Status>("loading");
   const [quiz, setQuiz] = useState<{
@@ -54,11 +58,6 @@ function GeneralCourseQuizRoute() {
 
   useEffect(() => {
     if (!user) return;
-    // Resolve the attempt for this assessment exactly once per mount. Stripping
-    // the one-shot `?retake` flag below re-runs this effect; the guard keeps
-    // that re-run from reloading a fresh (differently randomised) question set.
-    if (initialisedFor.current === quizId) return;
-    initialisedFor.current = quizId;
     let active = true;
     (async () => {
       setStatus("loading");
@@ -145,7 +144,7 @@ function GeneralCourseQuizRoute() {
         setAttemptId(existing.id);
         setDeadlineIso(existing.expires_at);
         setStatus("ready");
-        if (retake) {
+        if (retakeRef.current) {
           navigate({ to: "/course-quiz/$quizId", params: { quizId }, search: {}, replace: true });
         }
         return;
@@ -165,7 +164,7 @@ function GeneralCourseQuizRoute() {
         .limit(1)
         .maybeSingle();
       if (!active) return;
-      if (last?.finished_at && !retake) {
+      if (last?.finished_at && !retakeRef.current) {
         navigate({
           to: "/result/$attemptId",
           params: { attemptId: last.id },
@@ -218,14 +217,14 @@ function GeneralCourseQuizRoute() {
 
       // Consume the one-shot retake flag so a later Back/refresh onto this URL
       // falls through to the redirect above instead of starting another attempt.
-      if (retake) {
+      if (retakeRef.current) {
         navigate({ to: "/course-quiz/$quizId", params: { quizId }, search: {}, replace: true });
       }
     })();
     return () => {
       active = false;
     };
-  }, [user, quizId, qc, navigate, retake]);
+  }, [user, quizId, qc, navigate]);
 
   const onSubmit = async (answers: Record<string, number>, timedOut: boolean) => {
     if (!attemptId) return;
@@ -241,7 +240,11 @@ function GeneralCourseQuizRoute() {
       return;
     }
     qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
-    navigate({ to: "/result/$attemptId", params: { attemptId } });
+    // `replace` so the just-submitted assessment does not stay as a
+    // browser-history entry: Back from the result lands on the page the student
+    // came from. Independent visits to the quiz URL are still caught by the
+    // completed-attempt guard in the loader above.
+    navigate({ to: "/result/$attemptId", params: { attemptId }, replace: true });
   };
 
   if (status !== "ready" && status !== "loading") {
