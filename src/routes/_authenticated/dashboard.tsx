@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudentDashboard, type ModuleBreakdownItem } from "@/hooks/use-student-dashboard";
 import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
+import { answeredCountOf, isSufficientAttempt } from "@/lib/quiz-performance";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -369,7 +370,22 @@ function Dashboard() {
             {attempts && attempts.length > 0 ? (
               <ul className="divide-y divide-border/70">
                 {attempts.map((a) => {
-                  const pct = a.total ? Math.round(((a.score ?? 0) / a.total) * 100) : 0;
+                  const perfShape = {
+                    id: a.id,
+                    topic_id: null,
+                    score: a.score,
+                    total: a.total,
+                    finished_at: a.finished_at,
+                    answered_count: a.answered,
+                  };
+                  const answered = answeredCountOf(perfShape);
+                  const total = a.total ?? 0;
+                  const partial = total > 0 && answered < total;
+                  const sufficient = isSufficientAttempt(perfShape);
+                  // Score over ALL questions (the meaningful figure); the of-answered
+                  // figure is only surfaced for a partial attempt so a "answered 4,
+                  // got 4" attempt can't masquerade as full performance.
+                  const pct = total ? Math.round(((a.score ?? 0) / total) * 100) : 0;
                   return (
                     <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
                       <div className="min-w-0">
@@ -381,14 +397,21 @@ function Dashboard() {
                             </span>
                           )}
                         </p>
-                        <p className="truncate text-xs text-muted-foreground">{a.courseTitle}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {a.courseTitle}
+                          {partial && !sufficient ? " · Not enough evidence" : ""}
+                        </p>
                       </div>
                       <span
                         className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          pct >= 70 ? "bg-success/15 text-success" : "bg-primary/10 text-primary"
+                          partial && !sufficient
+                            ? "bg-muted text-muted-foreground"
+                            : pct >= 70
+                              ? "bg-success/15 text-success"
+                              : "bg-primary/10 text-primary"
                         }`}
                       >
-                        {a.score ?? 0}/{a.total ?? 0} · {pct}%
+                        {partial ? `${answered}/${total} answered · ${pct}%` : `${a.score ?? 0}/${total} · ${pct}%`}
                       </span>
                     </li>
                   );

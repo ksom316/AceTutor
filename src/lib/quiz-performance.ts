@@ -124,6 +124,10 @@ export type ModulePerformance = {
    *  The module `averageScore` / `state` are unaffected by this — it is purely a
    *  "what changed since you last had reliable evidence" signal for the UI. */
   improvementPoints: number | null;
+  /** Score % of every SUFFICIENT attempt for this module, oldest first — the raw
+   *  material for a simple "55% → 63% → 71%" trend. Partial attempts are never
+   *  included. Empty when there is no sufficient attempt. */
+  sufficientScores: number[];
   /** Answered / total questions of that most recent usable attempt, so the UI
    *  can show "100% · 1/20 answered". null when there is no usable attempt. */
   answeredCount: number | null;
@@ -187,6 +191,7 @@ export function computeModulePerformances(
       latestSufficientScore !== null && previousSufficientScore !== null
         ? latestSufficientScore - previousSufficientScore
         : null;
+    const sufficientScores = sufficient.map((a) => pct(a.score, a.total));
     const answeredCount = latestUsable ? answeredCountOf(latestUsable) : null;
     const totalQuestions = latestUsable ? (latestUsable.total ?? 0) : null;
     const coveragePercent =
@@ -213,6 +218,7 @@ export function computeModulePerformances(
       latestSufficientScore,
       previousSufficientScore,
       improvementPoints,
+      sufficientScores,
       answeredCount,
       totalQuestions,
       coveragePercent,
@@ -326,6 +332,17 @@ export function improvementLabel(m: ModulePerformance): string | null {
   return d > 0
     ? `↑ ${n} point${n === 1 ? "" : "s"} since your previous quiz`
     : `↓ ${n} point${n === 1 ? "" : "s"} since your previous quiz`;
+}
+
+/**
+ * "55% → 63% → 71%" across a module's most recent sufficient attempts (up to
+ * `max`, oldest → newest), or null when there are fewer than two. Deterministic,
+ * sufficient attempts only — a lightweight "performance over time" view without a
+ * chart.
+ */
+export function sufficientTrendLabel(m: ModulePerformance, max = 5): string | null {
+  if (m.sufficientScores.length < 2) return null;
+  return m.sufficientScores.slice(-max).map((s) => `${s}%`).join(" → ");
 }
 
 /**

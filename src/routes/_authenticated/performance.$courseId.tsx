@@ -13,6 +13,7 @@ import {
   computeCoursePerformance,
   improvementLabel,
   justReachedStrong,
+  sufficientTrendLabel,
   type PerfAttempt,
   type PerfTopic,
 } from "@/lib/quiz-performance";
@@ -89,6 +90,18 @@ function MyPerformancePage() {
   });
 
   const perf = useMemo(() => computeCoursePerformance(topics, attempts), [topics, attempts]);
+
+  // Deterministic module-state breakdown for the overview — straight off the
+  // shared model, never a second calculation.
+  const counts = useMemo(() => {
+    const by = (s: string) => perf.modules.filter((m) => m.state === s).length;
+    return {
+      strong: by("strong"),
+      weak: by("weak"),
+      insufficient: by("insufficient"),
+      noData: by("no-data"),
+    };
+  }, [perf.modules]);
 
   // Same current-vs-historical Study Path interpretation as Personalized
   // Learning — so the CTA a module shows here matches the course page.
@@ -196,11 +209,50 @@ function MyPerformancePage() {
                 Modules assessed
               </p>
               <p className="mt-1 font-display text-4xl">
-                {perf.modules.filter((m) => m.state === "weak" || m.state === "strong").length}
+                {counts.strong + counts.weak}
                 <span className="text-xl text-muted-foreground">/{topics.length}</span>
+              </p>
+              <p className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                <span className="text-success">{counts.strong} strong</span>
+                <span>{counts.weak} need{counts.weak === 1 ? "s" : ""} strengthening</span>
+                {counts.insufficient > 0 && <span>{counts.insufficient} not enough evidence</span>}
+                {counts.noData > 0 && <span>{counts.noData} not assessed</span>}
               </p>
             </div>
           </section>
+
+          {/* Deterministic "where do I stand" summary — module names straight
+              from the shared model (perf.strong / perf.weak are pre-sorted). */}
+          {(perf.strong.length > 0 || perf.weak.length > 0) && (
+            <section className="mt-4 grid gap-3 rounded-2xl border border-border bg-card p-5 sm:grid-cols-2">
+              <div>
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <TrendingUp className="h-3.5 w-3.5 text-success" /> Strongest in
+                </p>
+                <p className="mt-1 text-sm">
+                  {perf.strong.length > 0
+                    ? perf.strong
+                        .slice(0, 3)
+                        .map((s) => s.topic.title)
+                        .join(", ")
+                    : "No strong modules yet."}
+                </p>
+              </div>
+              <div>
+                <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Target className="h-3.5 w-3.5 text-primary" /> Needs more attention
+                </p>
+                <p className="mt-1 text-sm">
+                  {perf.weak.length > 0
+                    ? perf.weak
+                        .slice(0, 3)
+                        .map((w) => w.topic.title)
+                        .join(", ")
+                    : "Nothing below par right now."}
+                </p>
+              </div>
+            </section>
+          )}
 
           {perf.state === "insufficient" && (
             <div className="mt-6 rounded-2xl border border-dashed border-border bg-card p-4 text-sm text-muted-foreground">
@@ -229,7 +281,27 @@ function MyPerformancePage() {
             {perf.modules.map((m) => (
               <div key={m.topic.id} className="rounded-2xl border border-border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{m.topic.title}</span>
+                  <span className="flex items-center gap-2 font-medium">
+                    <span
+                      aria-hidden
+                      className={
+                        m.state === "strong"
+                          ? "text-success"
+                          : m.state === "weak"
+                            ? "text-primary"
+                            : "text-muted-foreground"
+                      }
+                    >
+                      {m.state === "strong"
+                        ? "✓"
+                        : m.state === "weak"
+                          ? "⚠"
+                          : m.state === "insufficient"
+                            ? "•"
+                            : "–"}
+                    </span>
+                    {m.topic.title}
+                  </span>
                   {m.state === "no-data" ? (
                     <span className="text-xs text-muted-foreground">Not attempted</span>
                   ) : m.state === "insufficient" ? (
@@ -270,6 +342,11 @@ function MyPerformancePage() {
                         · {improvementLabel(m)}
                       </span>
                     ) : null}
+                  </p>
+                )}
+                {sufficientTrendLabel(m) && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Recent quizzes: {sufficientTrendLabel(m)}
                   </p>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">

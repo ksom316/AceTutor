@@ -35,6 +35,7 @@ type AttemptRow = {
   id: string;
   score: number | null;
   total: number | null;
+  answered_count: number | null;
   finished_at: string | null;
   topics: { title: string; courses: { title: string; slug: string } | null } | null;
 };
@@ -42,6 +43,7 @@ type GeneralAttemptRow = {
   id: string;
   score: number | null;
   total: number | null;
+  answered_count: number | null;
   finished_at: string | null;
   course_quizzes: { title: string; courses: { title: string } | null } | null;
 };
@@ -55,6 +57,8 @@ export type RecentAttempt = {
   id: string;
   score: number | null;
   total: number | null;
+  /** Questions the student actually answered. null for legacy rows. */
+  answered: number | null;
   finished_at: string | null;
   kind: "module" | "general";
   title: string;
@@ -141,7 +145,7 @@ export function useStudentDashboard(userId: string | undefined) {
     queryFn: async () => {
       const { data } = await supabase
         .from("quiz_attempts")
-        .select("id, score, total, finished_at, topics(title, courses(title, slug))")
+        .select("id, score, total, answered_count, finished_at, topics(title, courses(title, slug))")
         .not("finished_at", "is", null)
         // Module quizzes only — module-centric dashboard stats (donut, avg score,
         // quiz count) are derived from this set and must not change.
@@ -161,7 +165,9 @@ export function useStudentDashboard(userId: string | undefined) {
     queryFn: async () => {
       const { data } = await supabase
         .from("quiz_attempts")
-        .select("id, score, total, finished_at, course_quizzes(title, courses(title))")
+        .select(
+          "id, score, total, answered_count, finished_at, course_quizzes(title, courses(title))",
+        )
         .eq("user_id", userId!)
         .not("finished_at", "is", null)
         .not("course_quiz_id", "is", null)
@@ -339,6 +345,7 @@ export function useStudentDashboard(userId: string | undefined) {
       id: a.id,
       score: a.score,
       total: a.total,
+      answered: a.answered_count,
       finished_at: a.finished_at,
       kind: "module",
       title: a.topics?.title ?? "Quiz",
@@ -348,6 +355,7 @@ export function useStudentDashboard(userId: string | undefined) {
       id: a.id,
       score: a.score,
       total: a.total,
+      answered: a.answered_count,
       finished_at: a.finished_at,
       kind: "general",
       title: a.course_quizzes?.title ?? "General Course Quiz",
