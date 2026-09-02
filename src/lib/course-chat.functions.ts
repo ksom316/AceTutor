@@ -11,8 +11,6 @@ const schema = z.object({
     "general",
     "ask",
     "explain",
-    "quiz",
-    "quiz_json",
     "crossword_json",
     "summarize",
     "test",
@@ -44,7 +42,7 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 // (kept for backward compat — they are just "slot 1/2/3" now).
 //
 // The defaults below were verified against OpenRouter's live catalogue and the
-// project's own key on 2026-08-31: `minimax/minimax-m3:free` returns clean quiz
+// project's own key on 2026-08-31: `minimax/minimax-m3:free` returns clean
 // JSON in both response_format and plain mode. The previous defaults
 // (`google/gemma-3-27b-it:free`, `openai/gpt-oss-20b:free`) had lost their free
 // tier — OpenRouter answered 404 "unavailable for free" — and `openrouter/free`
@@ -109,7 +107,7 @@ function createTtlCache<T>(ttlMs: number, max: number) {
 // Wikipedia supplements the tutor's knowledge: we search the MediaWiki API
 // for relevant articles and pass plain-text extracts as reference material.
 // The model may also draw on its own knowledge for anything course-related,
-// so a thin or missing extract never blocks an answer or a quiz.
+// so a thin or missing extract never blocks an answer or a puzzle.
 const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
 
 // This lookup sits in front of every AI call, so it is budgeted tightly: one
@@ -189,55 +187,14 @@ function fetchWikipediaContext(query: string): Promise<string> {
   return Promise.race([pending, soft.promise.then(() => "")]).finally(() => soft.cancel());
 }
 
-export type AIQuizQuestion = {
-  prompt: string;
-  choices: string[];
-  correctIndex: number;
-  explanation: string;
-};
-
-// Randomize a generated quiz so repeat attempts differ: shuffle question
-// order and shuffle each question's choices (remapping correctIndex).
-function shuffleInPlace<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-function randomizeQuiz(questions: AIQuizQuestion[]): AIQuizQuestion[] {
-  return shuffleInPlace(
-    questions.map((q) => {
-      const order = shuffleInPlace(q.choices.map((_, i) => i));
-      return {
-        ...q,
-        choices: order.map((i) => q.choices[i]),
-        correctIndex: order.indexOf(q.correctIndex),
-      };
-    }),
-  );
-}
-
-// Same idea as QUIZ_ANGLES — keeps repeat puzzles for one course from drawing
-// the same handful of terms every time.
+// Keeps repeat puzzles for one course from drawing the same handful of terms
+// every time.
 const CROSSWORD_ANGLES = [
   "core terminology and definitions",
   "tools, technologies, and techniques used in the field",
   "processes, methods, and workflows",
   "roles, artifacts, and deliverables",
   "principles, patterns, and best practices",
-];
-
-// A random angle is injected into the quiz prompt so the model doesn't
-// regenerate the same 5 questions for the same module every time.
-const QUIZ_ANGLES = [
-  "core definitions and terminology",
-  "practical, real-world applications",
-  "comparisons and differences between related concepts",
-  "common misconceptions and tricky details",
-  "cause-and-effect relationships and why things work the way they do",
-  "examples and scenario-based reasoning",
 ];
 
 // Free-tier models are frequently slow or rate-limited, so attempts are hedged
@@ -366,14 +323,12 @@ const MAX_TOKENS: Record<string, number> = {
   summarize: 700,
   test: 600,
   recommend: 700,
-  quiz: 1600,
 };
-const QUIZ_JSON_MAX_TOKENS = 2200;
 const CROSSWORD_JSON_MAX_TOKENS = 1800;
 
 // Prose answers to the same question about the same course/module are stable
-// enough to reuse for a while, so a repeat ask returns instantly. Quiz and
-// crossword generation deliberately varies every run and is never cached.
+// enough to reuse for a while, so a repeat ask returns instantly. Crossword
+// generation deliberately varies every run and is never cached.
 const ANSWER_TTL_MS = 30 * 60 * 1000;
 const CACHEABLE_MODES = new Set(["general", "ask", "explain", "summarize", "recommend"]);
 const answerCache = createTtlCache<string>(ANSWER_TTL_MS, 300);
@@ -496,52 +451,6 @@ export const askCourse = createServerFn({ method: "POST" })
       : `\n\n(No reference material could be retrieved for this topic. Answer from your own knowledge of the subject instead — do NOT mention any external source or the absence of material.)`;
     const fullCtx = `${courseCtx}${moduleCtx}${perfCtx}${sourceCtx}`;
 
-    if (data.mode === "quiz_json") {
-      const angle = QUIZ_ANGLES[Math.floor(Math.random() * QUIZ_ANGLES.length)];
-      const prompt = `${fullCtx}\n\nGenerate exactly 10 multiple-choice quiz questions about ${data.moduleTitle ?? "this course"}. Draw on the reference material above where it helps, and on your own solid knowledge of the subject for anything it doesn't cover — every question must stay on-topic for this course/module. This round, emphasize ${angle}. Vary difficulty across the questions. Never mention or hint at the source of the material in any question or explanation. Each question must have exactly 4 choices. Respond ONLY with strict JSON in this shape, no prose:\n{ "questions": [ { "prompt": string, "choices": [string, string, string, string], "correctIndex": 0|1|2|3, "explanation": string } ] }`;
-      const raw = await callAI(
-        [
-          {
-            role: "system",
-            content:
-              "You output ONLY valid JSON matching the requested schema. No markdown fences.",
-          },
-          { role: "user", content: prompt },
-        ],
-        { jsonObject: true, maxTokens: QUIZ_JSON_MAX_TOKENS },
-      );
-      try {
-        // Models sometimes wrap the JSON in ```json fences or add stray prose
-        // despite instructions — extract the outermost {...} block first.
-        const start = raw.indexOf("{");
-        const end = raw.lastIndexOf("}");
-        const jsonText = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
-        const parsed = JSON.parse(jsonText);
-        const qs = Array.isArray(parsed?.questions) ? parsed.questions : [];
-        const cleaned: AIQuizQuestion[] = qs
-          .filter((q: unknown): q is AIQuizQuestion => {
-            if (!q || typeof q !== "object") return false;
-            const c = q as AIQuizQuestion;
-            return (
-              typeof c.prompt === "string" &&
-              Array.isArray(c.choices) &&
-              c.choices.length === 4 &&
-              c.choices.every((ch) => typeof ch === "string") &&
-              Number.isInteger(c.correctIndex) &&
-              // Out-of-range correctIndex would make randomizeQuiz map it to -1
-              // and grade every answer wrong — reject the question instead.
-              c.correctIndex >= 0 &&
-              c.correctIndex < 4
-            );
-          })
-          .slice(0, 10);
-        if (cleaned.length === 0) throw new Error("empty");
-        return { related: true as const, quiz: randomizeQuiz(cleaned), answer: "" };
-      } catch {
-        throw new Error("Could not generate quiz. Please try again.");
-      }
-    }
-
     if (data.mode === "crossword_json") {
       const wordCount = data.wordCount ?? 12;
       const angle = CROSSWORD_ANGLES[Math.floor(Math.random() * CROSSWORD_ANGLES.length)];
@@ -599,9 +508,6 @@ Respond ONLY with strict JSON in this shape, no prose:
         break;
       case "explain":
         userPrompt = `${fullCtx}\n\nExplain the key concepts of ${data.moduleTitle ?? "this course"} clearly with examples a student can follow.`;
-        break;
-      case "quiz":
-        userPrompt = `${fullCtx}\n\nGenerate a practice quiz (10 multiple-choice questions) based on ${data.moduleTitle ?? "this course"}. After each question, on a new line, give the correct answer and a one-sentence explanation. Use Markdown.`;
         break;
       case "summarize":
         userPrompt = `${fullCtx}\n\nSummarize the lecture material for ${data.moduleTitle ?? "this course"} as concise bullet points a student can revise from.`;

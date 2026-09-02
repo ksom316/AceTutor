@@ -205,12 +205,6 @@ export function useStudyPathById(studyPathId: string, options?: { enabled?: bool
 
 /* ------------------------------------------------------------------ */
 
-export type CourseStudyPathStats = {
-  total: number;
-  completed: number;
-  inProgress: number;
-};
-
 /**
  * A module's CURRENT Study Path action, derived from the shared performance
  * model's `currentStudyPathAttemptId` and the course's Study Path rows. The one
@@ -237,10 +231,12 @@ export function moduleStudyPathCta(
 }
 
 /**
- * The student's study paths for one course (module + general). Defaults to the
- * SAVED paths ("My Learning"); pass `all: true` to include generated-but-unsaved
- * paths — needed to recognise a module's current path the moment it is built.
- * RLS (`study_paths_select_own`) guarantees only the caller's own rows.
+ * The student's study paths for one course (module + general). By default only
+ * rows with a non-null `saved_at` are returned; the "Save / Add to My Learning"
+ * feature was retired, so every current caller passes `all: true` to get every
+ * generated path. The `saved_at` filter and column are left in place purely as
+ * schema compatibility. RLS (`study_paths_select_own`) guarantees only the
+ * caller's own rows.
  */
 export function useCourseStudyPaths(
   courseId: string | null | undefined,
@@ -280,15 +276,6 @@ export function useCourseStudyPaths(
     onError: () => toast.error("Couldn't save that just now. Please try again."),
   });
 
-  const setSaved = useMutation({
-    mutationFn: async ({ id, saved }: { id: string; saved: boolean }) => {
-      const { error } = await supabase.rpc("set_study_path_saved", { _id: id, _saved: saved });
-      if (error) throw error;
-    },
-    onSuccess: invalidate,
-    onError: () => toast.error("Couldn't update My Learning just now. Please try again."),
-  });
-
   // Delete ONE study_paths row, the caller's own. Via the SECURITY DEFINER
   // `delete_study_path` RPC — study_paths has no client-facing delete policy by
   // design. Removes nothing else: quiz attempts, scores, progress, preferences
@@ -306,23 +293,14 @@ export function useCourseStudyPaths(
   });
 
   const studyPaths = useMemo<ParsedStudyPath[]>(() => query.data ?? [], [query.data]);
-  const stats = useMemo<CourseStudyPathStats>(() => {
-    const total = studyPaths.length;
-    const completed = studyPaths.reduce((n, p) => n + (p.completed_at ? 1 : 0), 0);
-    return { total, completed, inProgress: total - completed };
-  }, [studyPaths]);
 
   return {
     studyPaths,
-    stats,
     isLoading: query.isLoading,
     isError: query.isError,
     markCompleted: (id: string) => complete.mutate(id),
     completing: complete.isPending,
     completingId: complete.isPending ? (complete.variables ?? null) : null,
-    setSaved: (id: string, saved: boolean) => setSaved.mutate({ id, saved }),
-    savingSaved: setSaved.isPending,
-    savingSavedId: setSaved.isPending ? (setSaved.variables?.id ?? null) : null,
     removeStudyPath: (id: string) => remove.mutate(id),
     removingId: remove.isPending ? (remove.variables ?? null) : null,
   };

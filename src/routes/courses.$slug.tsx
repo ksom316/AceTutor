@@ -243,7 +243,7 @@ function CourseDetail() {
       setShowTutorResponse(true);
     },
     mutationFn: async (vars: {
-      mode: "general" | "ask" | "explain" | "quiz" | "summarize" | "test";
+      mode: "general" | "ask" | "explain" | "summarize" | "test";
       question?: string;
       moduleTitle?: string;
       moduleSummary?: string;
