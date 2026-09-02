@@ -36,6 +36,14 @@ import {
   perfAnalysisErrorMessage,
 } from "@/lib/lecturer-performance.functions";
 import { attemptStatus } from "@/lib/quiz-timer";
+import type { PerfTopic } from "@/lib/quiz-performance";
+import {
+  computeAssessmentCoverage,
+  computeModuleCohorts,
+  courseInsights,
+  summariseCourseModules,
+  type LecturerModuleAttempt,
+} from "@/lib/lecturer-analytics";
 
 export const Route = createFileRoute("/lecturer/performance")({
   component: LecturerPerformance,
@@ -178,8 +186,58 @@ function LecturerPerformance() {
     },
   });
 
+  // The course's full module list — so "Not assessed" modules (no attempts at
+  // all) still appear in the evidence-based analytics. `topics` is public
+  // catalogue data; the sensitive attempt data still comes only from the
+  // SECURITY DEFINER RPC above.
+  const topicsQuery = useQuery({
+    queryKey: ["lecturer-topics", lecturerCourseId],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("topics")
+        .select("id, title, order_index")
+        .eq("course_id", lecturerCourseId!)
+        .order("order_index");
+      if (error) throw error;
+      return (data ?? []) as PerfTopic[];
+    },
+  });
+
   const perf = useMemo<QuizPerfRow[]>(() => perfQuery.data ?? [], [perfQuery.data]);
   const enrolledCount = studentsQuery.data?.length ?? 0;
+  const topics = useMemo<PerfTopic[]>(() => topicsQuery.data ?? [], [topicsQuery.data]);
+
+  // Evidence-based module analytics — every per-student number comes from the
+  // shared `quiz-performance.ts` model (usable / sufficient / weak / strong /
+  // average / improvement / trend); this only aggregates across students.
+  // Partial and zero-answer attempts never contribute to an average or a state.
+  const moduleAttempts = useMemo<LecturerModuleAttempt[]>(
+    () =>
+      perf
+        .filter((r) => r.quiz_type === "module" && r.topic_id)
+        .map((r) => ({
+          id: r.attempt_id,
+          topic_id: r.topic_id,
+          score: r.score,
+          total: r.total,
+          finished_at: r.finished_at,
+          answered_count: r.answered_count,
+          started_at: r.started_at,
+          student: r.student,
+        })),
+    [perf],
+  );
+  const cohorts = useMemo(
+    () => computeModuleCohorts(topics, moduleAttempts),
+    [topics, moduleAttempts],
+  );
+  const coverage = useMemo(
+    () => computeAssessmentCoverage(enrolledCount, topics, moduleAttempts),
+    [enrolledCount, topics, moduleAttempts],
+  );
+  const moduleSummary = useMemo(() => summariseCourseModules(cohorts), [cohorts]);
+  const insights = useMemo(() => courseInsights(cohorts, coverage), [cohorts, coverage]);
 
   // Every quiz that has an attempt — module topics and General Course Quizzes.
   const quizList = useMemo(() => {
@@ -491,6 +549,208 @@ function LecturerPerformance() {
               loading={loading}
             />
           </div>
+
+          {/* Module performance — evidence-based. Uses the same sufficient-attempt
+              model as the student side: only attempts that answered >= 3
+              questions AND >= 50% of the quiz count toward an average or a
+              state. Partial / zero-answer attempts are shown as "insufficient
+              evidence", never as poor performance. */}
+          {(topicsQuery.isLoading || loading || studentsQuery.isLoading) && topics.length === 0 ? (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="text-lg">Module performance</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <SkeletonRows rows={4} />
+              </CardContent>
+            </Card>
+          ) : topics.length > 0 ? (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="text-lg">Module performance</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Based on attempts with enough answered questions to be reliable evidence — at
+                  least 3 answered and at least half the quiz. Each module is assessed on its own.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {enrolledCount === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No students are enrolled in this course yet.
+                  </p>
+                ) : moduleAttempts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No assessment evidence yet. Modules will appear here once students complete
+                    module quizzes.
+                  </p>
+                ) : (
+                  <>
+                    {/* Assessment coverage */}
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Assessment coverage
+                      </p>
+                      <dl className="mt-2 grid gap-2 sm:grid-cols-3">
+                        <div className="rounded-xl border border-border p-3">
+                          <dt className="text-xs text-muted-foreground">Meaningful evidence</dt>
+                          <dd className="mt-0.5 font-display text-xl tabular-nums text-success">
+                            {coverage.meaningful}
+                            <span className="text-sm text-muted-foreground">
+                              {" "}
+                              / {coverage.enrolled}
+                            </span>
+                          </dd>
+                        </div>
+                        <div className="rounded-xl border border-border p-3">
+                          <dt className="text-xs text-muted-foreground">Insufficient evidence</dt>
+                          <dd className="mt-0.5 font-display text-xl tabular-nums">
+                            {coverage.insufficientOnly}
+                            <span className="text-sm text-muted-foreground">
+                              {" "}
+                              / {coverage.enrolled}
+                            </span>
+                          </dd>
+                        </div>
+                        <div className="rounded-xl border border-border p-3">
+                          <dt className="text-xs text-muted-foreground">Not assessed</dt>
+                          <dd className="mt-0.5 font-display text-xl tabular-nums">
+                            {coverage.notAssessed}
+                            <span className="text-sm text-muted-foreground">
+                              {" "}
+                              / {coverage.enrolled}
+                            </span>
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+
+                    {coverage.meaningful === 0 ? (
+                      <p className="rounded-xl border border-dashed border-border bg-card/50 p-4 text-sm text-muted-foreground">
+                        Students have started quizzes, but there isn&apos;t enough answered data to
+                        assess module performance yet.
+                      </p>
+                    ) : (
+                      <>
+                        {/* Evidence-based course average + strongest / needs attention */}
+                        <div className="grid gap-4 sm:grid-cols-3">
+                          <div className="rounded-xl border border-border p-4">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                              Course average
+                            </p>
+                            <p className="mt-1 font-display text-3xl tabular-nums">
+                              {moduleSummary.overall !== null ? `${moduleSummary.overall}%` : "—"}
+                            </p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Mean of assessed module averages · sufficient attempts only
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-border p-4">
+                            <p className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-success" /> Strongest modules
+                            </p>
+                            {moduleSummary.strongest.length === 0 ? (
+                              <p className="mt-1 text-sm text-muted-foreground">None yet.</p>
+                            ) : (
+                              <ul className="mt-1 space-y-0.5 text-sm">
+                                {moduleSummary.strongest.map((s) => (
+                                  <li
+                                    key={s.title}
+                                    className="flex items-center justify-between gap-2"
+                                  >
+                                    <span className="truncate">{s.title}</span>
+                                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                                      {s.average}%
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                          <div className="rounded-xl border border-border p-4">
+                            <p className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
+                              <Target className="h-3.5 w-3.5 text-primary" /> Needs attention
+                            </p>
+                            {moduleSummary.attention.length === 0 ? (
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                Nothing below par.
+                              </p>
+                            ) : (
+                              <ul className="mt-1 space-y-0.5 text-sm">
+                                {moduleSummary.attention.map((s) => (
+                                  <li
+                                    key={s.title}
+                                    className="flex items-center justify-between gap-2"
+                                  >
+                                    <span className="truncate">{s.title}</span>
+                                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                                      {s.average}%
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+
+                        {insights.length > 0 && (
+                          <div className="rounded-xl border border-border bg-card/50 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Course insights
+                            </p>
+                            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                              {insights.map((line, i) => (
+                                <li key={i}>{line}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Per-module list */}
+                    <ul className="space-y-3">
+                      {cohorts.map((c) => (
+                        <li
+                          key={c.topic.id}
+                          className="rounded-xl border border-border p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-medium">{c.topic.title}</span>
+                            <ModuleStateBadge state={c.state} average={c.averageScore} />
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {c.state === "no-data"
+                              ? "No student has attempted this module's quiz."
+                              : `${c.assessedStudents} assessed${
+                                  c.insufficientStudents > 0
+                                    ? ` · ${c.insufficientStudents} with insufficient evidence`
+                                    : ""
+                                }`}
+                            {c.trend.length >= 2 && (
+                              <>
+                                {" · "}
+                                <span className="text-foreground">
+                                  {c.trend.map((n) => `${n}%`).join(" → ")}
+                                </span>
+                              </>
+                            )}
+                            {c.improvedStudents > 0 && (
+                              <span className="ml-1.5 text-success">
+                                ↑ {c.improvedStudents} improving
+                              </span>
+                            )}
+                            {c.declinedStudents > 0 && (
+                              <span className="ml-1.5">↓ {c.declinedStudents} declined</span>
+                            )}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* Performance overview — graded attempts only, by week */}
           <Card className="mt-6">
@@ -910,4 +1170,37 @@ function SkeletonRows({ rows = 4 }: { rows?: number }) {
       ))}
     </div>
   );
+}
+
+/** State + average badge for one module cohort. Uses the same four states as the
+ *  student performance model, with supportive instructional wording. */
+function ModuleStateBadge({
+  state,
+  average,
+}: {
+  state: "no-data" | "insufficient" | "weak" | "strong";
+  average: number | null;
+}) {
+  if (state === "no-data") {
+    return (
+      <Badge variant="outline" className="text-muted-foreground">
+        Not assessed
+      </Badge>
+    );
+  }
+  if (state === "insufficient") {
+    return (
+      <Badge variant="outline" className="text-muted-foreground">
+        Insufficient evidence
+      </Badge>
+    );
+  }
+  if (state === "strong") {
+    return (
+      <Badge variant="secondary" className="border-success/40 bg-success/10 text-success">
+        Strong · {average}%
+      </Badge>
+    );
+  }
+  return <Badge variant="secondary">Needs attention · {average}%</Badge>;
 }
