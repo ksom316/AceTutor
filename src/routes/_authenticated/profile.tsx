@@ -22,11 +22,22 @@ import {
 import { toast } from "sonner";
 import { deleteAccount } from "@/lib/account.functions";
 
-const VARK_LABEL: Record<string, string> = {
+const EXPLANATION_STYLE_LABEL: Record<string, string> = {
+  concise: "Concise",
+  detailed: "Detailed",
+  step_by_step: "Step-by-step",
+  example_first: "Example-first",
+};
+const LESSON_FORMAT_LABEL: Record<string, string> = {
+  written: "Written",
   visual: "Visual",
-  aural: "Aural",
-  read_write: "Read / Write",
-  kinesthetic: "Kinesthetic",
+  audio: "Audio",
+};
+const WRONG_ANSWER_HELP_LABEL: Record<string, string> = {
+  simple: "Simple correction",
+  detailed: "Detailed explanation",
+  example: "Show an example",
+  similar_practice: "Similar practice",
 };
 
 export const Route = createFileRoute("/_authenticated/profile")({
@@ -50,8 +61,21 @@ function ProfilePage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, vark_primary, avatar_url, created_at")
+        .select("full_name, avatar_url, created_at")
         .eq("id", user!.id)
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  const { data: learningPrefs } = useQuery({
+    queryKey: ["learning-preferences", user?.id],
+    enabled: !!user && !isLecturer,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("learning_preferences")
+        .select("explanation_style, lesson_format, wrong_answer_help")
+        .eq("user_id", user!.id)
         .maybeSingle();
       return data;
     },
@@ -286,16 +310,51 @@ function ProfilePage() {
             </div>
             <div className="rounded-2xl border border-border bg-card p-6">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                Learning style
+                Learning preferences
               </p>
-              <p className="mt-1 font-display text-2xl">
-                {profile?.vark_primary ? VARK_LABEL[profile.vark_primary] : "Not set"}
-              </p>
+              {learningPrefs &&
+              (learningPrefs.explanation_style ||
+                learningPrefs.lesson_format ||
+                learningPrefs.wrong_answer_help) ? (
+                <dl className="mt-2 space-y-1 text-sm">
+                  <PrefRow
+                    label="Explanation"
+                    value={
+                      learningPrefs.explanation_style
+                        ? EXPLANATION_STYLE_LABEL[learningPrefs.explanation_style]
+                        : null
+                    }
+                  />
+                  <PrefRow
+                    label="Lesson format"
+                    value={
+                      learningPrefs.lesson_format
+                        ? LESSON_FORMAT_LABEL[learningPrefs.lesson_format]
+                        : null
+                    }
+                  />
+                  <PrefRow
+                    label="When I get something wrong"
+                    value={
+                      learningPrefs.wrong_answer_help
+                        ? WRONG_ANSWER_HELP_LABEL[learningPrefs.wrong_answer_help]
+                        : null
+                    }
+                  />
+                </dl>
+              ) : (
+                <p className="mt-1 font-display text-2xl">Not set yet</p>
+              )}
               <Link
-                to="/onboarding/vark"
+                to="/onboarding/preferences"
                 className="mt-2 inline-block text-xs underline-offset-4 hover:underline"
               >
-                {profile?.vark_primary ? "Retake VARK" : "Take VARK"}
+                {learningPrefs &&
+                (learningPrefs.explanation_style ||
+                  learningPrefs.lesson_format ||
+                  learningPrefs.wrong_answer_help)
+                  ? "Edit preferences →"
+                  : "Set your preferences →"}
               </Link>
             </div>
           </section>
@@ -383,5 +442,15 @@ function ProfilePage() {
         </div>
       </section>
     </main>
+  );
+}
+
+/** One "label — value" line in the Learning preferences card. */
+function PrefRow({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-medium text-foreground">{value ?? "Not set"}</dd>
+    </div>
   );
 }

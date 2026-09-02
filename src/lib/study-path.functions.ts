@@ -8,26 +8,35 @@ import {
   type LessonForCapability,
   MIN_ANALYSABLE_CHARS,
 } from "@/lib/quiz-capability";
+import {
+  answeredCountOf,
+  isSufficientAttempt,
+  sufficientModuleAverage,
+  type PerfAttempt,
+} from "@/lib/quiz-performance";
 
 /**
- * Server-side AI "Personalized Study Path" generation (Phase 2 — backend only,
- * no UI yet).
+ * Server-side AI "Personalized Study Path" generation.
  *
- * A study path is a SHORT, module-specific remedial mini-course built from the
- * exact questions a student got wrong on a finished module quiz. It reuses the
- * shared OpenRouter caller (`callAI` from course-chat.functions.ts) — no second
- * AI client, no duplicated key handling / model roster / hedging / timeouts.
+ * A study path is a SHORT, MODULE-specific remedial mini-course. For a module
+ * quiz it is built from every question the student has missed across ALL their
+ * usable attempts for that module (deduped), and framed by the module's average
+ * score — so it represents the student's standing in that module, not one
+ * sitting. For a General Course Quiz it is built from that one attempt. It
+ * reuses the shared OpenRouter caller (`callAI`) — no second AI client.
  *
  * Security: the attempt id is the ONLY client input. Ownership + the module are
  * derived server-side from the caller's own quiz_attempts row (the RLS-scoped
  * `context.supabase` only ever returns the caller's attempts), and the write
  * goes through the SECURITY DEFINER `save_study_path` RPC which re-derives them
- * again and enforces UNIQUE(attempt_id). The AI never receives a user id, email,
- * auth data, or unrelated quiz history — only the module material and the
- * incorrect questions.
+ * and enforces UNIQUE(attempt_id) — so the attempt stays the persistence anchor
+ * (one path per anchor; a retake makes a new anchor, keeping the old path in
+ * history). The AI never receives a user id, email, auth data, or another
+ * module's questions — only this module's material and this module's incorrect
+ * questions.
  *
- * Cost control: no weak answers → no AI call. An existing path for the attempt →
- * no AI call (returned as-is). A new weak attempt → exactly one generation.
+ * Cost control: no weak answers → no AI call. An existing path for the anchor →
+ * no AI call (returned as-is). Otherwise exactly one generation.
  */
 
 /* ---- error codes → friendly messages (mirrors PERF_ANALYSIS_ERRORS) ---- */
@@ -96,7 +105,10 @@ export type StudyPathRow = {
 export type GenerateStudyPathResult =
   | { status: "created"; studyPath: StudyPathRow }
   | { status: "existing"; studyPath: StudyPathRow }
-  | { status: "not-needed" };
+  | { status: "not-needed" }
+  /** The attempt didn't cover enough of the quiz to be reliable evidence — no
+   *  Study Path is generated. `answered` / `total` drive the UI message. */
+  | { status: "insufficient-evidence"; answered: number; total: number };
 
 /* ---- input ---- */
 
@@ -192,8 +204,29 @@ type AiPayload = {
   scope: "module" | "course";
   moduleTitle: string;
   moduleSummary: string | null;
+  /** The module's average score % (module scope only) — for the "why this
+   *  path" framing. Never changes which concepts are covered. */
+  moduleAverage: number | null;
   material: string;
   incorrectQuestions: AiIncorrectQuestion[];
+  /** The student's saved `wrong_answer_help` preference, or null. Only shapes
+   *  HOW each weak area is presented — never which areas are covered (that stays
+   *  driven purely by the incorrect questions). */
+  wrongAnswerHelp: string | null;
+};
+
+// How the `wrong_answer_help` preference tunes the remediation the AI writes.
+// The study path always keeps the same shape (explanation + example + practice);
+// the preference only shifts the emphasis and depth within it.
+const WRONG_ANSWER_HELP_GUIDANCE: Record<string, string> = {
+  simple:
+    "PRESENTATION: keep each explanation short and plainly worded — a clear, simplified account of the misunderstanding. Keep the example brief and give one practice item per area.",
+  detailed:
+    "PRESENTATION: make each explanation thorough — why the likely answer is wrong AND the underlying concept it comes from, with the reasoning spelled out.",
+  example:
+    "PRESENTATION: lead each area with a concrete worked example and let the explanation lean on that example; keep the prose explanation secondary and short.",
+  similar_practice:
+    "PRESENTATION: keep each explanation brief, then provide 2 to 3 fresh practice questions per area that mirror the ones the student got wrong so they can attempt similar problems.",
 };
 
 async function runGeneration(payload: AiPayload): Promise<StudyPathContent> {
@@ -205,6 +238,11 @@ async function runGeneration(payload: AiPayload): Promise<StudyPathContent> {
     "explanation, one worked example, and 1 to 3 short self-check practice questions with answers. " +
     (payload.scope === "course"
       ? "Spread the concepts across the different modules the incorrect questions touch rather than one. "
+      : "") +
+    (payload.wrongAnswerHelp && WRONG_ANSWER_HELP_GUIDANCE[payload.wrongAnswerHelp]
+      ? WRONG_ANSWER_HELP_GUIDANCE[payload.wrongAnswerHelp] +
+        " This changes only how you present each area, not which areas you cover. " +
+        "Never describe the student as a type of learner. "
       : "") +
     "Rules: only cover concepts that are directly evidenced by the supplied incorrect questions — " +
     "never invent a weakness they do not show, and never claim the student is weak in an area not " +
@@ -218,6 +256,11 @@ async function runGeneration(payload: AiPayload): Promise<StudyPathContent> {
   const user = [
     `${payload.scope === "course" ? "COURSE" : "MODULE"}: ${payload.moduleTitle}`,
     `DESCRIPTION: ${payload.moduleSummary || "(none)"}`,
+    ...(payload.scope === "module" && payload.moduleAverage != null
+      ? [
+          `AVERAGE SCORE IN THIS MODULE: ${payload.moduleAverage}% — the student needs targeted review of the concepts the incorrect questions below reveal.`,
+        ]
+      : []),
     "",
     `${payload.scope === "course" ? "COURSE" : "MODULE"} MATERIAL (prefer this; may be empty):`,
     "<<<",
@@ -230,7 +273,11 @@ async function runGeneration(payload: AiPayload): Promise<StudyPathContent> {
     "",
     "Respond ONLY with JSON of exactly this shape:",
     `{ "title": "${defaultTitle}", "weakAreas": [ { "title": string, "explanation": string, "example": string, "practice": [ { "question": string, "answer": string } ] } ] }`,
-    "- At most 4 weakAreas; 1 to 3 practice items each.",
+    payload.wrongAnswerHelp === "similar_practice"
+      ? "- At most 4 weakAreas; 2 to 3 practice items each."
+      : payload.wrongAnswerHelp === "simple"
+        ? "- At most 4 weakAreas; exactly 1 practice item each."
+        : "- At most 4 weakAreas; 1 to 3 practice items each.",
     "- Keep each explanation and example under about 120 words.",
   ].join("\n");
 
@@ -291,13 +338,36 @@ export const generateStudyPath = createServerFn({ method: "POST" })
     // course_quiz_id — both are supported.
     const { data: attempt, error: aErr } = await supabase
       .from("quiz_attempts")
-      .select("id, user_id, topic_id, course_quiz_id, finished_at")
+      .select("id, user_id, topic_id, course_quiz_id, finished_at, answered_count, total")
       .eq("id", attemptId)
       .maybeSingle();
 
     if (aErr || !attempt) throw new Error("ATTEMPT_NOT_FOUND");
     if (attempt.user_id !== userId) throw new Error("ATTEMPT_NOT_OWNED"); // defense in depth
     if (!attempt.finished_at) throw new Error("ATTEMPT_NOT_FINISHED");
+    // A blank submission (nothing answered) carries no evidence of weakness —
+    // never fabricate weak areas from it. grade_quiz records no wrong
+    // attempt_answers for it either, so this is also what the query below finds;
+    // the explicit check just makes the contract obvious.
+    if (attempt.answered_count === 0) return { status: "not-needed" };
+    // The attempt must cover enough of the quiz to be reliable evidence. This is
+    // the authoritative guard: the result page can call generation directly, so
+    // a partial (e.g. 1/20) attempt must be rejected here, not only in the UI.
+    const anchorShape: PerfAttempt = {
+      id: attempt.id,
+      topic_id: attempt.topic_id,
+      score: null,
+      total: attempt.total,
+      finished_at: attempt.finished_at,
+      answered_count: attempt.answered_count,
+    };
+    if (!isSufficientAttempt(anchorShape)) {
+      return {
+        status: "insufficient-evidence",
+        answered: answeredCountOf(anchorShape),
+        total: attempt.total ?? 0,
+      };
+    }
     const moduleTopicId: string | null = attempt.topic_id;
     const generalQuizId: string | null = moduleTopicId ? null : attempt.course_quiz_id;
     if (!moduleTopicId && !generalQuizId) throw new Error("ATTEMPT_NOT_LINKED");
@@ -314,12 +384,38 @@ export const generateStudyPath = createServerFn({ method: "POST" })
       return { status: "existing", studyPath: existing as unknown as StudyPathRow };
     }
 
-    // 7-8. Incorrect answers for this attempt, joined to their questions. Only
-    // the fields the AI actually needs — no student / private data.
+    // 7-8. The incorrect-question evidence + the module's average.
+    //
+    // MODULE quiz: gather every question the student has missed across their
+    // SUFFICIENT attempts for this module (not just this one attempt, and never
+    // a partial attempt) and dedupe by question — the Study Path represents the
+    // module's standing. The module average uses the exact same
+    // `sufficientModuleAverage` the UI shows.
+    //
+    // GENERAL COURSE QUIZ: the evidence is that one attempt (unchanged).
+    let wrongAttemptIds: string[] = [attemptId];
+    let moduleAverage: number | null = null;
+
+    if (moduleTopicId) {
+      const { data: moduleRows } = await supabase
+        .from("quiz_attempts")
+        .select("id, score, total, finished_at, answered_count, started_at")
+        .eq("user_id", userId)
+        .eq("topic_id", moduleTopicId)
+        .not("finished_at", "is", null);
+      const moduleAttempts = ((moduleRows ?? []) as unknown as PerfAttempt[]).map((a) => ({
+        ...a,
+        topic_id: moduleTopicId,
+      }));
+      moduleAverage = sufficientModuleAverage(moduleAttempts);
+      const sufficientIds = moduleAttempts.filter(isSufficientAttempt).map((a) => a.id);
+      if (sufficientIds.length > 0) wrongAttemptIds = sufficientIds;
+    }
+
     const { data: wrongRows } = await supabase
       .from("attempt_answers")
       .select("question_id, questions(prompt, choices, correct_index, explanation)")
-      .eq("attempt_id", attemptId)
+      .in("attempt_id", wrongAttemptIds)
       .eq("is_correct", false);
 
     type WrongRow = {
@@ -331,11 +427,18 @@ export const generateStudyPath = createServerFn({ method: "POST" })
         explanation: string | null;
       } | null;
     };
-    const incorrect = ((wrongRows ?? []) as unknown as WrongRow[]).filter(
-      (r) => r.questions && typeof r.questions.prompt === "string" && r.questions.prompt.trim(),
-    );
+    const seenQuestion = new Set<string>();
+    const incorrect = ((wrongRows ?? []) as unknown as WrongRow[]).filter((r) => {
+      if (!r.questions || typeof r.questions.prompt !== "string" || !r.questions.prompt.trim()) {
+        return false;
+      }
+      if (seenQuestion.has(r.question_id)) return false;
+      seenQuestion.add(r.question_id);
+      return true;
+    });
 
-    // 12. No weakness (determined from DB facts, not the AI) → no AI call.
+    // 12. No weakness evidence (from DB facts, not the AI) → no AI call. Covers
+    // the "weak by average but every answered question was correct" edge too.
     if (incorrect.length === 0) {
       return { status: "not-needed" };
     }
@@ -399,12 +502,24 @@ export const generateStudyPath = createServerFn({ method: "POST" })
       throw new Error("INSUFFICIENT_CONTENT");
     }
 
+    // The caller's saved "when I get something wrong" preference. RLS-scoped to
+    // this user; the attempt id is still the only client input. A missing row /
+    // value just means the default presentation. This preference only affects
+    // HOW the study path is written, never which weak areas it covers.
+    const { data: prefs } = await supabase
+      .from("learning_preferences")
+      .select("wrong_answer_help")
+      .eq("user_id", userId)
+      .maybeSingle();
+
     // 13-14. Compact structured payload — incorrect-question evidence only.
     const payload: AiPayload = {
       scope: moduleTopicId ? "module" : "course",
       moduleTitle: contextTitle,
       moduleSummary: contextSummary,
+      moduleAverage,
       material,
+      wrongAnswerHelp: prefs?.wrong_answer_help ?? null,
       incorrectQuestions: incorrect.slice(0, 20).map((r) => {
         const q = r.questions!;
         const choices = Array.isArray(q.choices)

@@ -83,13 +83,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "AceTutor is an intelligent multimodal tutoring system that adapts text, video, and audio lessons to your learning style, with quizzes and instant feedback.",
+          "AceTutor is an intelligent multimodal tutoring system that adapts text, video, and audio lessons to your learning preferences, with quizzes and instant feedback.",
       },
       { property: "og:title", content: "AceTutor — Adaptive AI Tutoring for CS & IT Students" },
       {
         property: "og:description",
         content:
-          "Adaptive multimodal tutoring that matches text, video, and audio lessons to your VARK learning style, with quizzes and instant feedback.",
+          "Adaptive multimodal tutoring that matches text, video, and audio lessons to your learning preferences, with quizzes and instant feedback.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -97,7 +97,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "twitter:description",
         content:
-          "Adaptive multimodal tutoring that matches text, video, and audio lessons to your VARK learning style, with quizzes and instant feedback.",
+          "Adaptive multimodal tutoring that matches text, video, and audio lessons to your learning preferences, with quizzes and instant feedback.",
       },
       {
         property: "og:image",

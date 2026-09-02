@@ -21,8 +21,9 @@ export const Route = createFileRoute("/auth/google")({
  * Demo "Choose an account" page mirroring Google's OAuth chooser, styled with
  * the app's tokens. Picking a demo account signs into Supabase directly
  * (creating the account on first use, like real OAuth), then hands off to
- * /auth/callback which syncs the profile and routes new users to onboarding.
- * "Use another account" falls back to the real Google OAuth flow.
+ * /auth/callback which syncs the profile and sends the user to their redirect
+ * target (the Home page by default). "Use another account" falls back to the
+ * real Google OAuth flow.
  */
 const DEMO_PASSWORD = "acetutor-google-demo-2026";
 
@@ -70,8 +71,7 @@ function GoogleAccountPicker() {
       toast.error(error.message || "Could not sign in with this account");
       return;
     }
-    // /auth/callback syncs the profile and sends new users to onboarding,
-    // returning users to their destination.
+    // /auth/callback syncs the profile and sends the user to `target`.
     navigate({ to: "/auth/callback", search: { redirect: target }, replace: true });
   };
 

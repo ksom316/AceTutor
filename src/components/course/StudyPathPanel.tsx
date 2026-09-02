@@ -1,15 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
-import {
-  ArrowRight,
-  BookmarkCheck,
-  CheckCircle2,
-  ChevronDown,
-  Loader2,
-  RotateCcw,
-  Sparkles,
-} from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronDown, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -21,142 +13,11 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 const CARD = "rounded-2xl border border-border bg-card p-6";
 
-/* ------------------------------------------------------------------ *
- * StudyPathContentView — the shared presentational view of a known,
- * validated study path. Reused by the result page (below) and the course
- * page's "Personalized Learning" section. No AI / persistence logic.
- * ------------------------------------------------------------------ */
-
-type ContentViewProps = {
-  studyPath: ParsedStudyPath;
-  /** Module study path → the module id for a "Retake quiz" link. Null for a
-   *  course-level (General Course Quiz) study path. */
-  topicId: string | null;
-  completing: boolean;
-  onMarkCompleted: (id: string) => void;
-  saved: boolean;
-  savingSaved: boolean;
-  onSetSaved: (id: string, saved: boolean) => void;
-  /** The result page offers a retake CTA; the course library does not need one. */
-  showRetake?: boolean;
-};
-
-export function StudyPathContentView({
-  studyPath,
-  topicId,
-  completing,
-  onMarkCompleted,
-  saved,
-  savingSaved,
-  onSetSaved,
-  showRetake = false,
-}: ContentViewProps) {
-  const completed = !!studyPath.completed_at;
-  const isCourseLevel = !studyPath.topic_id;
-
-  return (
-    <div className="space-y-4">
-      <div className={CARD}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
-              <Sparkles className="h-5 w-5" />
-            </span>
-            <div>
-              <h3 className="font-display text-xl">{studyPath.content.title}</h3>
-              <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-                {isCourseLevel
-                  ? "Built from the questions you missed across this course's General Course Quiz — a short review of just those areas."
-                  : "Based on the questions you found difficult in this quiz, a short review focused only on the areas you need to strengthen."}
-              </p>
-            </div>
-          </div>
-          {completed && (
-            <Badge
-              variant="secondary"
-              className="shrink-0 gap-1 border-success/40 bg-success/10 text-success"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" /> Reviewed
-            </Badge>
-          )}
-        </div>
-      </div>
-
-      <ol className="space-y-4">
-        {studyPath.content.weakAreas.map((area, i) => (
-          <WeakAreaCard key={`${i}-${area.title}`} index={i + 1} area={area} />
-        ))}
-      </ol>
-
-      <div className={cn(CARD, "flex flex-wrap items-center gap-2")}>
-        {completed ? (
-          <p className="flex items-center gap-2 text-sm font-medium text-success">
-            <CheckCircle2 className="h-4 w-4" /> Study path completed.
-          </p>
-        ) : (
-          <Button
-            variant="outline"
-            disabled={completing}
-            onClick={() => onMarkCompleted(studyPath.id)}
-          >
-            {completing ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="mr-1.5 h-4 w-4" />
-            )}
-            I&apos;ve reviewed this study path
-          </Button>
-        )}
-
-        {saved ? (
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-success">
-              <BookmarkCheck className="h-4 w-4" /> Added to My Learning
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-destructive"
-              disabled={savingSaved}
-              onClick={() => onSetSaved(studyPath.id, false)}
-            >
-              {savingSaved ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-              Remove from My Learning
-            </Button>
-          </div>
-        ) : (
-          <Button disabled={savingSaved} onClick={() => onSetSaved(studyPath.id, true)}>
-            {savingSaved ? (
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="mr-1.5 h-4 w-4" />
-            )}
-            Add to My Learning
-          </Button>
-        )}
-
-        {showRetake && topicId && (
-          <Button
-            asChild
-            variant="secondary"
-            className="transition-transform hover:scale-[1.02] active:scale-95"
-          >
-            <Link to="/quiz/$topicId" params={{ topicId }} search={{ retake: true }}>
-              <RotateCcw className="mr-1.5 h-4 w-4" /> Retake quiz
-            </Link>
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 
 /**
  * The explanation / worked example / self-check body for one weak area, with no
- * outer card. Shared by the compact `WeakAreaCard` (result + course surfaces)
- * and the guided reader on the dedicated learning page.
+ * outer card. Used by the guided reader on the dedicated learning page.
  */
 export function WeakAreaBody({ area }: { area: WeakArea }) {
   return (
@@ -193,20 +54,6 @@ export function WeakAreaBody({ area }: { area: WeakArea }) {
   );
 }
 
-function WeakAreaCard({ index, area }: { index: number; area: WeakArea }) {
-  return (
-    <li className={CARD}>
-      <div className="flex items-baseline gap-2">
-        <span className="text-sm font-semibold text-muted-foreground">{index}.</span>
-        <h4 className="font-display text-lg">{area.title}</h4>
-      </div>
-      <div className="mt-3">
-        <WeakAreaBody area={area} />
-      </div>
-    </li>
-  );
-}
-
 function PracticeItem({ question, answer }: { question: string; answer: string }) {
   return (
     <li className="rounded-lg border border-border p-3">
@@ -226,11 +73,11 @@ function PracticeItem({ question, answer }: { question: string; answer: string }
 }
 
 /* ------------------------------------------------------------------ *
- * StudyPathPanel — the result-page entry point. Owns the four states
- * (loading / generate CTA / existing / no-review-needed). The full
- * mini-course is NOT shown here: an existing path renders a COMPACT card
- * that links to the dedicated study path page (/learning/$studyPathId),
- * which owns StudyPathContentView.
+ * StudyPathPanel — the entry point on the quiz-result page and the module
+ * Study Path gateway. Owns the states (loading / generate CTA / existing /
+ * no-review-needed). The full mini-course is NOT shown here: an existing path
+ * renders a COMPACT card that links to the dedicated study path page
+ * (/learning/$studyPathId), which owns the completion + Remove actions.
  * ------------------------------------------------------------------ */
 
 type PanelProps = {
@@ -239,9 +86,6 @@ type PanelProps = {
   generating: boolean;
   generateResult: GenerateStudyPathResult | null;
   onGenerate: () => void;
-  saved: boolean;
-  savingSaved: boolean;
-  onSetSaved: (id: string, saved: boolean) => void;
 };
 
 export function StudyPathPanel({
@@ -250,9 +94,6 @@ export function StudyPathPanel({
   generating,
   generateResult,
   onGenerate,
-  saved,
-  savingSaved,
-  onSetSaved,
 }: PanelProps) {
   if (isLoading) {
     return (
@@ -291,13 +132,14 @@ export function StudyPathPanel({
                   variant="secondary"
                   className="gap-1 border-success/40 bg-success/10 text-success"
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Reviewed
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Complete
                 </Badge>
               )}
             </div>
             <p className="mt-1 max-w-prose text-sm text-muted-foreground">
               We&apos;ve identified the areas that need revision based on your quiz performance.
-              Study them on your dedicated study path page.
+              Study them on your dedicated study path page, then mark it complete and retake the
+              quiz.
             </p>
 
             <div className="mt-3">
@@ -314,44 +156,17 @@ export function StudyPathPanel({
               </ul>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="mt-4">
               <Button asChild className="transition-transform hover:scale-[1.02] active:scale-95">
                 <Link to="/learning/$studyPathId" params={{ studyPathId: studyPath.id }}>
-                  {justCreated ? "Start learning" : "Continue learning"}
+                  {completed
+                    ? "Review study path"
+                    : justCreated
+                      ? "Start learning"
+                      : "Continue learning"}
                   <ArrowRight className="ml-1.5 h-4 w-4" />
                 </Link>
               </Button>
-
-              {saved ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-destructive"
-                  disabled={savingSaved}
-                  onClick={() => onSetSaved(studyPath.id, false)}
-                >
-                  {savingSaved ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <BookmarkCheck className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  Remove from My Learning
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={savingSaved}
-                  onClick={() => onSetSaved(studyPath.id, true)}
-                >
-                  {savingSaved ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  Add to My Learning
-                </Button>
-              )}
             </div>
           </div>
         </div>
@@ -359,7 +174,27 @@ export function StudyPathPanel({
     );
   }
 
-  // --- No weak areas (defensive — the CTA is score-gated) ----------------
+  // --- Not enough of the quiz answered to be reliable evidence ---------
+  if (generateResult?.status === "insufficient-evidence") {
+    return (
+      <section aria-label="AI Study Path" className={CARD}>
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-muted text-muted-foreground">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="font-display text-xl">Not enough evidence yet</h2>
+            <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+              You answered {generateResult.answered} of {generateResult.total} questions. Complete
+              more of the quiz so AceTutor can reliably assess this module and build a Study Path.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // --- Answered, but no meaningful weak areas to remediate --------------
   if (generateResult?.status === "not-needed") {
     return (
       <section aria-label="AI Study Path" className={CARD}>
@@ -368,9 +203,11 @@ export function StudyPathPanel({
             <CheckCircle2 className="h-5 w-5" />
           </span>
           <div>
-            <h2 className="font-display text-xl">No review needed</h2>
+            <h2 className="font-display text-xl">You&apos;re doing great</h2>
             <p className="mt-1 max-w-prose text-sm text-muted-foreground">
-              You don&apos;t currently have any weak areas that need additional review.
+              Your quiz performance here doesn&apos;t point to any specific areas that need extra
+              review right now. Keep working through the course material and take another quiz later
+              to reassess.
             </p>
           </div>
         </div>

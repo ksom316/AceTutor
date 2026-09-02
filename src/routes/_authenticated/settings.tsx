@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Settings as SettingsIcon,
   ShieldCheck,
+  SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -78,6 +79,15 @@ function SettingsPage() {
             title="Notifications"
             description="Choose what AceTutor can notify you about"
           />
+          {!isLecturer && (
+            <SettingRow
+              as="link"
+              to="/onboarding/preferences"
+              icon={SlidersHorizontal}
+              title="Learning preferences"
+              description="How you prefer explanations and lesson formats"
+            />
+          )}
           <SettingRow
             as="link"
             to="/security"
@@ -134,15 +144,15 @@ function SettingsPage() {
               {isLecturer ? (
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   Reset account data only clears personal learning activity tied to a sign-in — quiz
-                  attempts, recorded study time, course enrollments and the learning-style result.
+                  attempts, recorded study time, course enrollments and your learning preferences.
                   Lecturer accounts don&apos;t use those, and a reset never touches your assigned
                   course, its materials, quizzes or enrolled students. There is nothing to reset on
                   a lecturer account.
                 </p>
               ) : (
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  Clears your course enrollments, lesson progress, quiz history and learning-style
-                  result. Your name, profile details and password are kept.
+                  Clears your course enrollments, lesson progress, quiz history and learning
+                  preferences. Your name, profile details and password are kept.
                 </p>
               )}
             </div>
@@ -213,8 +223,9 @@ function SettingRow({ icon: Icon, title, description, ...rest }: SettingRowProps
 
 /**
  * Resets the user's learning data after an explicit confirmation. Deletes
- * enrollments, lesson progress, quiz history (attempts + answers) and the VARK
- * result, but never touches the profile's name/details or the auth password.
+ * enrollments, lesson progress, quiz history (attempts + answers) and the
+ * student's learning preferences (plus any legacy VARK data), but never touches
+ * the profile's name/details or the auth password.
  */
 function ResetAccountButton() {
   const { user } = useAuth();
@@ -252,10 +263,12 @@ function ResetAccountButton() {
       if (sessionsDel.error) throw sessionsDel.error;
       const enrollDel = await supabase.from("enrollments").delete().eq("user_id", uid);
       if (enrollDel.error) throw enrollDel.error;
+      const prefsDel = await supabase.from("learning_preferences").delete().eq("user_id", uid);
+      if (prefsDel.error) throw prefsDel.error;
+
+      // Legacy VARK data — cleared here too until the old system is removed.
       const varkDel = await supabase.from("vark_responses").delete().eq("user_id", uid);
       if (varkDel.error) throw varkDel.error;
-
-      // Clear the learning-style result but keep the name and other profile details.
       const profileUpd = await supabase
         .from("profiles")
         .update({ vark_primary: null })
@@ -284,7 +297,7 @@ function ResetAccountButton() {
           <AlertDialogTitle>Reset your account data?</AlertDialogTitle>
           <AlertDialogDescription>
             This permanently clears your course enrollments, lesson progress, recorded study time,
-            quiz history and learning-style result. Your name, profile details and password will not
+            quiz history and learning preferences. Your name, profile details and password will not
             be changed. This can't be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>

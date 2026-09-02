@@ -379,6 +379,21 @@ const CACHEABLE_MODES = new Set(["general", "ask", "explain", "summarize", "reco
 const answerCache = createTtlCache<string>(ANSWER_TTL_MS, 300);
 const answerInflight = new Map<string, Promise<string>>();
 
+// The student's saved explanation-style preference (learning_preferences.
+// explanation_style) shapes HOW an `ask` / `explain` answer is written — never
+// what it says. Fetched server-side from the authenticated user's own row; a
+// client-supplied value is never trusted. Missing preference → default voice.
+const EXPLANATION_STYLE_GUIDANCE: Record<string, string> = {
+  concise:
+    "Lead with the key idea and keep the answer short — cut anything non-essential while staying accurate and genuinely useful.",
+  detailed:
+    "Explain thoroughly: include the useful context and break down the important reasoning rather than just stating conclusions.",
+  step_by_step:
+    "Structure the answer as a clear ordered sequence of steps, make each step explicit, and don't skip reasoning needed to follow it.",
+  example_first:
+    "Where it helps, open with a concrete worked example, then explain the underlying concept.",
+};
+
 /** Split a raw model answer into the shape the client expects. */
 function formatAnswer(raw: string) {
   const trimmed = raw.trim();
@@ -411,7 +426,22 @@ export const askCourse = createServerFn({ method: "POST" })
         throw new Error("You must be enrolled in this course to use the AI tutor.");
       }
     }
-    
+
+    // How this student likes explanations written. Only `ask` / `explain`
+    // consume it, and only when a row + value exist. Read from the caller's own
+    // learning_preferences row (RLS-scoped) — never from client input.
+    let explanationStyle: string | null = null;
+    if (data.mode === "ask" || data.mode === "explain") {
+      const { data: prefs } = await supabase
+        .from("learning_preferences")
+        .select("explanation_style")
+        .eq("user_id", userId)
+        .maybeSingle();
+      explanationStyle = prefs?.explanation_style ?? null;
+    }
+    const styleGuidance =
+      (explanationStyle && EXPLANATION_STYLE_GUIDANCE[explanationStyle]) || null;
+
     const system =
       "You are AceTutor, an AI course tutor embedded in a learning dashboard. You help with the specific course the student is currently studying — including its modules, prerequisites, adjacent concepts, tools, and real-world applications. Prefer the REFERENCE MATERIAL in the prompt when it covers the topic, but when it is thin or missing, answer confidently from your own knowledge of the subject — a student should always get a tangible, useful answer to a course-related question. NEVER mention, cite, name, or hint at where any material comes from; present everything as course knowledge in your own words, with no citations, source names, or article titles. Use Markdown with short paragraphs, bullet points, and concrete examples.";
 
@@ -431,6 +461,7 @@ export const askCourse = createServerFn({ method: "POST" })
           data.moduleTitle ?? "",
           data.question ?? "",
           data.performanceSummary ?? "",
+          explanationStyle ?? "",
         ])
       : null;
     if (cacheKey) {
@@ -604,6 +635,11 @@ Otherwise, give a clear, tangible answer. Use the reference material above where
 Learner's question:
 ${data.question}`;
         break;
+    }
+
+    // Explanation-style preference only reshapes the two explanatory modes.
+    if (styleGuidance && (data.mode === "ask" || data.mode === "explain")) {
+      userPrompt += `\n\n(Presentation preference — apply this to how you write the answer; never mention or reveal it: ${styleGuidance})`;
     }
 
     const running = callAI(

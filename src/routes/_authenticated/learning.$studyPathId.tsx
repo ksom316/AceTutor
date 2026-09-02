@@ -1,10 +1,12 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, BookmarkCheck, CheckCircle2, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Info, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import { useStudyPathById } from "@/hooks/use-study-path";
 import { GuidedReader, type ReaderSection } from "@/components/course/GuidedReader";
 import { WeakAreaBody } from "@/components/course/StudyPathPanel";
@@ -44,10 +46,30 @@ function BackLink({
 
 function StudyPathLearningPage() {
   const { studyPathId } = Route.useParams();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const sp = useStudyPathById(studyPathId);
 
   const courseId = sp.studyPath?.course_id ?? null;
   const topicId = sp.studyPath?.topic_id ?? null;
+  const pathCreatedAt = sp.studyPath?.created_at ?? null;
+
+  // Whether the student's Learning Preferences were saved AFTER this path was
+  // built — this path stays as it was; current preferences apply to new paths.
+  const { data: prefsChangedAfter } = useQuery({
+    queryKey: ["study-path-prefs-freshness", user?.id, pathCreatedAt],
+    enabled: !!user && !!pathCreatedAt,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("learning_preferences")
+        .select("updated_at")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      if (!data?.updated_at) return false;
+      return new Date(data.updated_at).getTime() > new Date(pathCreatedAt!).getTime();
+    },
+  });
 
   // Context for the header / back link. Both reads are RLS-scoped; a student can
   // only reach a study path they own, and its course/topic are public catalogue
@@ -110,12 +132,56 @@ function StudyPathLearningPage() {
   const isCourseLevel = !studyPath.topic_id;
   const areas = studyPath.content.weakAreas;
   const completed = !!studyPath.completed_at;
-  const saved = !!studyPath.saved_at;
   const spId = studyPath.id;
-  const areaPhrase = areas.length === 1 ? "the area" : `all ${areas.length} areas`;
+
+  const retakeButton = topicId ? (
+    <Button
+      asChild
+      variant={completed ? "default" : "secondary"}
+      className="transition-transform hover:scale-[1.02] active:scale-95"
+    >
+      <Link to="/quiz/$topicId" params={{ topicId }} search={{ retake: true }}>
+        <RotateCcw className="mr-1.5 h-4 w-4" /> Retake quiz
+      </Link>
+    </Button>
+  ) : null;
+
+  const removeStudyPathControl = confirmRemove ? (
+    <span className="inline-flex items-center gap-1.5">
+      <Button
+        variant="destructive"
+        size="sm"
+        disabled={sp.removing}
+        onClick={() =>
+          sp.removeStudyPath(spId, {
+            onSuccess: () =>
+              courseSlug
+                ? navigate({ to: "/courses/$slug", params: { slug: courseSlug } })
+                : navigate({ to: "/dashboard" }),
+          })
+        }
+      >
+        {sp.removing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+        Confirm remove
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => setConfirmRemove(false)}>
+        Cancel
+      </Button>
+    </span>
+  ) : (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="text-muted-foreground hover:text-destructive"
+      onClick={() => setConfirmRemove(true)}
+    >
+      Remove Study Path
+    </Button>
+  );
 
   // One guided page per weak area, wrapped by an overview page and a wrap-up
-  // page that carries the (unchanged) completion / My Learning / retake actions.
+  // page. Completion is ONLY ever the student's explicit "Mark as complete" —
+  // reaching the last page never completes the path.
   const sections: ReaderSection[] = [
     {
       key: "overview",
@@ -125,7 +191,7 @@ function StudyPathLearningPage() {
           <p className="text-muted-foreground">
             This short review targets the {areas.length} area{areas.length === 1 ? "" : "s"} you
             found hardest on the quiz. Read each one, try the self-check questions, then mark it
-            reviewed at the end. This does not affect your official course or module progress.
+            complete at the end. This does not affect your official course or module progress.
           </p>
           <ul className="space-y-2">
             {areas.map((a, i) => (
@@ -147,72 +213,34 @@ function StudyPathLearningPage() {
     ),
     {
       key: "wrap-up",
-      heading: "Wrap up",
-      body: (
+      heading: completed ? "Study Path complete" : "You've reached the end",
+      body: completed ? (
+        <div className="space-y-4">
+          <p className="flex items-center gap-2 font-medium text-success">
+            <CheckCircle2 className="h-4 w-4" /> You&apos;ve completed this Study Path.
+          </p>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {retakeButton}
+            {removeStudyPathControl}
+          </div>
+        </div>
+      ) : (
         <div className="space-y-4">
           <p className="text-muted-foreground">
-            You&apos;ve been through {areaPhrase} in this study path. When you feel ready, mark it
-            reviewed{topicId ? " and retake the quiz to check your progress." : "."}
+            You&apos;ve been through {areas.length === 1 ? "the area" : `all ${areas.length} areas`}{" "}
+            in this Study Path. When you&apos;re ready, mark it as complete
+            {topicId ? " and retake the quiz to check your progress." : "."}
           </p>
-
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            {completed ? (
-              <p className="flex items-center gap-2 font-medium text-success">
-                <CheckCircle2 className="h-4 w-4" /> Study path completed.
-              </p>
-            ) : (
-              <Button
-                variant="outline"
-                disabled={sp.completing}
-                onClick={() => sp.markCompleted(spId)}
-              >
-                {sp.completing ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                )}
-                I&apos;ve reviewed this study path
-              </Button>
-            )}
-
-            {saved ? (
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 font-medium text-success">
-                  <BookmarkCheck className="h-4 w-4" /> Added to My Learning
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-destructive"
-                  disabled={sp.savingSaved}
-                  onClick={() => sp.setSaved(spId, false)}
-                >
-                  {sp.savingSaved ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                  Remove from My Learning
-                </Button>
-              </div>
-            ) : (
-              <Button disabled={sp.savingSaved} onClick={() => sp.setSaved(spId, true)}>
-                {sp.savingSaved ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-1.5 h-4 w-4" />
-                )}
-                Add to My Learning
-              </Button>
-            )}
-
-            {topicId && (
-              <Button
-                asChild
-                variant="secondary"
-                className="transition-transform hover:scale-[1.02] active:scale-95"
-              >
-                <Link to="/quiz/$topicId" params={{ topicId }} search={{ retake: true }}>
-                  <RotateCcw className="mr-1.5 h-4 w-4" /> Retake quiz
-                </Link>
-              </Button>
-            )}
+            <Button disabled={sp.completing} onClick={() => sp.markCompleted(spId)}>
+              {sp.completing ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-1.5 h-4 w-4" />
+              )}
+              Mark as complete
+            </Button>
+            {retakeButton}
           </div>
         </div>
       ),
@@ -245,13 +273,27 @@ function StudyPathLearningPage() {
               ? "Course-wide revision"
               : `Module: ${context?.topicTitle ?? "This module"}`}
           </Badge>
-          {studyPath.completed_at && (
+          {completed && (
             <Badge variant="secondary" className="border-success/40 bg-success/10 text-success">
-              Reviewed
+              Complete
             </Badge>
           )}
         </div>
       </motion.div>
+
+      {/* Learning Preferences callout — informational, always visible before the
+          student starts the path. Not a warning. */}
+      <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
+        <div className="flex items-center gap-2">
+          <Info className="h-4 w-4 shrink-0 text-primary" />
+          <p className="text-sm font-semibold">Learning Preferences</p>
+        </div>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          {prefsChangedAfter
+            ? "Your Learning Preferences changed after this Study Path was built. It stays as it was. Your current preferences apply when a new Study Path is generated — remove this one and build it again to use them."
+            : "This Study Path was built with your Learning Preferences at the time. Changing your preferences won't modify it. Your new preferences apply when a new Study Path is generated."}
+        </p>
+      </div>
 
       <div className="mt-6">
         <GuidedReader

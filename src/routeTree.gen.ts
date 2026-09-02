@@ -40,9 +40,12 @@ import { Route as AuthenticatedAboutRouteImport } from './routes/_authenticated/
 import { Route as LecturerQuizzesIndexRouteImport } from './routes/lecturer.quizzes.index'
 import { Route as LecturerQuizzesTopicIdRouteImport } from './routes/lecturer.quizzes.$topicId'
 import { Route as AuthenticatedTopicTopicIdRouteImport } from './routes/_authenticated/topic.$topicId'
+import { Route as AuthenticatedStudyPathCourseIdRouteImport } from './routes/_authenticated/study-path.$courseId'
 import { Route as AuthenticatedResultAttemptIdRouteImport } from './routes/_authenticated/result.$attemptId'
+import { Route as AuthenticatedQuizzesCourseIdRouteImport } from './routes/_authenticated/quizzes.$courseId'
 import { Route as AuthenticatedQuizTopicIdRouteImport } from './routes/_authenticated/quiz.$topicId'
-import { Route as AuthenticatedOnboardingVarkRouteImport } from './routes/_authenticated/onboarding.vark'
+import { Route as AuthenticatedPerformanceCourseIdRouteImport } from './routes/_authenticated/performance.$courseId'
+import { Route as AuthenticatedOnboardingPreferencesRouteImport } from './routes/_authenticated/onboarding.preferences'
 import { Route as AuthenticatedLearningStudyPathIdRouteImport } from './routes/_authenticated/learning.$studyPathId'
 import { Route as AuthenticatedCourseQuizQuizIdRouteImport } from './routes/_authenticated/course-quiz.$quizId'
 import { Route as LecturerQuizzesGeneralNewRouteImport } from './routes/lecturer.quizzes.general.new'
@@ -204,10 +207,22 @@ const AuthenticatedTopicTopicIdRoute =
     path: '/topic/$topicId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedStudyPathCourseIdRoute =
+  AuthenticatedStudyPathCourseIdRouteImport.update({
+    id: '/study-path/$courseId',
+    path: '/study-path/$courseId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedResultAttemptIdRoute =
   AuthenticatedResultAttemptIdRouteImport.update({
     id: '/result/$attemptId',
     path: '/result/$attemptId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedQuizzesCourseIdRoute =
+  AuthenticatedQuizzesCourseIdRouteImport.update({
+    id: '/quizzes/$courseId',
+    path: '/quizzes/$courseId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedQuizTopicIdRoute =
@@ -216,10 +231,16 @@ const AuthenticatedQuizTopicIdRoute =
     path: '/quiz/$topicId',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
-const AuthenticatedOnboardingVarkRoute =
-  AuthenticatedOnboardingVarkRouteImport.update({
-    id: '/onboarding/vark',
-    path: '/onboarding/vark',
+const AuthenticatedPerformanceCourseIdRoute =
+  AuthenticatedPerformanceCourseIdRouteImport.update({
+    id: '/performance/$courseId',
+    path: '/performance/$courseId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedOnboardingPreferencesRoute =
+  AuthenticatedOnboardingPreferencesRouteImport.update({
+    id: '/onboarding/preferences',
+    path: '/onboarding/preferences',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
 const AuthenticatedLearningStudyPathIdRoute =
@@ -277,9 +298,12 @@ export interface FileRoutesByFullPath {
   '/lecturer/': typeof LecturerIndexRoute
   '/course-quiz/$quizId': typeof AuthenticatedCourseQuizQuizIdRoute
   '/learning/$studyPathId': typeof AuthenticatedLearningStudyPathIdRoute
-  '/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
+  '/onboarding/preferences': typeof AuthenticatedOnboardingPreferencesRoute
+  '/performance/$courseId': typeof AuthenticatedPerformanceCourseIdRoute
   '/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
+  '/quizzes/$courseId': typeof AuthenticatedQuizzesCourseIdRoute
   '/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
+  '/study-path/$courseId': typeof AuthenticatedStudyPathCourseIdRoute
   '/topic/$topicId': typeof AuthenticatedTopicTopicIdRoute
   '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
   '/lecturer/quizzes/': typeof LecturerQuizzesIndexRoute
@@ -315,9 +339,12 @@ export interface FileRoutesByTo {
   '/lecturer': typeof LecturerIndexRoute
   '/course-quiz/$quizId': typeof AuthenticatedCourseQuizQuizIdRoute
   '/learning/$studyPathId': typeof AuthenticatedLearningStudyPathIdRoute
-  '/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
+  '/onboarding/preferences': typeof AuthenticatedOnboardingPreferencesRoute
+  '/performance/$courseId': typeof AuthenticatedPerformanceCourseIdRoute
   '/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
+  '/quizzes/$courseId': typeof AuthenticatedQuizzesCourseIdRoute
   '/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
+  '/study-path/$courseId': typeof AuthenticatedStudyPathCourseIdRoute
   '/topic/$topicId': typeof AuthenticatedTopicTopicIdRoute
   '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
   '/lecturer/quizzes': typeof LecturerQuizzesIndexRoute
@@ -356,9 +383,12 @@ export interface FileRoutesById {
   '/lecturer/': typeof LecturerIndexRoute
   '/_authenticated/course-quiz/$quizId': typeof AuthenticatedCourseQuizQuizIdRoute
   '/_authenticated/learning/$studyPathId': typeof AuthenticatedLearningStudyPathIdRoute
-  '/_authenticated/onboarding/vark': typeof AuthenticatedOnboardingVarkRoute
+  '/_authenticated/onboarding/preferences': typeof AuthenticatedOnboardingPreferencesRoute
+  '/_authenticated/performance/$courseId': typeof AuthenticatedPerformanceCourseIdRoute
   '/_authenticated/quiz/$topicId': typeof AuthenticatedQuizTopicIdRoute
+  '/_authenticated/quizzes/$courseId': typeof AuthenticatedQuizzesCourseIdRoute
   '/_authenticated/result/$attemptId': typeof AuthenticatedResultAttemptIdRoute
+  '/_authenticated/study-path/$courseId': typeof AuthenticatedStudyPathCourseIdRoute
   '/_authenticated/topic/$topicId': typeof AuthenticatedTopicTopicIdRoute
   '/lecturer/quizzes/$topicId': typeof LecturerQuizzesTopicIdRoute
   '/lecturer/quizzes/': typeof LecturerQuizzesIndexRoute
@@ -397,9 +427,12 @@ export interface FileRouteTypes {
     | '/lecturer/'
     | '/course-quiz/$quizId'
     | '/learning/$studyPathId'
-    | '/onboarding/vark'
+    | '/onboarding/preferences'
+    | '/performance/$courseId'
     | '/quiz/$topicId'
+    | '/quizzes/$courseId'
     | '/result/$attemptId'
+    | '/study-path/$courseId'
     | '/topic/$topicId'
     | '/lecturer/quizzes/$topicId'
     | '/lecturer/quizzes/'
@@ -435,9 +468,12 @@ export interface FileRouteTypes {
     | '/lecturer'
     | '/course-quiz/$quizId'
     | '/learning/$studyPathId'
-    | '/onboarding/vark'
+    | '/onboarding/preferences'
+    | '/performance/$courseId'
     | '/quiz/$topicId'
+    | '/quizzes/$courseId'
     | '/result/$attemptId'
+    | '/study-path/$courseId'
     | '/topic/$topicId'
     | '/lecturer/quizzes/$topicId'
     | '/lecturer/quizzes'
@@ -475,9 +511,12 @@ export interface FileRouteTypes {
     | '/lecturer/'
     | '/_authenticated/course-quiz/$quizId'
     | '/_authenticated/learning/$studyPathId'
-    | '/_authenticated/onboarding/vark'
+    | '/_authenticated/onboarding/preferences'
+    | '/_authenticated/performance/$courseId'
     | '/_authenticated/quiz/$topicId'
+    | '/_authenticated/quizzes/$courseId'
     | '/_authenticated/result/$attemptId'
+    | '/_authenticated/study-path/$courseId'
     | '/_authenticated/topic/$topicId'
     | '/lecturer/quizzes/$topicId'
     | '/lecturer/quizzes/'
@@ -720,11 +759,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTopicTopicIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/study-path/$courseId': {
+      id: '/_authenticated/study-path/$courseId'
+      path: '/study-path/$courseId'
+      fullPath: '/study-path/$courseId'
+      preLoaderRoute: typeof AuthenticatedStudyPathCourseIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/result/$attemptId': {
       id: '/_authenticated/result/$attemptId'
       path: '/result/$attemptId'
       fullPath: '/result/$attemptId'
       preLoaderRoute: typeof AuthenticatedResultAttemptIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/quizzes/$courseId': {
+      id: '/_authenticated/quizzes/$courseId'
+      path: '/quizzes/$courseId'
+      fullPath: '/quizzes/$courseId'
+      preLoaderRoute: typeof AuthenticatedQuizzesCourseIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/quiz/$topicId': {
@@ -734,11 +787,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedQuizTopicIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/onboarding/vark': {
-      id: '/_authenticated/onboarding/vark'
-      path: '/onboarding/vark'
-      fullPath: '/onboarding/vark'
-      preLoaderRoute: typeof AuthenticatedOnboardingVarkRouteImport
+    '/_authenticated/performance/$courseId': {
+      id: '/_authenticated/performance/$courseId'
+      path: '/performance/$courseId'
+      fullPath: '/performance/$courseId'
+      preLoaderRoute: typeof AuthenticatedPerformanceCourseIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/onboarding/preferences': {
+      id: '/_authenticated/onboarding/preferences'
+      path: '/onboarding/preferences'
+      fullPath: '/onboarding/preferences'
+      preLoaderRoute: typeof AuthenticatedOnboardingPreferencesRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/learning/$studyPathId': {
@@ -784,9 +844,12 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedCourseQuizQuizIdRoute: typeof AuthenticatedCourseQuizQuizIdRoute
   AuthenticatedLearningStudyPathIdRoute: typeof AuthenticatedLearningStudyPathIdRoute
-  AuthenticatedOnboardingVarkRoute: typeof AuthenticatedOnboardingVarkRoute
+  AuthenticatedOnboardingPreferencesRoute: typeof AuthenticatedOnboardingPreferencesRoute
+  AuthenticatedPerformanceCourseIdRoute: typeof AuthenticatedPerformanceCourseIdRoute
   AuthenticatedQuizTopicIdRoute: typeof AuthenticatedQuizTopicIdRoute
+  AuthenticatedQuizzesCourseIdRoute: typeof AuthenticatedQuizzesCourseIdRoute
   AuthenticatedResultAttemptIdRoute: typeof AuthenticatedResultAttemptIdRoute
+  AuthenticatedStudyPathCourseIdRoute: typeof AuthenticatedStudyPathCourseIdRoute
   AuthenticatedTopicTopicIdRoute: typeof AuthenticatedTopicTopicIdRoute
 }
 
@@ -802,9 +865,13 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedCourseQuizQuizIdRoute: AuthenticatedCourseQuizQuizIdRoute,
   AuthenticatedLearningStudyPathIdRoute: AuthenticatedLearningStudyPathIdRoute,
-  AuthenticatedOnboardingVarkRoute: AuthenticatedOnboardingVarkRoute,
+  AuthenticatedOnboardingPreferencesRoute:
+    AuthenticatedOnboardingPreferencesRoute,
+  AuthenticatedPerformanceCourseIdRoute: AuthenticatedPerformanceCourseIdRoute,
   AuthenticatedQuizTopicIdRoute: AuthenticatedQuizTopicIdRoute,
+  AuthenticatedQuizzesCourseIdRoute: AuthenticatedQuizzesCourseIdRoute,
   AuthenticatedResultAttemptIdRoute: AuthenticatedResultAttemptIdRoute,
+  AuthenticatedStudyPathCourseIdRoute: AuthenticatedStudyPathCourseIdRoute,
   AuthenticatedTopicTopicIdRoute: AuthenticatedTopicTopicIdRoute,
 }
 

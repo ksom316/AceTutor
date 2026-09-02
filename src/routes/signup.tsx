@@ -42,12 +42,15 @@ export const Route = createFileRoute("/signup")({
 
 function SignupPage() {
   const { user } = useAuth();
-  const { isLecturer, loading: roleLoading } = useRole();
+  const { loading: roleLoading } = useRole();
   const { redirect, role } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const target = redirect?.startsWith("/") ? redirect : "/onboarding/vark";
+  // After signup both students and lecturers land on the Home page (never the
+  // dashboard, and never straight into preference onboarding — students are
+  // invited to set preferences by the Home nudge).
+  const target = redirect?.startsWith("/") ? redirect : "/";
   const [accountType, setAccountType] = useState<AccountType>(role ?? "student");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -56,11 +59,11 @@ function SignupPage() {
   const [idStatus, setIdStatus] = useState<IdStatus>("idle");
   const [loading, setLoading] = useState(false);
 
-  // Already signed in → send them where they belong (DB role decides).
+  // Already signed in (or signup just completed) → Home for both roles.
   useEffect(() => {
     if (!user || roleLoading) return;
-    navigate({ to: isLecturer ? "/lecturer" : target });
-  }, [user, roleLoading, isLecturer, navigate, target]);
+    navigate({ to: target });
+  }, [user, roleLoading, navigate, target]);
 
   // Debounced availability feedback for the Lecturer ID. UX only — the real
   // check is claim_lecturer_slot() on submit.
@@ -127,7 +130,7 @@ function SignupPage() {
         }
         await qc.invalidateQueries({ queryKey: ["user-role"] });
         toast.success("Lecturer account created — welcome!");
-        navigate({ to: "/lecturer" });
+        navigate({ to: "/" });
         return;
       }
 

@@ -2,7 +2,17 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { motion, useMotionValue, useTransform, animate } from "framer-motion";
-import { CheckCircle2, Loader2, RotateCcw, Sparkles, Trophy, XCircle } from "lucide-react";
+import {
+  BookOpen,
+  CheckCircle2,
+  Info,
+  Loader2,
+  MinusCircle,
+  RotateCcw,
+  Sparkles,
+  Trophy,
+  XCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -11,6 +21,7 @@ import { useStudyPath } from "@/hooks/use-study-path";
 import { canAttemptCourseQuiz } from "@/lib/course-quiz";
 import { attemptStatus } from "@/lib/quiz-timer";
 import { StudyPathPanel } from "@/components/course/StudyPathPanel";
+import { isSufficientAttempt } from "@/lib/quiz-performance";
 
 export const Route = createFileRoute("/_authenticated/result/$attemptId")({
   component: ResultPage,
@@ -45,6 +56,14 @@ type AnswerRow = {
     correct_index: number;
     explanation: string | null;
   };
+};
+type QuestionRow = {
+  id: string;
+  prompt: string;
+  choices: string[];
+  correct_index: number;
+  explanation: string | null;
+  order_index: number;
 };
 
 /** Count-up percentage shown in the score hero. */
@@ -85,9 +104,25 @@ function ResultPage() {
           "question_id, selected_index, is_correct, questions(prompt, choices, correct_index, explanation)",
         )
         .eq("attempt_id", attemptId);
+
+      // The FULL question set for this quiz, so the review can show every
+      // question — including the ones the student left unanswered — with its
+      // correct answer. Read-only: `questions` is student-readable, and nothing
+      // here writes an attempt_answers row for an unanswered question.
+      const topicId = attempt?.topic_id ?? null;
+      const courseQuizId = attempt?.course_quiz_id ?? null;
+      let questionsQuery = supabase
+        .from("questions")
+        .select("id, prompt, choices, correct_index, explanation, order_index");
+      questionsQuery = topicId
+        ? questionsQuery.eq("topic_id", topicId)
+        : questionsQuery.eq("course_quiz_id", courseQuizId ?? "");
+      const { data: questions } = await questionsQuery.order("order_index").order("id");
+
       return {
         attempt: (attempt ?? null) as unknown as AttemptDetail | null,
         answers: (answers ?? []) as unknown as AnswerRow[],
+        questions: (questions ?? []) as unknown as QuestionRow[],
       };
     },
   });
@@ -104,15 +139,37 @@ function ResultPage() {
     !!data?.attempt &&
     (data.attempt.total ?? 0) > 0 &&
     (data.attempt.score ?? 0) < (data.attempt.total ?? 0);
+  // A deliberately blank submission: finished, but not one question answered.
+  // It carries no signal about what the student knows, so it never gets a Study
+  // Path and never counts toward performance (see src/lib/quiz-performance.ts).
+  const zeroAnswer = attemptFinished && data?.attempt?.answered_count === 0;
+
+  // A partial submission: answered some, but not enough of the quiz to be
+  // reliable evidence. Same "no Study Path / no adaptive weight" treatment as a
+  // blank one, with its own message. The server guards generation too.
+  const attemptShape = data?.attempt
+    ? {
+        id: data.attempt.id,
+        topic_id: data.attempt.topic_id,
+        score: data.attempt.score,
+        total: data.attempt.total,
+        finished_at: data.attempt.finished_at,
+        answered_count: data.attempt.answered_count,
+      }
+    : null;
+  const insufficientAnswers =
+    attemptFinished && !zeroAnswer && !!attemptShape && !isSufficientAttempt(attemptShape);
 
   // AI Study Path — a finished, non-perfect MODULE or GENERAL COURSE QUIZ
-  // attempt. A perfect attempt never touches the study-path table. Generation
-  // itself is on demand (button). For a general quiz, topicId is null and the
-  // path is course-level.
+  // attempt with enough answered questions to be reliable. Generation is on
+  // demand (button). For a general quiz, topicId is null and the path is
+  // course-level.
   const studyPathEligible =
     !!data?.attempt &&
     attemptFinished &&
     imperfect &&
+    !zeroAnswer &&
+    !insufficientAnswers &&
     (!!moduleTopicId || (isCourseQuiz && !!data.attempt.course_quiz_id));
   const sp = useStudyPath(attemptId, { enabled: studyPathEligible });
 
@@ -168,14 +225,78 @@ function ResultPage() {
     data.attempt.answered_count != null && data.attempt.total != null
       ? data.attempt.total - data.attempt.answered_count
       : 0;
-  const headline =
-    pct >= 90
-      ? "Outstanding!"
-      : pct >= 70
-        ? "Great work!"
-        : pct >= 50
-          ? "Good effort!"
-          : "Keep practicing!";
+  const incorrectCount = data.answers.filter((a) => !a.is_correct).length;
+
+  // Full-quiz review: every question, in order, paired with the student's
+  // answer if they gave one. An unanswered question is shown with its correct
+  // answer for learning, but is never turned into an answered row.
+  const answersByQuestion = new Map(data.answers.map((a) => [a.question_id, a]));
+  const reviewItems: { question: QuestionRow; answer: AnswerRow | null }[] = (
+    data.questions.length > 0
+      ? data.questions
+      : // Fallback for a legacy attempt whose quiz questions can't be listed:
+        // show at least the answered ones from the join.
+        data.answers.map(
+          (a, i): QuestionRow => ({
+            id: a.question_id,
+            prompt: a.questions.prompt,
+            choices: a.questions.choices,
+            correct_index: a.questions.correct_index,
+            explanation: a.questions.explanation,
+            order_index: i,
+          }),
+        )
+  ).map((question) => ({ question, answer: answersByQuestion.get(question.id) ?? null }));
+
+  const headline = zeroAnswer
+    ? "No answers recorded"
+    : insufficientAnswers
+      ? "Partial attempt"
+      : pct >= 90
+        ? "Outstanding!"
+        : pct >= 70
+          ? "Great work!"
+          : pct >= 50
+            ? "Good effort!"
+            : "Keep practicing!";
+
+  const reviewMaterialTo = moduleTopicId
+    ? { to: "/topic/$topicId" as const, params: { topicId: moduleTopicId } }
+    : data.attempt.course_quizzes?.courses?.slug
+      ? {
+          to: "/courses/$slug" as const,
+          params: { slug: data.attempt.course_quizzes.courses.slug },
+        }
+      : null;
+
+  const retakeButtons = (
+    <>
+      {reviewMaterialTo && (
+        <Button asChild variant="outline">
+          <Link to={reviewMaterialTo.to} params={reviewMaterialTo.params}>
+            <BookOpen className="mr-1.5 h-4 w-4" /> Review course material
+          </Link>
+        </Button>
+      )}
+      {moduleTopicId ? (
+        <Button asChild>
+          <Link to="/quiz/$topicId" params={{ topicId: moduleTopicId }} search={{ retake: true }}>
+            <RotateCcw className="mr-1.5 h-4 w-4" /> Take quiz again
+          </Link>
+        </Button>
+      ) : data.attempt.course_quiz_id && canRetryCourseQuiz ? (
+        <Button asChild>
+          <Link
+            to="/course-quiz/$quizId"
+            params={{ quizId: data.attempt.course_quiz_id }}
+            search={{ retake: true }}
+          >
+            <RotateCcw className="mr-1.5 h-4 w-4" /> Take quiz again
+          </Link>
+        </Button>
+      ) : null}
+    </>
+  );
 
   return (
     <main className="container mx-auto max-w-3xl px-4 py-12">
@@ -226,6 +347,8 @@ function ResultPage() {
         </p>
         <p className="relative mt-1 text-muted-foreground">
           {data.attempt.score} of {data.attempt.total} correct
+          {incorrectCount > 0 ? ` · ${incorrectCount} incorrect` : ""}
+          {unansweredCount > 0 ? ` · ${unansweredCount} unanswered` : ""}
         </p>
         <div className="relative mt-3 flex flex-wrap items-center justify-center gap-2 text-sm">
           <span
@@ -244,13 +367,64 @@ function ResultPage() {
               {status.note}
             </span>
           )}
-          {unansweredCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {unansweredCount} question{unansweredCount === 1 ? "" : "s"} left unanswered
-            </span>
-          )}
         </div>
       </motion.div>
+
+      {/* Blank submission — no usable performance data. Explicitly NOT a Study
+          Path and NOT a "you did poorly" message: the attempt simply can't tell
+          AceTutor anything. */}
+      {zeroAnswer && (
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: EASE }}
+          className="mt-10 rounded-2xl border border-border bg-card p-6"
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+              <Info className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-display text-xl">You didn&apos;t answer any questions</h2>
+              <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+                This quiz attempt doesn&apos;t give AceTutor enough information to understand what
+                you know or which topics you need to improve, so there&apos;s no performance
+                feedback or Study Path for it. You can still review the questions and correct
+                answers below, then take the quiz again when you&apos;re ready.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">{retakeButtons}</div>
+            </div>
+          </div>
+        </motion.section>
+      )}
+
+      {/* Partial attempt — answered some, but not enough of the quiz to be
+          reliable evidence. Not remediation, not "you did poorly". */}
+      {insufficientAnswers && (
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: EASE }}
+          className="mt-10 rounded-2xl border border-border bg-card p-6"
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+              <Info className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-display text-xl">Not enough evidence yet</h2>
+              <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+                You answered {data.attempt.answered_count ?? 0} of {data.attempt.total ?? 0}{" "}
+                questions, so AceTutor can&apos;t reliably assess your understanding of this{" "}
+                {moduleTopicId ? "module" : "quiz"} yet or build a Study Path. Review the questions
+                below to see the correct answers and learn from this attempt, then retake the quiz
+                when you&apos;re ready.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">{retakeButtons}</div>
+            </div>
+          </div>
+        </motion.section>
+      )}
 
       {/* Personalized study path — offered right after the score, before the
           detailed corrections, so the student discovers it without scrolling
@@ -263,21 +437,20 @@ function ResultPage() {
             generating={sp.generating}
             generateResult={sp.generateResult}
             onGenerate={sp.generate}
-            saved={!!sp.studyPath?.saved_at}
-            savingSaved={sp.savingSaved}
-            onSetSaved={sp.setSaved}
           />
         </div>
       )}
 
-      {/* Answer breakdown — review what you missed: your answer, the correct
-          answer, and the explanation for each question. */}
+      {/* Full-quiz review — every question, with your answer where you gave one
+          and the correct answer either way. Unanswered questions are shown for
+          learning; they are still counted as unanswered for this attempt. */}
       <ol className="mt-10 space-y-6">
-        {data.answers.map((a, idx) => {
-          const correctIdx = a.questions.correct_index;
+        {reviewItems.map(({ question, answer }, idx) => {
+          const correctIdx = question.correct_index;
+          const answered = !!answer;
           return (
             <motion.li
-              key={a.question_id}
+              key={question.id}
               initial={{ opacity: 0, y: 24 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-40px" }}
@@ -285,33 +458,66 @@ function ResultPage() {
               className="rounded-2xl border border-border bg-card p-6 transition-shadow hover:shadow-lg"
             >
               <div className="flex items-start justify-between gap-3">
-                <p className="text-base">{a.questions.prompt}</p>
-                {a.is_correct ? (
+                <p className="text-base">
+                  <span className="mr-1.5 text-sm text-muted-foreground">{idx + 1}.</span>
+                  {question.prompt}
+                </p>
+                {!answered ? (
+                  <MinusCircle className="mt-1 h-5 w-5 shrink-0 text-muted-foreground" />
+                ) : answer.is_correct ? (
                   <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-success" />
                 ) : (
                   <XCircle className="mt-1 h-5 w-5 shrink-0 text-destructive" />
                 )}
               </div>
+
+              {!answered && (
+                <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                  Not answered
+                </p>
+              )}
+
               <div className="mt-4 grid gap-2 text-sm">
-                {(a.questions.choices as string[]).map((c, i) => (
-                  <div
-                    key={i}
-                    className={`rounded-lg border p-2.5 transition-colors ${
-                      i === correctIdx
-                        ? "border-success/60 bg-success/10"
-                        : i === a.selected_index
-                          ? "border-destructive/50 bg-destructive/10"
-                          : "border-border"
-                    }`}
-                  >
-                    {c}
-                  </div>
-                ))}
+                {(question.choices as string[]).map((c, i) => {
+                  const isCorrect = i === correctIdx;
+                  const isPicked = answered && i === answer.selected_index;
+                  return (
+                    <div
+                      key={i}
+                      className={`flex items-center justify-between gap-3 rounded-lg border p-2.5 transition-colors ${
+                        isCorrect
+                          ? "border-success/60 bg-success/10"
+                          : isPicked
+                            ? "border-destructive/50 bg-destructive/10"
+                            : "border-border"
+                      }`}
+                    >
+                      <span>{c}</span>
+                      {isCorrect && (
+                        <span className="shrink-0 text-xs font-medium text-success">
+                          Correct answer
+                        </span>
+                      )}
+                      {isPicked && !isCorrect && (
+                        <span className="shrink-0 text-xs font-medium text-destructive">
+                          Your answer
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              {a.questions.explanation && (
+
+              {!answered && (
+                <p className="mt-3 text-sm">
+                  <span className="font-medium text-foreground">Correct answer:</span>{" "}
+                  {question.choices[correctIdx]}
+                </p>
+              )}
+
+              {question.explanation && (
                 <p className="mt-4 rounded-lg bg-muted/60 p-3 text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">Why:</span>{" "}
-                  {a.questions.explanation}
+                  <span className="font-medium text-foreground">Why:</span> {question.explanation}
                 </p>
               )}
             </motion.li>

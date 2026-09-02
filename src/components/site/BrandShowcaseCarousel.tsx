@@ -31,7 +31,7 @@ const AUTOPLAY_MS = 3000;
  */
 export type BrandShowcaseCta = {
   label: string;
-  to: "/courses" | "/onboarding/vark" | "/signup";
+  to: "/courses" | "/onboarding/preferences" | "/signup";
 };
 
 export function BrandShowcaseCarousel({ cta }: { cta: BrandShowcaseCta }) {
@@ -150,7 +150,7 @@ function Wordmark({ on }: { on: "light" | "dark" }) {
 function LightSlide() {
   const chips = ["AI-Powered", "Adaptive", "Multimodal"];
   const highlights = [
-    { Icon: Brain, text: "Adapts every lesson to your VARK learning style" },
+    { Icon: Brain, text: "Adapts to how you prefer to learn" },
     { Icon: Headphones, text: "Switches between text, video, and audio" },
     { Icon: Target, text: "Quizzes that get smarter as you improve" },
   ];
@@ -279,7 +279,7 @@ function DarkSlide() {
 /** "Study in a way that works for you." — gradient panel, checklist + join CTA. */
 function GradientSlide({ cta }: { cta: BrandShowcaseCta }) {
   const checklist = [
-    { Icon: CheckCircle2, text: "Identify your learning style" },
+    { Icon: CheckCircle2, text: "Set how you prefer to learn" },
     { Icon: Headphones, text: "Access engaging content in text, audio & video" },
     { Icon: Sparkles, text: "Test your knowledge with smart quizzes" },
     { Icon: RotateCcw, text: "Get instant feedback and improve" },

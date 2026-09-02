@@ -10,7 +10,6 @@ import {
   Ear,
   Eye,
   FileText,
-  Hand,
   Play,
   Sparkles,
   TrendingUp,
@@ -26,11 +25,11 @@ const AUTOPLAY_MS = 3000;
 
 const SLIDES = [
   {
-    id: "vark",
+    id: "preferences",
     tag: "Step 1 · Onboarding",
-    title: "Learn how you actually learn",
-    body: "A 16-question VARK intake pins down whether you absorb ideas best by seeing, hearing, reading, or doing — then every lesson adapts to match.",
-    Visual: VarkVisual,
+    title: "Tell us how you like to learn",
+    body: "A short, optional set of learning preferences — how you like explanations, which lesson format suits you — that AceTutor uses to shape each topic. Change them anytime.",
+    Visual: PreferencesVisual,
   },
   {
     id: "modality",
@@ -199,19 +198,18 @@ export function FeatureCarousel() {
 
 /* -------------------------------- Visuals -------------------------------- */
 
-function VarkVisual() {
+function PreferencesVisual() {
   const opts = [
+    { icon: FileText, label: "Written", active: true },
     { icon: Eye, label: "Visual" },
-    { icon: Ear, label: "Aural" },
-    { icon: FileText, label: "Read / Write", active: true },
-    { icon: Hand, label: "Kinesthetic" },
+    { icon: Ear, label: "Audio" },
   ];
   return (
     <div className="flex h-full flex-col justify-center">
       <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-        VARK intake · Question 7
+        Learning preferences
       </p>
-      <p className="mt-1.5 text-sm font-semibold">How do you best lock in a new idea?</p>
+      <p className="mt-1.5 text-sm font-semibold">How would you like to learn a topic?</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         {opts.map((o, i) => (
           <motion.div
@@ -247,7 +245,7 @@ function VarkVisual() {
         className="mt-3 flex items-center gap-2 rounded-lg bg-secondary/60 px-3 py-2 text-[10px] text-muted-foreground"
       >
         <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
-        Result: Read/Write learner — lessons now default to notes.
+        Topics now open in your preferred format — switch anytime.
       </motion.div>
     </div>
   );

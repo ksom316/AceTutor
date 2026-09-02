@@ -1,4 +1,4 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -12,7 +12,6 @@ import {
   ClipboardList,
   FileText,
   GraduationCap,
-  History,
   Loader2,
   Play,
   Plus,
@@ -37,12 +36,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
 import { askCourse } from "@/lib/course-chat.functions";
 import {
+  buildPerformanceSummary,
+  computeCoursePerformance,
+  type PerfAttempt,
+} from "@/lib/quiz-performance";
+import {
   attemptsUsageLabel,
   canAttemptCourseQuiz,
   deadlineStatus,
   formatDeadline,
 } from "@/lib/course-quiz";
 import { useAuth } from "@/hooks/use-auth";
+import { useRole } from "@/hooks/use-role";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { toast } from "sonner";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
@@ -65,11 +70,15 @@ type AttemptRow = {
   score: number;
   total: number;
   finished_at: string | null;
+  answered_count: number | null;
+  started_at: string | null;
 };
 
 function CourseDetail() {
   const { slug } = Route.useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
+  const { isLecturer } = useRole();
   const qc = useQueryClient();
   const ask = useServerFn(askCourse);
   const [input, setInput] = useState("");
@@ -128,7 +137,7 @@ function CourseDetail() {
       const ids = topics.map((t) => t.id);
       const { data } = await supabase
         .from("quiz_attempts")
-        .select("id, topic_id, score, total, finished_at")
+        .select("id, topic_id, score, total, finished_at, answered_count, started_at")
         .eq("user_id", user!.id)
         .in("topic_id", ids);
       return (data ?? []) as AttemptRow[];
@@ -183,67 +192,31 @@ function CourseDetail() {
     },
   });
 
-  const analytics = useMemo(() => {
-    const finished = attempts.filter((a) => a.finished_at);
-    const byTopic = new Map<string, { score: number; total: number; count: number }>();
-    for (const a of finished) {
-      const cur = byTopic.get(a.topic_id) ?? { score: 0, total: 0, count: 0 };
-      cur.score += a.score;
-      cur.total += a.total;
-      cur.count += 1;
-      byTopic.set(a.topic_id, cur);
-    }
-    const perTopic = topics.map((t) => {
-      const m = byTopic.get(t.id);
-      const pct = m && m.total > 0 ? Math.round((m.score / m.total) * 100) : null;
-      return { topic: t, accuracy: pct, attempts: m?.count ?? 0 };
-    });
-    const scored = perTopic.filter((p) => p.accuracy !== null) as {
-      topic: TopicRow;
-      accuracy: number;
-      attempts: number;
-    }[];
-    const totalScore = finished.reduce((s, a) => s + a.score, 0);
-    const totalQ = finished.reduce((s, a) => s + a.total, 0);
-    const overall = totalQ > 0 ? Math.round((totalScore / totalQ) * 100) : 0;
-    const completed = perTopic.filter((p) => p.attempts > 0).length;
-    const progress = topics.length > 0 ? Math.round((completed / topics.length) * 100) : 0;
-    const weak = [...scored]
-      .sort((a, b) => a.accuracy - b.accuracy)
-      .slice(0, 3)
-      .filter((p) => p.accuracy < 70);
-    const strong = [...scored]
-      .sort((a, b) => b.accuracy - a.accuracy)
-      .slice(0, 3)
-      .filter((p) => p.accuracy >= 70);
-    const nextTopic = topics.find((t) => !byTopic.has(t.id)) ?? topics[0];
-    return { perTopic, overall, progress, completed, weak, strong, nextTopic };
-  }, [attempts, topics]);
-
-  const topicTitleById = useMemo(
-    () => new Map(topics.map((t) => [t.id, t.title] as const)),
-    [topics],
+  // Shared performance model — per-module, evidence-gated. See
+  // src/lib/quiz-performance.ts.
+  const perf = useMemo(
+    () => computeCoursePerformance(topics, attempts as PerfAttempt[]),
+    [topics, attempts],
   );
 
-  const performanceSummary = useMemo(() => {
-    if (analytics.perTopic.length === 0) return "";
+  // Module completion / "next module" / course-progress %: unchanged behaviour —
+  // a topic counts as attempted once it has any finished attempt (blank
+  // included). Drives the header CTA + progress bar only, never the performance
+  // view.
+  const analytics = useMemo(() => {
+    const finishedTopicIds = new Set(attempts.filter((a) => a.finished_at).map((a) => a.topic_id));
+    const completed = topics.filter((t) => finishedTopicIds.has(t.id)).length;
+    const progress = topics.length > 0 ? Math.round((completed / topics.length) * 100) : 0;
+    const nextTopic = topics.find((t) => !finishedTopicIds.has(t.id)) ?? topics[0];
+    return { completed, progress, nextTopic };
+  }, [attempts, topics]);
 
-    const lines = [
-      `Overall accuracy: ${analytics.overall}%`,
-      `Modules completed: ${analytics.completed}/${topics.length}`,
-      "",
-      "Available course modules and student performance:",
-      ...analytics.perTopic.map((p) => {
-        if (p.accuracy === null) {
-          return `- ${p.topic.title}: Not attempted`;
-        }
-
-        return `- ${p.topic.title}: ${p.accuracy}% (${p.attempts} attempt${p.attempts === 1 ? "" : "s"})`;
-      }),
-    ];
-
-    return lines.join("\n");
-  }, [analytics, topics.length]);
+  // Fed to the AI tutor's "recommend" mode. "" (no recommendations) when the
+  // student has no reliable quiz data yet.
+  const performanceSummary = useMemo(
+    () => buildPerformanceSummary(perf, topics.length),
+    [perf, topics.length],
+  );
 
   const enroll = useMutation({
     mutationFn: async () => {
@@ -702,30 +675,38 @@ function CourseDetail() {
                   <CardTitle className="text-lg">Your performance</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {attempts.length === 0 ? (
+                  {perf.state === "no-data" ? (
                     <p className="text-sm text-muted-foreground">
-                      Take a quiz to start seeing your strong and weak areas.
+                      {perf.unusableAttemptCount > 0
+                        ? "Your quiz attempts so far don't have enough answered questions to assess. Take a quiz and answer the questions to see your strong and weak areas."
+                        : "Take a quiz to start seeing your strong and weak areas."}
+                    </p>
+                  ) : perf.state === "insufficient" ? (
+                    <p className="text-sm text-muted-foreground">
+                      You&apos;ve started quizzes here, but none has enough answered questions yet
+                      for a reliable assessment. Answer more of a module&apos;s quiz to see where
+                      you stand.
                     </p>
                   ) : (
                     <div className="grid gap-6 md:grid-cols-3">
                       <div className="rounded-xl border border-border p-4">
                         <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                          Overall accuracy
+                          Course average
                         </p>
-                        <p className="mt-1 font-display text-3xl">{analytics.overall}%</p>
-                        <Progress value={analytics.overall} className="mt-3" />
+                        <p className="mt-1 font-display text-3xl">{perf.overall ?? 0}%</p>
+                        <Progress value={perf.overall ?? 0} className="mt-3" />
                       </div>
                       <div className="rounded-xl border border-border p-4">
                         <p className="flex items-center gap-1 text-xs uppercase tracking-wider text-muted-foreground">
-                          <TrendingDown className="h-3.5 w-3.5" /> Weak topics
+                          <TrendingDown className="h-3.5 w-3.5" /> Weak modules
                         </p>
-                        {analytics.weak.length === 0 ? (
+                        {perf.weak.length === 0 ? (
                           <p className="mt-2 text-sm text-muted-foreground">
                             Nothing weak yet — nice.
                           </p>
                         ) : (
                           <ul className="mt-2 space-y-1.5 text-sm">
-                            {analytics.weak.map((w) => (
+                            {perf.weak.map((w) => (
                               <li key={w.topic.id} className="flex items-center justify-between">
                                 <span className="truncate">{w.topic.title}</span>
                                 <Badge variant="secondary">{w.accuracy}%</Badge>
@@ -736,15 +717,15 @@ function CourseDetail() {
                       </div>
                       <div className="rounded-xl border border-border p-4">
                         <p className="flex items-center gap-1 text-xs uppercase tracking-wider text-muted-foreground">
-                          <TrendingUp className="h-3.5 w-3.5" /> Strong topics
+                          <TrendingUp className="h-3.5 w-3.5" /> Strong modules
                         </p>
-                        {analytics.strong.length === 0 ? (
+                        {perf.strong.length === 0 ? (
                           <p className="mt-2 text-sm text-muted-foreground">
                             Keep practicing to build strengths.
                           </p>
                         ) : (
                           <ul className="mt-2 space-y-1.5 text-sm">
-                            {analytics.strong.map((w) => (
+                            {perf.strong.map((w) => (
                               <li key={w.topic.id} className="flex items-center justify-between">
                                 <span className="truncate">{w.topic.title}</span>
                                 <Badge>{w.accuracy}%</Badge>
@@ -757,6 +738,11 @@ function CourseDetail() {
                   )}
                 </CardContent>
               </Card>
+            )}
+
+            {/* PERSONALIZED LEARNING — the ONE adaptive-remediation surface. */}
+            {course?.id && user && isEnrolled && !isLecturer && (
+              <PersonalizedLearningSection courseId={course.id} perf={perf} enabled />
             )}
 
             {/* MODULES — the student's primary access to the official course
@@ -772,7 +758,7 @@ function CourseDetail() {
                 ) : (
                   <Accordion type="multiple" className="w-full">
                     {topics.map((t, idx) => {
-                      const stat = analytics.perTopic.find((p) => p.topic.id === t.id);
+                      const stat = perf.perTopic.find((p) => p.topic.id === t.id);
                       return (
                         <AccordionItem key={t.id} value={t.id}>
                           <AccordionTrigger className="hover:no-underline">
@@ -881,17 +867,6 @@ function CourseDetail() {
               </Card>
             )}
 
-            {/* PERSONALIZED LEARNING — the student's own saved AI study paths: a
-                library/overview that links out to each dedicated study path page.
-                Answers "what targeted revision has AceTutor built for me?". Kept
-                separate from the official modules above and from course progress. */}
-            {course?.id && (
-              <PersonalizedLearningSection
-                courseId={course.id}
-                topicTitleById={topicTitleById}
-                enabled={!!user && isEnrolled}
-              />
-            )}
           </div>
 
           {/* QUICK ACTIONS SIDEBAR */}
@@ -901,66 +876,42 @@ function CourseDetail() {
                 <CardTitle className="text-base">Quick actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {analytics.nextTopic && (
+                {user && isEnrolled && !isLecturer ? (
+                  <>
+                    {perf.state === "weak" && (
+                      <Button asChild variant="outline" className="w-full justify-start rounded-lg">
+                        <Link to="/study-path/$courseId" params={{ courseId: course.id }}>
+                          <Sparkles className="mr-2 h-4 w-4" /> Personalized Learning
+                        </Link>
+                      </Button>
+                    )}
+                    <Button asChild variant="outline" className="w-full justify-start rounded-lg">
+                      <Link to="/performance/$courseId" params={{ courseId: course.id }}>
+                        <Target className="mr-2 h-4 w-4" /> My Performance
+                      </Link>
+                    </Button>
+                    <Button asChild variant="outline" className="w-full justify-start rounded-lg">
+                      <Link to="/quizzes/$courseId" params={{ courseId: course.id }}>
+                        <Brain className="mr-2 h-4 w-4" /> Take a Quiz
+                      </Link>
+                    </Button>
+                  </>
+                ) : (
                   <Button
                     variant="outline"
                     className="w-full justify-start rounded-lg"
                     onClick={() => {
-                      if (!isEnrolled) {
-                        toast.error("Enroll to continue learning", {
-                          description: "You need to be enrolled to access modules.",
-                          action: user ? {
-                            label: "Enroll",
-                            onClick: () => enroll.mutate(),
-                          } : undefined,
-                        });
+                      if (!user) {
+                        navigate({ to: "/login", search: { redirect: `/courses/${slug}` } });
                         return;
                       }
-                      window.location.href = `/topic/${analytics.nextTopic.id}`;
+                      if (!isEnrolled) enroll.mutate();
                     }}
                   >
                     <Play className="mr-2 h-4 w-4" />{" "}
-                    {COURSE_CTA_LABEL[courseCtaState(analytics.progress)]}
+                    {user ? "Enroll to unlock quizzes" : "Sign in to get started"}
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  className="w-full justify-start rounded-lg"
-                  onClick={() => {
-                    if (!isEnrolled) {
-                      toast.error("Enroll to ask AI tutor", {
-                        description: "You need to be enrolled to use AI features.",
-                        action: user ? {
-                          label: "Enroll",
-                          onClick: () => enroll.mutate(),
-                        } : undefined,
-                      });
-                      return;
-                    }
-                    document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                >
-                  <Sparkles className="mr-2 h-4 w-4" /> Ask AI Tutor
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full justify-start rounded-lg"
-                  onClick={() => {
-                    if (!isEnrolled) {
-                      toast.error("Enroll to view results", {
-                        description: "You need to be enrolled to view your progress.",
-                        action: user ? {
-                          label: "Enroll",
-                          onClick: () => enroll.mutate(),
-                        } : undefined,
-                      });
-                      return;
-                    }
-                    window.location.href = "/dashboard";
-                  }}
-                >
-                  <History className="mr-2 h-4 w-4" /> View past results
-                </Button>
               </CardContent>
             </Card>
 
@@ -971,7 +922,7 @@ function CourseDetail() {
                 </CardHeader>
                 <CardContent>
                   <ul className="space-y-2 text-sm">
-                    {analytics.perTopic.map((p) => (
+                    {perf.perTopic.map((p) => (
                       <li key={p.topic.id} className="flex items-center justify-between gap-2">
                         <span className="flex items-center gap-2 truncate">
                           {p.attempts > 0 ? (

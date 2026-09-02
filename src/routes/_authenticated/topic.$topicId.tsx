@@ -40,11 +40,13 @@ type TopicDetail = {
   courses: { title: string; slug: string } | null;
 };
 
-const VARK_TO_MODALITY: Record<string, Modality> = {
+// A student's preferred lesson format (learning_preferences.lesson_format) maps
+// to a lesson modality. It only chooses the default tab — every available format
+// stays selectable, and an unavailable preferred format falls back gracefully.
+const FORMAT_TO_MODALITY: Record<string, Modality> = {
+  written: "text",
   visual: "video",
-  aural: "audio",
-  read_write: "text",
-  kinesthetic: "text",
+  audio: "audio",
 };
 
 // Canonical tab order. A tab is rendered only when the topic actually has at
@@ -71,7 +73,7 @@ function TopicPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   // The tab the student explicitly picked, if any. The active tab is derived
-  // from this + VARK preference + what is actually available.
+  // from this + the student's preferred lesson format + what is available.
   const [picked, setPicked] = useState<Modality | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -112,18 +114,21 @@ function TopicPage() {
   // Study time on a module belongs to its course.
   useStudyCourse(data?.topic?.course_id);
 
-  const { data: profile } = useQuery({
-    queryKey: ["profile-modality", user?.id],
+  const { data: learningPrefs } = useQuery({
+    queryKey: ["topic-learning-prefs", user?.id],
     enabled: !!user,
     queryFn: async () => {
       const { data } = await supabase
-        .from("profiles")
-        .select("vark_primary")
-        .eq("id", user!.id)
+        .from("learning_preferences")
+        .select("lesson_format")
+        .eq("user_id", user!.id)
         .maybeSingle();
       return data;
     },
   });
+  const preferredModality = learningPrefs?.lesson_format
+    ? FORMAT_TO_MODALITY[learningPrefs.lesson_format]
+    : undefined;
 
   // Whether the lecturer has published a quiz for this module. Completing the
   // module requires finishing its quiz, so an unpublished quiz is surfaced here.
@@ -159,10 +164,11 @@ function TopicPage() {
   const activeModality = useMemo<Modality | undefined>(() => {
     if (availableModalities.length === 0) return undefined;
     if (picked && availableModalities.includes(picked)) return picked;
-    const varkPref = profile?.vark_primary ? VARK_TO_MODALITY[profile.vark_primary] : undefined;
-    if (varkPref && availableModalities.includes(varkPref)) return varkPref;
+    if (preferredModality && availableModalities.includes(preferredModality)) {
+      return preferredModality;
+    }
     return availableModalities[0];
-  }, [availableModalities, picked, profile?.vark_primary]);
+  }, [availableModalities, picked, preferredModality]);
 
   if (isLoading) {
     return (
@@ -291,7 +297,7 @@ function TopicPage() {
                   />
                 )}
                 <Icon className="h-4 w-4" /> {label}
-                {profile?.vark_primary && VARK_TO_MODALITY[profile.vark_primary] === k && (
+                {preferredModality === k && (
                   <Sparkles
                     className={`ml-0.5 h-3 w-3 ${isActive ? "text-primary-foreground" : "text-accent"}`}
                   />

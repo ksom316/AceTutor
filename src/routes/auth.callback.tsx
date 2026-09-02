@@ -135,9 +135,9 @@ async function waitForSessionAndNavigate(
 }
 
 /**
- * Sync the Google profile info (name, avatar) into the database and navigate
- * to the correct destination: onboarding for first-time users, redirect/dashboard
- * for returning users.
+ * Sync the Google profile info (name, avatar) into the database and navigate to
+ * the correct destination: an explicit in-app redirect target if one was set,
+ * otherwise the Home page (for every role).
  */
 async function syncProfileAndNavigate(
   user: NonNullable<ReturnType<typeof useAuth>["user"]>,
@@ -150,7 +150,7 @@ async function syncProfileAndNavigate(
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, avatar_url, vark_primary")
+    .select("full_name, avatar_url")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -174,12 +174,12 @@ async function syncProfileAndNavigate(
         ? searchRedirect
         : undefined;
 
-  // First-time (no VARK yet) → onboarding; returning user → redirect/dashboard.
-  const fallback = profile?.vark_primary ? "/dashboard" : "/onboarding/vark";
-  const target = redirectTarget || fallback;
+  // Default post-auth destination is the Home page for every role (not the
+  // dashboard). An explicit in-app redirect target (e.g. OAuth started from the
+  // login page, or a `?redirect=` deep link) still wins. Students are invited to
+  // set Learning Preferences by the Home-page nudge, so there is no forced
+  // onboarding redirect here.
+  const target = redirectTarget || "/";
 
-  navigate({
-    to: profile?.vark_primary && target === "/onboarding/vark" ? "/dashboard" : target,
-    replace: true,
-  });
+  navigate({ to: target, replace: true });
 }

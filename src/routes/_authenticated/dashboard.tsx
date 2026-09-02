@@ -41,12 +41,30 @@ function Dashboard() {
     queryFn: async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, avatar_url, vark_primary")
+        .select("full_name, avatar_url")
         .eq("id", user!.id)
         .maybeSingle();
       return data;
     },
   });
+
+  const { data: learningPrefs } = useQuery({
+    queryKey: ["learning-preferences", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("learning_preferences")
+        .select("explanation_style, lesson_format, wrong_answer_help")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      return data;
+    },
+  });
+  const hasPreferences = !!(
+    learningPrefs?.explanation_style ||
+    learningPrefs?.lesson_format ||
+    learningPrefs?.wrong_answer_help
+  );
 
   const { data: avatarUrl } = useQuery({
     queryKey: ["dash-avatar", profile?.avatar_url],
@@ -421,11 +439,11 @@ function Dashboard() {
             <StatTile icon={Target} label="Avg score" value={quizzes ? `${avgScore}%` : "—"} />
           </motion.div>
 
-          {/* VARK nudge */}
-          {!profile?.vark_primary && (
+          {/* Learning preferences nudge */}
+          {!hasPreferences && (
             <motion.div variants={staggerItem}>
               <Link
-                to="/onboarding/vark"
+                to="/onboarding/preferences"
                 className="flex items-start gap-3 rounded-2xl border border-primary/25 bg-primary/10 p-4 transition-colors hover:bg-primary/15"
               >
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
@@ -434,7 +452,7 @@ function Dashboard() {
                 <div>
                   <p className="text-sm font-medium">Personalize your learning</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Take the 16-question VARK intake to tailor every lesson.
+                    Tell AceTutor how you prefer explanations and lesson formats.
                   </p>
                 </div>
               </Link>

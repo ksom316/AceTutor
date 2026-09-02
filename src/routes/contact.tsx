@@ -62,7 +62,7 @@ const studentTopics = [
   "Finding and enrolling in a course",
   "Lessons, quizzes and your results",
   "Personalized study paths and the AI tutor",
-  "Progress tracking and your learning style",
+  "Progress tracking and learning preferences",
   "Account or sign-in problems",
 ];
 

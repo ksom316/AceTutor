@@ -44,7 +44,7 @@ const tips = [
     nav: "What data we keep",
     icon: Database,
     title: "Know what data we keep",
-    body: "We store your profile, learning style (VARK) results, course enrolments, and quiz attempts so we can personalise your lessons. This data is used to improve your learning experience, not sold to third parties.",
+    body: "We store your profile, learning preferences, course enrolments, and quiz attempts so we can personalise your lessons. This data is used to improve your learning experience, not sold to third parties.",
   },
   {
     id: "public-networks",

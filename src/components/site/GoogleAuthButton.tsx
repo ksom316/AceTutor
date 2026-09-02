@@ -9,8 +9,7 @@ import { GoogleIcon } from "@/components/site/GoogleIcon";
  * Opens the in-app Google account chooser (/auth/google), which mirrors
  * Google's OAuth picker: demo accounts sign in/up directly, and "Use another
  * account" runs the real Google OAuth flow. Either way /auth/callback syncs
- * profile info and routes new users to onboarding, returning users to
- * `redirect`.
+ * profile info and sends the user to `redirect` (defaulting to the Home page).
  */
 export function GoogleAuthButton({
   label = "Continue with Google",

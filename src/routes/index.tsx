@@ -488,7 +488,7 @@ function AuthedHome({ userId }: { userId: string }) {
     queryFn: async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("full_name, vark_primary, avatar_url")
+        .select("full_name, avatar_url")
         .eq("id", userId)
         .maybeSingle();
       return data;
@@ -496,6 +496,24 @@ function AuthedHome({ userId }: { userId: string }) {
   });
 
   const { isLecturer } = useRole();
+
+  const { data: learningPrefs } = useQuery({
+    queryKey: ["learning-preferences", userId],
+    enabled: !isLecturer,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("learning_preferences")
+        .select("explanation_style, lesson_format, wrong_answer_help")
+        .eq("user_id", userId)
+        .maybeSingle();
+      return data;
+    },
+  });
+  const hasPreferences = !!(
+    learningPrefs?.explanation_style ||
+    learningPrefs?.lesson_format ||
+    learningPrefs?.wrong_answer_help
+  );
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
   const today = new Date().toLocaleDateString(undefined, {
     weekday: "long",
@@ -521,12 +539,12 @@ function AuthedHome({ userId }: { userId: string }) {
       {isLecturer ? (
         <LecturerPanels />
       ) : (
-        <StudentHub userId={userId} hasVark={!!profile?.vark_primary} />
+        <StudentHub userId={userId} hasPreferences={hasPreferences} />
       )}
 
-      {!profile?.vark_primary && !isLecturer && (
+      {!hasPreferences && !isLecturer && (
         <Link
-          to="/onboarding/vark"
+          to="/onboarding/preferences"
           className="mt-8 flex items-center justify-between gap-3 rounded-2xl border border-primary/25 bg-primary/10 px-5 py-4 transition-colors hover:bg-primary/15"
         >
           <span className="flex items-center gap-3">
@@ -534,9 +552,9 @@ function AuthedHome({ userId }: { userId: string }) {
               <Brain className="h-4 w-4" />
             </span>
             <span className="text-sm">
-              <span className="font-medium text-foreground">Take the VARK intake</span>
+              <span className="font-medium text-foreground">Personalize your learning</span>
               <span className="block text-xs text-muted-foreground">
-                16 quick questions to tailor every lesson to how you learn.
+                Tell AceTutor how you prefer explanations and lesson formats.
               </span>
             </span>
           </span>
@@ -572,7 +590,7 @@ const HUB_ACTIONS = [
   },
 ] as const;
 
-function StudentHub({ userId, hasVark }: { userId: string; hasVark: boolean }) {
+function StudentHub({ userId, hasPreferences }: { userId: string; hasPreferences: boolean }) {
   const { continueCourse, perCourse } = useStudentDashboard(userId);
 
   return (
@@ -606,9 +624,9 @@ function StudentHub({ userId, hasVark }: { userId: string; hasVark: boolean }) {
       {/* Brand showcase — the three poster designs, recreated as scrollable slides. */}
       <BrandShowcaseCarousel
         cta={
-          hasVark
+          hasPreferences
             ? { label: "Browse courses", to: "/courses" }
-            : { label: "Take the VARK intake", to: "/onboarding/vark" }
+            : { label: "Set your learning preferences", to: "/onboarding/preferences" }
         }
       />
     </>

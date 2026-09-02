@@ -109,6 +109,30 @@ export type Database = {
           },
         ];
       };
+      learning_preferences: {
+        Row: {
+          explanation_style: string | null;
+          lesson_format: string | null;
+          updated_at: string;
+          user_id: string;
+          wrong_answer_help: string | null;
+        };
+        Insert: {
+          explanation_style?: string | null;
+          lesson_format?: string | null;
+          updated_at?: string;
+          user_id: string;
+          wrong_answer_help?: string | null;
+        };
+        Update: {
+          explanation_style?: string | null;
+          lesson_format?: string | null;
+          updated_at?: string;
+          user_id?: string;
+          wrong_answer_help?: string | null;
+        };
+        Relationships: [];
+      };
       lecturer_slots: {
         Row: {
           claimed_at: string | null;
@@ -821,6 +845,10 @@ export type Database = {
           saved_at: string | null;
           completed_at: string | null;
         };
+      };
+      delete_study_path: {
+        Args: { _id: string };
+        Returns: undefined;
       };
     };
     Enums: {

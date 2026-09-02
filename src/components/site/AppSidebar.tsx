@@ -107,6 +107,26 @@ export function AppSidebar({ user }: { user: User }) {
     },
   });
 
+  // Student-only: hide the "Learning preferences" footer nudge once any
+  // preference is set. Never queried for lecturers.
+  const { data: learningPrefs } = useQuery({
+    queryKey: ["learning-preferences", user.id],
+    enabled: !isLecturer,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("learning_preferences")
+        .select("explanation_style, lesson_format, wrong_answer_help")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      return data;
+    },
+  });
+  const hasPreferences = !!(
+    learningPrefs?.explanation_style ||
+    learningPrefs?.lesson_format ||
+    learningPrefs?.wrong_answer_help
+  );
+
   const { data: avatarUrl } = useQuery({
     queryKey: ["avatar-signed", profile?.avatar_url],
     enabled: !!profile?.avatar_url,
@@ -199,14 +219,14 @@ export function AppSidebar({ user }: { user: User }) {
       </SidebarContent>
 
       <SidebarFooter className="gap-2">
-        {!isLecturer && (
+        {!isLecturer && !hasPreferences && (
           <Link
-            to="/onboarding/vark"
+            to="/onboarding/preferences"
             onClick={closeMobile}
             className="flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15 group-data-[collapsible=icon]:hidden"
           >
             <GraduationCap className="h-4 w-4 shrink-0" />
-            <span className="truncate">Personalize with VARK</span>
+            <span className="truncate">Set your learning preferences</span>
           </Link>
         )}
         <div className="flex items-center gap-2.5 rounded-xl border border-border bg-card p-2 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:p-0">

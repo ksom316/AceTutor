@@ -182,8 +182,8 @@ export function HeroPreview() {
             <GraduationCap className="h-4 w-4" />
           </span>
           <div>
-            <p className="text-[10px] font-semibold leading-tight">VARK style</p>
-            <p className="text-[9px] text-muted-foreground">Visual learner</p>
+            <p className="text-[10px] font-semibold leading-tight">Learning preferences</p>
+            <p className="text-[9px] text-muted-foreground">Your way to learn</p>
           </div>
         </div>
       </motion.div>

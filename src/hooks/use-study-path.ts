@@ -15,13 +15,13 @@ import {
 /**
  * Client access to the AI Study Path backend.
  *
- *   useStudyPath(attemptId)        — one attempt: query + generate + complete +
- *                                    add/remove from My Learning
- *   useCourseStudyPaths(courseId)  — the student's SAVED paths for one course
+ *   useStudyPath(attemptId)        — one attempt: query + generate + complete
+ *   useStudyPathById(studyPathId)  — one path by id: query + complete + remove
+ *   useCourseStudyPaths(courseId)  — the student's Study Paths for one course
  *
  * All generation / AI / persistence logic lives in study-path.functions.ts and
  * the SECURITY DEFINER RPCs (save_study_path, mark_study_path_completed,
- * set_study_path_saved). These hooks only wire those calls to React Query. They
+ * delete_study_path). These hooks only wire those calls to React Query. They
  * never touch the ["result", attemptId] cache, and never affect official course
  * progress.
  */
@@ -121,15 +121,6 @@ export function useStudyPath(attemptId: string, options?: { enabled?: boolean })
     onError: () => toast.error("Couldn't save that just now. Please try again."),
   });
 
-  const setSaved = useMutation({
-    mutationFn: async ({ id, saved }: { id: string; saved: boolean }) => {
-      const { error } = await supabase.rpc("set_study_path_saved", { _id: id, _saved: saved });
-      if (error) throw error;
-    },
-    onSuccess: invalidate,
-    onError: () => toast.error("Couldn't update My Learning just now. Please try again."),
-  });
-
   return {
     /** The student's validated study path for this attempt, or null if none. */
     studyPath: query.data ?? null,
@@ -143,20 +134,16 @@ export function useStudyPath(attemptId: string, options?: { enabled?: boolean })
     generateResult: generate.data ?? null,
     markCompleted: (id: string) => complete.mutate(id),
     completing: complete.isPending,
-    /** Add to / remove from the student's "My Learning" area (reversible). */
-    setSaved: (id: string, saved: boolean) => setSaved.mutate({ id, saved }),
-    savingSaved: setSaved.isPending,
   };
 }
 
 /* ------------------------------------------------------------------ */
 
 /**
- * A single saved/generated study path by its own id — for the dedicated study
- * path learning page. RLS (`study_paths_select_own`) guarantees the row is
- * returned only to its owner; the id is the only input and `user_id` is never
- * sent from the client. Reuses the same generate-free read + the completion and
- * "My Learning" mutations as {@link useStudyPath}.
+ * A single generated study path by its own id — for the dedicated study path
+ * learning page. RLS (`study_paths_select_own`) guarantees the row is returned
+ * only to its owner; the id is the only input. Exposes the same completion and
+ * removal entry points as {@link useCourseStudyPaths}.
  */
 export function useStudyPathById(studyPathId: string, options?: { enabled?: boolean }) {
   const { user } = useAuth();
@@ -193,13 +180,16 @@ export function useStudyPathById(studyPathId: string, options?: { enabled?: bool
     onError: () => toast.error("Couldn't save that just now. Please try again."),
   });
 
-  const setSaved = useMutation({
-    mutationFn: async ({ id, saved }: { id: string; saved: boolean }) => {
-      const { error } = await supabase.rpc("set_study_path_saved", { _id: id, _saved: saved });
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("delete_study_path", { _id: id });
       if (error) throw error;
     },
-    onSuccess: invalidate,
-    onError: () => toast.error("Couldn't update My Learning just now. Please try again."),
+    onSuccess: () => {
+      toast.success("Study Path removed");
+      invalidate();
+    },
+    onError: () => toast.error("Couldn't remove that Study Path just now. Please try again."),
   });
 
   return {
@@ -208,8 +198,8 @@ export function useStudyPathById(studyPathId: string, options?: { enabled?: bool
     isError: query.isError,
     markCompleted: (id: string) => complete.mutate(id),
     completing: complete.isPending,
-    setSaved: (id: string, saved: boolean) => setSaved.mutate({ id, saved }),
-    savingSaved: setSaved.isPending,
+    removeStudyPath: (id: string, opts?: { onSuccess?: () => void }) => remove.mutate(id, opts),
+    removing: remove.isPending,
   };
 }
 
@@ -222,29 +212,53 @@ export type CourseStudyPathStats = {
 };
 
 /**
- * The student's SAVED study paths for one course (module + general). RLS
- * (`study_paths_select_own`) guarantees only the caller's own rows — the
- * `user_id` is never sent from the client.
+ * A module's CURRENT Study Path action, derived from the shared performance
+ * model's `currentStudyPathAttemptId` and the course's Study Path rows. The one
+ * interpretation of "does this module currently have a Study Path" — reused by
+ * Personalized Learning and My Performance so their CTAs never diverge. An older
+ * (historical) path for the module never produces "continue" / "review".
+ */
+export type ModuleStudyPathCta =
+  | { kind: "build"; studyPathId: null; path: null }
+  | { kind: "continue"; studyPathId: string; path: ParsedStudyPath }
+  | { kind: "review"; studyPathId: string; path: ParsedStudyPath };
+
+export function moduleStudyPathCta(
+  currentStudyPathAttemptId: string | null,
+  pathsByAttemptId: Map<string, ParsedStudyPath>,
+): ModuleStudyPathCta {
+  const current = currentStudyPathAttemptId
+    ? pathsByAttemptId.get(currentStudyPathAttemptId)
+    : undefined;
+  if (!current) return { kind: "build", studyPathId: null, path: null };
+  return current.completed_at
+    ? { kind: "review", studyPathId: current.id, path: current }
+    : { kind: "continue", studyPathId: current.id, path: current };
+}
+
+/**
+ * The student's study paths for one course (module + general). Defaults to the
+ * SAVED paths ("My Learning"); pass `all: true` to include generated-but-unsaved
+ * paths — needed to recognise a module's current path the moment it is built.
+ * RLS (`study_paths_select_own`) guarantees only the caller's own rows.
  */
 export function useCourseStudyPaths(
   courseId: string | null | undefined,
-  opts?: { enabled?: boolean },
+  opts?: { enabled?: boolean; all?: boolean },
 ) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const enabled = (opts?.enabled ?? true) && !!user && !!courseId;
+  const all = opts?.all ?? false;
 
   const query = useQuery({
-    queryKey: [COURSE_KEY, courseId, user?.id],
+    queryKey: [COURSE_KEY, courseId, user?.id, all ? "all" : "saved"],
     enabled,
     staleTime: 30_000,
     queryFn: async (): Promise<ParsedStudyPath[]> => {
-      const { data, error } = await supabase
-        .from("study_paths")
-        .select(ROW_SELECT)
-        .eq("course_id", courseId!)
-        .not("saved_at", "is", null)
-        .order("created_at", { ascending: false });
+      let q = supabase.from("study_paths").select(ROW_SELECT).eq("course_id", courseId!);
+      if (!all) q = q.not("saved_at", "is", null);
+      const { data, error } = await q.order("created_at", { ascending: false });
       if (error) throw error;
       return ((data ?? []) as unknown as StudyPathDbRow[])
         .map(parseRow)
@@ -275,6 +289,22 @@ export function useCourseStudyPaths(
     onError: () => toast.error("Couldn't update My Learning just now. Please try again."),
   });
 
+  // Delete ONE study_paths row, the caller's own. Via the SECURITY DEFINER
+  // `delete_study_path` RPC — study_paths has no client-facing delete policy by
+  // design. Removes nothing else: quiz attempts, scores, progress, preferences
+  // and other Study Paths are untouched.
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("delete_study_path", { _id: id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Study Path removed");
+      invalidate();
+    },
+    onError: () => toast.error("Couldn't remove that Study Path just now. Please try again."),
+  });
+
   const studyPaths = useMemo<ParsedStudyPath[]>(() => query.data ?? [], [query.data]);
   const stats = useMemo<CourseStudyPathStats>(() => {
     const total = studyPaths.length;
@@ -293,5 +323,7 @@ export function useCourseStudyPaths(
     setSaved: (id: string, saved: boolean) => setSaved.mutate({ id, saved }),
     savingSaved: setSaved.isPending,
     savingSavedId: setSaved.isPending ? (setSaved.variables?.id ?? null) : null,
+    removeStudyPath: (id: string) => remove.mutate(id),
+    removingId: remove.isPending ? (remove.variables ?? null) : null,
   };
 }
