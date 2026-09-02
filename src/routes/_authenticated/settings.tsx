@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useRole } from "@/hooks/use-role";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -44,6 +45,8 @@ const reportIssueHref = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
 )}`;
 
 function SettingsPage() {
+  const { isLecturer } = useRole();
+  const notificationsTo = isLecturer ? "/lecturer/notifications" : "/notifications";
   return (
     <main className="container mx-auto max-w-3xl px-4 py-12">
       {/* Header */}
@@ -70,7 +73,7 @@ function SettingsPage() {
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
           <SettingRow
             as="link"
-            to="/notifications"
+            to={notificationsTo}
             icon={Bell}
             title="Notifications"
             description="Choose what AceTutor can notify you about"
@@ -111,24 +114,44 @@ function SettingsPage() {
       {/* Reset */}
       <motion.section variants={fadeUp} initial="hidden" animate="show" className="mt-8">
         <h2 className="mb-3 px-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Reset
+          {isLecturer ? "Account data" : "Reset"}
         </h2>
-        <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
+        <div
+          className={`rounded-2xl border p-5 ${
+            isLecturer ? "border-border bg-card" : "border-destructive/30 bg-destructive/5"
+          }`}
+        >
           <div className="flex items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-destructive/10 text-destructive">
+            <span
+              className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+                isLecturer ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"
+              }`}
+            >
               <RotateCcw className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">Reset account data</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Clears your course enrollments, lesson progress, quiz history and learning-style
-                result. Your name, profile details and password are kept.
-              </p>
+              {isLecturer ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Reset account data only clears personal learning activity tied to a sign-in — quiz
+                  attempts, recorded study time, course enrollments and the learning-style result.
+                  Lecturer accounts don&apos;t use those, and a reset never touches your assigned
+                  course, its materials, quizzes or enrolled students. There is nothing to reset on
+                  a lecturer account.
+                </p>
+              ) : (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Clears your course enrollments, lesson progress, quiz history and learning-style
+                  result. Your name, profile details and password are kept.
+                </p>
+              )}
             </div>
           </div>
-          <div className="mt-4">
-            <ResetAccountButton />
-          </div>
+          {!isLecturer && (
+            <div className="mt-4">
+              <ResetAccountButton />
+            </div>
+          )}
         </div>
       </motion.section>
 

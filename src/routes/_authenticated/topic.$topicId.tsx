@@ -1,14 +1,16 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import { ArrowRight, FileText, Headphones, PlayCircle, Presentation, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
+import { GuidedReader } from "@/components/course/GuidedReader";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
+import { splitLessonIntoSections } from "@/lib/reading-sections";
 import { fadeUp } from "@/lib/motion";
 
 type Modality = "text" | "video" | "audio" | "slides";
@@ -198,6 +200,48 @@ function TopicPage() {
 
   const activeLessons = activeModality ? groups[activeModality] : [];
 
+  // The module quiz CTA. Its placement depends on modality: for a text lesson it
+  // is shown at the END of the reading (the last Guided Reader page, or below a
+  // short single-page lesson); for video / audio / slides / no-materials it
+  // stays in its own block below the content.
+  const quizCta =
+    hasQuiz === false ? (
+      <div className="rounded-xl border border-dashed border-border bg-card/60 p-5 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground">Module quiz coming soon.</span> Your lecturer
+        hasn&apos;t published this module&apos;s quiz yet. You&apos;ll need to complete it to finish
+        the module.
+      </div>
+    ) : user && !enrollment ? (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5">
+        <p className="font-medium text-foreground">Enroll to take the quiz</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          You need to be enrolled in {data?.topic?.courses?.title || "this course"} to take this
+          module&apos;s quiz.
+        </p>
+        <Button
+          onClick={() =>
+            navigate({
+              to: "/courses/$slug",
+              params: { slug: data?.topic?.courses?.slug || "" },
+            })
+          }
+          className="mt-3 rounded-full"
+        >
+          Go to course to enroll
+        </Button>
+      </div>
+    ) : (
+      <StartQuizButton
+        topicId={topicId}
+        size="lg"
+        className="rounded-full transition-transform hover:scale-[1.02] active:scale-95"
+      >
+        Start quiz <ArrowRight className="ml-1.5 h-4 w-4" />
+      </StartQuizButton>
+    );
+
+  const textLessonReading = activeModality === "text";
+
   return (
     <main className="container mx-auto max-w-4xl px-4 py-12">
       <motion.div variants={fadeUp} initial="hidden" animate="show">
@@ -268,11 +312,16 @@ function TopicPage() {
           className="mt-8 space-y-6"
         >
           {activeModality ? (
-            activeLessons.map((lesson) => (
+            activeLessons.map((lesson, idx) => (
               <div key={lesson.id} className="rounded-2xl border border-border bg-card p-6 md:p-8">
                 <h2 className="font-display text-2xl">{lesson.title}</h2>
                 <div className="mt-5">
-                  <LessonBody lesson={lesson} />
+                  <LessonBody
+                    lesson={lesson}
+                    quizCta={
+                      textLessonReading && idx === activeLessons.length - 1 ? quizCta : undefined
+                    }
+                  />
                 </div>
               </div>
             ))
@@ -290,46 +339,18 @@ function TopicPage() {
         </motion.section>
       </AnimatePresence>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45, ease: EASE, delay: 0.2 }}
-        className="mt-8"
-      >
-        {hasQuiz === false ? (
-          <div className="rounded-xl border border-dashed border-border bg-card/60 p-5 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Module quiz coming soon.</span> Your
-            lecturer hasn&apos;t published this module&apos;s quiz yet. You&apos;ll need to complete
-            it to finish the module.
-          </div>
-        ) : user && !enrollment ? (
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5">
-            <p className="font-medium text-foreground">Enroll to take the quiz</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              You need to be enrolled in {data?.topic?.courses?.title || "this course"} to take this module's quiz.
-            </p>
-            <Button
-              onClick={() =>
-                navigate({
-                  to: "/courses/$slug",
-                  params: { slug: data?.topic?.courses?.slug || "" },
-                })
-              }
-              className="mt-3 rounded-full"
-            >
-              Go to course to enroll
-            </Button>
-          </div>
-        ) : (
-          <StartQuizButton
-            topicId={topicId}
-            size="lg"
-            className="rounded-full transition-transform hover:scale-[1.02] active:scale-95"
-          >
-            Start quiz <ArrowRight className="ml-1.5 h-4 w-4" />
-          </StartQuizButton>
-        )}
-      </motion.div>
+      {/* For a text lesson the quiz CTA lives at the end of the reading (handled
+          by TextLessonBody); every other modality keeps it in its own block. */}
+      {!textLessonReading && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, ease: EASE, delay: 0.2 }}
+          className="mt-8"
+        >
+          {quizCta}
+        </motion.div>
+      )}
     </main>
   );
 }
@@ -338,13 +359,11 @@ function TopicPage() {
  *  Phase 7 — direct/uploaded video uses <video>, provider links use <iframe>,
  *  audio uses <audio>, slides use the PDF iframe + open-in-new-tab link, text
  *  uses the Markdown renderer, and a non-text lesson's body_md is a caption. */
-function LessonBody({ lesson }: { lesson: LessonRow }) {
+function LessonBody({ lesson, quizCta }: { lesson: LessonRow; quizCta?: ReactNode }) {
   return (
     <>
       {lesson.modality === "text" && (
-        <div className="prose-lesson max-w-none text-foreground">
-          <ReactMarkdown>{lesson.body_md ?? ""}</ReactMarkdown>
-        </div>
+        <TextLessonBody markdown={lesson.body_md ?? ""} title={lesson.title} quizCta={quizCta} />
       )}
       {lesson.modality === "video" &&
         lesson.media_url &&
@@ -385,5 +404,69 @@ function LessonBody({ lesson }: { lesson: LessonRow }) {
         <p className="mt-4 text-sm text-muted-foreground">{lesson.body_md}</p>
       )}
     </>
+  );
+}
+
+/**
+ * A text lesson's body. Substantial lessons are shown page-by-page with the
+ * shared `GuidedReader` (the same primitive Personalized Learning uses) —
+ * `splitLessonIntoSections` decides how, preferring Markdown headings and
+ * falling back to evenly sized pages, and returns `null` for short content so it
+ * renders as a single markdown page exactly as before. This never changes lesson
+ * completion — there is no per-lesson completion action on this page.
+ *
+ * `quizCta` (the module quiz CTA) is shown only at the very end of the reading:
+ * on the last Guided Reader page for a paginated lesson, or below the markdown
+ * for a short single-page lesson.
+ */
+function TextLessonBody({
+  markdown,
+  title,
+  quizCta,
+}: {
+  markdown: string;
+  title: string;
+  quizCta?: ReactNode;
+}) {
+  const sections = useMemo(() => splitLessonIntoSections(markdown), [markdown]);
+
+  const endCta = quizCta ? <div className="mt-8 border-t border-border pt-6">{quizCta}</div> : null;
+
+  if (!sections) {
+    return (
+      <>
+        <div className="prose-lesson max-w-none text-foreground">
+          <ReactMarkdown>{markdown}</ReactMarkdown>
+        </div>
+        {endCta}
+      </>
+    );
+  }
+
+  const lastIndex = sections.length - 1;
+  const finalCta = quizCta ? undefined : (
+    <p className="text-sm text-muted-foreground">End of lesson.</p>
+  );
+
+  return (
+    <GuidedReader
+      resetKey={`${title}:${markdown.length}`}
+      ariaLabel={`${title} — guided reading`}
+      stepWord="Page"
+      className="border-0 bg-transparent p-0"
+      finalCta={finalCta}
+      sections={sections.map((s, i) => ({
+        key: `page-${i}`,
+        heading: s.heading ?? undefined,
+        body: (
+          <>
+            <div className="prose-lesson max-w-none text-foreground">
+              <ReactMarkdown>{s.body}</ReactMarkdown>
+            </div>
+            {i === lastIndex && endCta}
+          </>
+        ),
+      }))}
+    />
   );
 }

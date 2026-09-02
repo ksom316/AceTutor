@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 import { secondsByCourse, type StudySessionRow } from "@/lib/study-time";
 
@@ -269,7 +270,9 @@ function MyCoursesPage() {
                 className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl"
               />
               <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
-                Continue learning
+                {continueCourse && courseCtaState(continueCourse.pct) === "review"
+                  ? "Course complete"
+                  : "Continue learning"}
               </p>
               {continueCourse ? (
                 <div className="relative flex flex-col justify-between gap-5 md:flex-row md:items-end">
@@ -295,7 +298,8 @@ function MyCoursesPage() {
                     params={{ slug: continueCourse.slug }}
                     className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
                   >
-                    <Play className="h-4 w-4 fill-primary" /> Resume
+                    <Play className="h-4 w-4 fill-primary" />{" "}
+                    {COURSE_CTA_LABEL[courseCtaState(continueCourse.pct)]}
                   </Link>
                 </div>
               ) : (

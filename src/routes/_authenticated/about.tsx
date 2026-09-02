@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import { BookOpen, Brain, Headphones, Mail, Shield, Target } from "lucide-react";
+import { BookOpen, Brain, Mail, Shield, Target } from "lucide-react";
 import logoAsset from "@/assets/ace-logo.jpg";
 import { fadeUp, staggerContainer, staggerItem } from "@/lib/motion";
 
@@ -13,18 +13,18 @@ const APP_VERSION = "1.0.0";
 const highlights = [
   {
     icon: Brain,
-    title: "VARK-aware",
-    body: "A quick intake classifies how you process information best.",
+    title: "Adaptive & AI-assisted",
+    body: "Lessons matched to how each student learns, an AI tutor for questions, and AI performance insights for lecturers.",
   },
   {
-    icon: Headphones,
-    title: "Three modalities",
-    body: "Every topic ships as notes, an explainer video and an audio lesson.",
+    icon: BookOpen,
+    title: "Courses & materials",
+    body: "Structured modules of notes, video and audio lessons, created and organised by lecturers.",
   },
   {
     icon: Target,
-    title: "Adaptive quizzes",
-    body: "Question difficulty scales with your rolling accuracy.",
+    title: "Quizzes & assessments",
+    body: "Module quizzes and course-wide assessments with instant feedback and progress tracking.",
   },
 ];
 
@@ -62,11 +62,22 @@ function AboutPage() {
           </div>
         </div>
 
-        <div className="p-6">
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            AceTutor is a next-generation adaptive tutor that teaches every lesson the way you learn
-            best. It adapts to your VARK learning style — switching between text, video and audio —
-            and tests what you know with quizzes that get smarter as you do.
+        <div className="space-y-3 p-6 text-sm leading-relaxed text-muted-foreground">
+          <p>
+            AceTutor is an adaptive learning platform that connects students and lecturers around
+            one set of courses. Its goal is simple: make learning and teaching work better together.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">For students</span>, every lesson comes as
+            text, video or audio and is matched to how they learn best, with quizzes that adapt as
+            they improve, an AI tutor for questions, and personalized study paths built from where
+            they struggled.
+          </p>
+          <p>
+            <span className="font-medium text-foreground">For lecturers</span>, AceTutor is a
+            workspace to run a course end to end — learning materials, modules, quizzes and
+            course-wide assessments — with a clear view of student and course performance and
+            AI-generated teaching insights.
           </p>
         </div>
       </motion.section>

@@ -29,6 +29,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   AlertDialog,
@@ -72,7 +73,10 @@ const lecturerItems: NavItem[] = [
   { label: "Materials", icon: BookOpen, to: "/lecturer/materials" },
   { label: "Quizzes", icon: ClipboardList, to: "/lecturer/quizzes" },
   { label: "Performance", icon: BarChart3, to: "/lecturer/performance" },
+  { label: "Notifications", icon: Bell, to: "/lecturer/notifications" },
 ];
+
+const NOTIFICATION_PATHS = new Set(["/notifications", "/lecturer/notifications"]);
 
 const accountItems: NavItem[] = [
   { label: "Profile", icon: UserIcon, to: "/profile" },
@@ -85,6 +89,11 @@ export function AppSidebar({ user }: { user: User }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { isLecturer } = useRole();
   const { unreadCount } = useNotifications();
+  const { isMobile, setOpenMobile } = useSidebar();
+  // Close the mobile drawer after a nav tap (desktop is unaffected).
+  const closeMobile = () => {
+    if (isMobile) setOpenMobile(false);
+  };
 
   const { data: profile } = useQuery({
     queryKey: ["nav-profile", user.id],
@@ -133,11 +142,11 @@ export function AppSidebar({ user }: { user: User }) {
 
   const renderItem = (item: NavItem) => {
     const Icon = item.icon;
-    const showUnread = item.to === "/notifications" && unreadCount > 0;
+    const showUnread = NOTIFICATION_PATHS.has(item.to) && unreadCount > 0;
     return (
       <SidebarMenuItem key={item.label}>
         <SidebarMenuButton asChild isActive={isActive(item.to, item.exact)} tooltip={item.label}>
-          <Link to={item.to}>
+          <Link to={item.to} onClick={closeMobile}>
             <Icon className="h-4 w-4" />
             <span>{item.label}</span>
           </Link>
@@ -154,7 +163,7 @@ export function AppSidebar({ user }: { user: User }) {
   return (
     <Sidebar collapsible="icon" className="border-r">
       <SidebarHeader className="px-3 py-4">
-        <Link to="/" className="flex items-center gap-2.5 px-1">
+        <Link to="/" onClick={closeMobile} className="flex items-center gap-2.5 px-1">
           <img
             src={logoAsset}
             alt="AceTutor"
@@ -193,13 +202,14 @@ export function AppSidebar({ user }: { user: User }) {
         {!isLecturer && (
           <Link
             to="/onboarding/vark"
+            onClick={closeMobile}
             className="flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/15 group-data-[collapsible=icon]:hidden"
           >
             <GraduationCap className="h-4 w-4 shrink-0" />
             <span className="truncate">Personalize with VARK</span>
           </Link>
         )}
-        <div className="flex items-center gap-2.5 rounded-xl border border-border bg-card p-2">
+        <div className="flex items-center gap-2.5 rounded-xl border border-border bg-card p-2 group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:p-0">
           <Avatar className="h-8 w-8 shrink-0">
             <AvatarImage src={avatarUrl ?? undefined} alt={displayName} />
             <AvatarFallback className="text-xs">{initials}</AvatarFallback>
@@ -210,30 +220,32 @@ export function AppSidebar({ user }: { user: User }) {
               {isLecturer ? "Teacher" : "Student"}
             </div>
           </div>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button
-                type="button"
-                aria-label="Sign out"
-                className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive group-data-[collapsible=icon]:hidden"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Sign out?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to sign out of AceTutor?
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleSignOut}>Sign out</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </div>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button
+              type="button"
+              aria-label="Sign out"
+              title="Sign out"
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              <span className="group-data-[collapsible=icon]:hidden">Sign out</span>
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Sign out?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to sign out of AceTutor?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleSignOut}>Sign out</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

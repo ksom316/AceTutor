@@ -16,7 +16,8 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { useStudentDashboard } from "@/hooks/use-student-dashboard";
+import { useStudentDashboard, type ModuleBreakdownItem } from "@/hooks/use-student-dashboard";
+import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -67,6 +68,7 @@ function Dashboard() {
     perCourse,
     overallPct,
     donut,
+    moduleBreakdown,
     continueCourse,
     recommended,
     recentAttempts: attempts,
@@ -112,14 +114,15 @@ function Dashboard() {
             </p>
           </motion.div>
 
-          {/* Continue learning + progress donut */}
+          {/* Continue learning (full width) with Progress stacked below it — two
+              independent cards so neither stretches to match the other. */}
           <motion.div
             variants={staggerContainer}
             initial="hidden"
             animate="show"
-            className="grid gap-6 lg:grid-cols-[1.5fr_1fr]"
+            className="space-y-6"
           >
-            {/* Continue learning */}
+            {/* Continue learning — full width */}
             <motion.div
               variants={staggerItem}
               className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-[oklch(0.5_0.2_300)] p-6 text-primary-foreground shadow-lg md:p-7"
@@ -133,7 +136,9 @@ function Dashboard() {
                 className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl"
               />
               <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
-                Continue learning
+                {continueCourse && courseCtaState(continueCourse.pct) === "review"
+                  ? "Course complete"
+                  : "Continue learning"}
               </p>
               {continueCourse ? (
                 <>
@@ -159,7 +164,8 @@ function Dashboard() {
                     params={{ slug: continueCourse.slug }}
                     className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
                   >
-                    <Play className="h-4 w-4 fill-primary" /> Resume course
+                    <Play className="h-4 w-4 fill-primary" />{" "}
+                    {COURSE_CTA_LABEL[courseCtaState(continueCourse.pct)]}
                   </Link>
                 </>
               ) : (
@@ -180,7 +186,7 @@ function Dashboard() {
               )}
             </motion.div>
 
-            {/* Progress donut */}
+            {/* Progress — full width; donut on the left, module lists on the right */}
             <motion.div
               variants={staggerItem}
               className="rounded-3xl border border-border bg-card p-6 shadow-sm"
@@ -189,61 +195,83 @@ function Dashboard() {
                 <h2 className="font-display text-lg">Your progress</h2>
                 <Target className="h-4 w-4 text-primary" />
               </div>
-              <div className="relative mt-2 h-40">
-                {donutHasData ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={ring}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={52}
-                        outerRadius={70}
-                        paddingAngle={3}
-                        stroke="var(--card)"
-                        strokeWidth={2}
-                        startAngle={90}
-                        endAngle={-270}
-                      >
-                        <Cell fill={CHART_COLORS[0]} />
-                        <Cell fill={CHART_COLORS[2]} />
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="grid h-full place-items-center text-center">
-                    <div>
-                      <div className="font-display text-3xl">{overallPct}%</div>
-                      <div className="text-[11px] text-muted-foreground">overall</div>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Start a lesson to track progress
+
+              <div className="mt-4 grid gap-6 sm:grid-cols-[minmax(0,190px)_1fr] sm:items-start">
+                {/* Donut */}
+                <div className="relative mx-auto h-40 w-40 shrink-0 sm:mx-0">
+                  {donutHasData ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={ring}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={52}
+                          outerRadius={70}
+                          paddingAngle={3}
+                          stroke="var(--card)"
+                          strokeWidth={2}
+                          startAngle={90}
+                          endAngle={-270}
+                        >
+                          <Cell fill={CHART_COLORS[0]} />
+                          <Cell fill={CHART_COLORS[2]} />
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="grid h-full place-items-center text-center">
+                      <div>
+                        <div className="font-display text-3xl">{overallPct}%</div>
+                        <div className="text-[11px] text-muted-foreground">overall</div>
                       </div>
                     </div>
-                  </div>
-                )}
-                {donutHasData && (
-                  <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                    <div className="text-center">
-                      <div className="font-display text-3xl">{overallPct}%</div>
-                      <div className="text-[11px] text-muted-foreground">overall</div>
+                  )}
+                  {donutHasData && (
+                    <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                      <div className="text-center">
+                        <div className="font-display text-3xl">{overallPct}%</div>
+                        <div className="text-[11px] text-muted-foreground">overall</div>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-              <ul className="mt-3 space-y-1.5 text-xs">
-                {donut.map((d, i) => (
-                  <li key={d.name} className="flex items-center justify-between">
-                    <span className="flex items-center gap-2 text-muted-foreground">
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ background: CHART_COLORS[i] }}
+                  )}
+                </div>
+
+                {/* Module lists */}
+                <div className="min-w-0">
+                  <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                    {donut.map((d, i) => (
+                      <li key={d.name} className="flex items-center gap-2 text-muted-foreground">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ background: CHART_COLORS[i] }}
+                        />
+                        <span>{d.name}</span>
+                        <span className="font-semibold text-foreground">{d.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {moduleBreakdown.completed.length > 0 || moduleBreakdown.inProgress.length > 0 ? (
+                    <div className="mt-3 space-y-3 border-t border-border pt-3">
+                      <ModuleStatusList
+                        label="In Progress"
+                        color={CHART_COLORS[1]}
+                        items={moduleBreakdown.inProgress}
                       />
-                      {d.name}
-                    </span>
-                    <span className="font-medium">{d.value}</span>
-                  </li>
-                ))}
-              </ul>
+                      <ModuleStatusList
+                        label="Completed"
+                        color={CHART_COLORS[0]}
+                        items={moduleBreakdown.completed}
+                      />
+                    </div>
+                  ) : (
+                    <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+                      Take a module quiz to see your completed and in-progress modules here.
+                    </p>
+                  )}
+                </div>
+              </div>
             </motion.div>
           </motion.div>
 
@@ -389,7 +417,7 @@ function Dashboard() {
           <motion.div variants={staggerItem} className="grid grid-cols-2 gap-3">
             <StatTile icon={BookOpen} label="Courses" value={String(enrolledCourses.length)} />
             <StatTile icon={Trophy} label="Quizzes" value={String(quizzes)} />
-            <StatTile icon={Clock} label="Hours" value={formatHours(totalSeconds)} />
+            {/* <StatTile icon={Clock} label="Hours" value={formatHours(totalSeconds)} /> */}
             <StatTile icon={Target} label="Avg score" value={quizzes ? `${avgScore}%` : "—"} />
           </motion.div>
 
@@ -442,6 +470,42 @@ function Dashboard() {
         </motion.aside>
       </div>
     </main>
+  );
+}
+
+/** Names of the modules behind one donut segment. Rendered straight from
+ *  `moduleBreakdown` so the list length always equals the donut count. Scrolls
+ *  past a handful of rows so a course with many modules doesn't stretch the card. */
+function ModuleStatusList({
+  label,
+  color,
+  items,
+}: {
+  label: string;
+  color: string;
+  items: ModuleBreakdownItem[];
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+        {label}
+        <span className="font-medium normal-case tracking-normal">({items.length})</span>
+      </p>
+      <ul className="mt-1.5 max-h-36 space-y-1.5 overflow-y-auto pr-1">
+        {items.map((m) => (
+          <li key={m.id} className="flex min-w-0 items-baseline justify-between gap-2">
+            <span className="truncate text-sm text-foreground">{m.title}</span>
+            {m.courseTitle && (
+              <span className="shrink-0 truncate text-xs text-muted-foreground">
+                {m.courseTitle}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

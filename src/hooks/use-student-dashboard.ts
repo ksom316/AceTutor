@@ -18,6 +18,12 @@ export type PerCourse = {
 
 export type DonutDatum = { name: "Completed" | "In Progress" | "Not Started"; value: number };
 
+/** One module (topic) placed in a donut category, with its course for context.
+ *  The lists returned as `moduleBreakdown` are derived from the SAME finished /
+ *  started attempt sets that produce the donut counts, so they can never
+ *  disagree with the chart. */
+export type ModuleBreakdownItem = { id: string; title: string; courseTitle: string };
+
 type EnrolledCourse = { id: string; slug: string; title: string; summary: string | null };
 type LessonRow = { id: string; topics: { course_id: string } | null };
 type ProgressRow = {
@@ -39,7 +45,7 @@ type GeneralAttemptRow = {
   finished_at: string | null;
   course_quizzes: { title: string; courses: { title: string } | null } | null;
 };
-type TopicRow = { id: string; course_id: string };
+type TopicRow = { id: string; course_id: string; title: string };
 type ModuleAttemptRow = { topic_id: string; finished_at: string | null };
 
 /** A finished quiz attempt (module or general course quiz) for the "Recent quiz
@@ -173,7 +179,7 @@ export function useStudentDashboard(userId: string | undefined) {
     queryFn: async () => {
       const { data } = await supabase
         .from("topics")
-        .select("id, course_id")
+        .select("id, course_id, title")
         .in("course_id", enrolledIds);
       return (data ?? []) as unknown as TopicRow[];
     },
@@ -233,24 +239,38 @@ export function useStudentDashboard(userId: string | undefined) {
       (moduleAttempts ?? []).filter((a) => a.finished_at).map((a) => a.topic_id),
     );
     const startedTopicIds = new Set((moduleAttempts ?? []).map((a) => a.topic_id));
+    const courseTitleById = new Map(enrolledCourses.map((c) => [c.id, c.title]));
     const totalModulesByCourse = new Map<string, number>();
     const completedModulesByCourse = new Map<string, number>();
     let totalModules = 0;
     let completedModules = 0;
     let inProgressModules = 0;
+    const completedModuleList: ModuleBreakdownItem[] = [];
+    const inProgressModuleList: ModuleBreakdownItem[] = [];
     for (const t of courseTopics ?? []) {
       totalModules += 1;
       totalModulesByCourse.set(t.course_id, (totalModulesByCourse.get(t.course_id) ?? 0) + 1);
+      const item: ModuleBreakdownItem = {
+        id: t.id,
+        title: t.title,
+        courseTitle: courseTitleById.get(t.course_id) ?? "",
+      };
       if (finishedTopicIds.has(t.id)) {
         completedModules += 1;
         completedModulesByCourse.set(
           t.course_id,
           (completedModulesByCourse.get(t.course_id) ?? 0) + 1,
         );
+        completedModuleList.push(item);
       } else if (startedTopicIds.has(t.id)) {
         inProgressModules += 1;
+        inProgressModuleList.push(item);
       }
     }
+    const byCourseThenTitle = (a: ModuleBreakdownItem, b: ModuleBreakdownItem) =>
+      a.courseTitle.localeCompare(b.courseTitle) || a.title.localeCompare(b.title);
+    completedModuleList.sort(byCourseThenTitle);
+    inProgressModuleList.sort(byCourseThenTitle);
     const notStartedModules = Math.max(0, totalModules - completedModules - inProgressModules);
     const overallPct = totalModules > 0 ? Math.round((completedModules / totalModules) * 100) : 0;
 
@@ -284,6 +304,7 @@ export function useStudentDashboard(userId: string | undefined) {
         { name: "In Progress", value: inProgressModules },
         // { name: "Not Started", value: notStartedModules },
       ] as DonutDatum[],
+      moduleBreakdown: { completed: completedModuleList, inProgress: inProgressModuleList },
       totalSeconds,
       avgScore,
       quizzes: att.length,
@@ -341,6 +362,7 @@ export function useStudentDashboard(userId: string | undefined) {
     perCourse: stats.perCourse,
     overallPct: stats.overallPct,
     donut: stats.donut,
+    moduleBreakdown: stats.moduleBreakdown,
     continueCourse,
     recommended,
     recentAttempts,

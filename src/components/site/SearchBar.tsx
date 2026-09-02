@@ -3,18 +3,26 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { BookOpen, FileText, Loader2, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useRole } from "@/hooks/use-role";
 
 type CourseHit = { kind: "course"; id: string; slug: string; title: string };
 type TopicHit = { kind: "topic"; id: string; title: string; courseTitle: string | null };
 type Hit = CourseHit | TopicHit;
 
 /**
- * Top-bar search across courses and topics. Debounces input, queries Supabase
+ * Top-bar search across courses and modules. Debounces input, queries Supabase
  * by title, and shows a results dropdown; selecting a result navigates to the
- * course detail or topic page. Enter selects the first result.
+ * course detail or module page. Enter selects the first result.
+ *
+ * Shared by the student and lecturer workspaces. For a lecturer the results are
+ * scoped to their assigned course and a module opens its quiz-management page;
+ * for a student the search spans the catalogue and a module opens its lesson
+ * page. RLS is the real boundary in both cases.
  */
 export function SearchBar() {
   const navigate = useNavigate();
+  const { isLecturer, lecturerCourseId } = useRole();
+  const lecturerScope = isLecturer && lecturerCourseId ? lecturerCourseId : null;
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -30,15 +38,22 @@ export function SearchBar() {
   }, [query]);
 
   const { data, isFetching } = useQuery({
-    queryKey: ["global-search", debounced],
+    queryKey: ["global-search", debounced, lecturerScope ?? "student"],
     enabled: debounced.length >= 2,
     staleTime: 30_000,
     queryFn: async (): Promise<Hit[]> => {
       const like = `%${debounced}%`;
-      const [coursesRes, topicsRes] = await Promise.all([
-        supabase.from("courses").select("id, slug, title").ilike("title", like).limit(5),
-        supabase.from("topics").select("id, title, courses(title)").ilike("title", like).limit(6),
-      ]);
+      let coursesReq = supabase.from("courses").select("id, slug, title").ilike("title", like);
+      let topicsReq = supabase
+        .from("topics")
+        .select("id, title, courses(title)")
+        .ilike("title", like);
+      if (lecturerScope) {
+        // A lecturer only ever works with their assigned course.
+        coursesReq = coursesReq.eq("id", lecturerScope);
+        topicsReq = topicsReq.eq("course_id", lecturerScope);
+      }
+      const [coursesRes, topicsRes] = await Promise.all([coursesReq.limit(5), topicsReq.limit(6)]);
 
       const courses: Hit[] = (coursesRes.data ?? []).map((c) => ({
         kind: "course",
@@ -81,6 +96,9 @@ export function SearchBar() {
     inputRef.current?.blur();
     if (hit.kind === "course") {
       navigate({ to: "/courses/$slug", params: { slug: hit.slug } });
+    } else if (isLecturer) {
+      // Lecturers manage a module from its quiz-management page.
+      navigate({ to: "/lecturer/quizzes/$topicId", params: { topicId: hit.id } });
     } else {
       navigate({ to: "/topic/$topicId", params: { topicId: hit.id } });
     }
@@ -119,7 +137,9 @@ export function SearchBar() {
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        placeholder="Search courses, topics, quizzes…"
+        placeholder={
+          lecturerScope ? "Search your course and modules…" : "Search courses and modules…"
+        }
         role="combobox"
         aria-expanded={showPanel}
         aria-controls="global-search-results"

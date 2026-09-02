@@ -34,6 +34,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { supabase } from "@/integrations/supabase/client";
+import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
 import { askCourse } from "@/lib/course-chat.functions";
 import {
   attemptsUsageLabel,
@@ -434,7 +435,8 @@ function CourseDetail() {
               {user && isEnrolled && analytics.nextTopic && (
                 <Link to="/topic/$topicId" params={{ topicId: analytics.nextTopic.id }}>
                   <Button size="lg" className="h-12 rounded-full px-6 text-base">
-                    <Play className="mr-2 h-5 w-5" /> Continue learning
+                    <Play className="mr-2 h-5 w-5" />{" "}
+                    {COURSE_CTA_LABEL[courseCtaState(analytics.progress)]}
                   </Button>
                 </Link>
               )}
@@ -917,7 +919,8 @@ function CourseDetail() {
                       window.location.href = `/topic/${analytics.nextTopic.id}`;
                     }}
                   >
-                    <Play className="mr-2 h-4 w-4" /> Continue learning
+                    <Play className="mr-2 h-4 w-4" />{" "}
+                    {COURSE_CTA_LABEL[courseCtaState(analytics.progress)]}
                   </Button>
                 )}
                 <Button

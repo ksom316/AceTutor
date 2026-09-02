@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, BookmarkCheck, CheckCircle2, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useStudyPathById } from "@/hooks/use-study-path";
-import { StudyPathContentView } from "@/components/course/StudyPathPanel";
+import { GuidedReader, type ReaderSection } from "@/components/course/GuidedReader";
+import { WeakAreaBody } from "@/components/course/StudyPathPanel";
 
 export const Route = createFileRoute("/_authenticated/learning/$studyPathId")({
   component: StudyPathLearningPage,
@@ -77,6 +78,10 @@ function StudyPathLearningPage() {
     },
   });
 
+  const courseSlug = context?.courseSlug ?? null;
+  const courseTitle = context?.courseTitle ?? "course";
+  const backLabel = `Back to ${courseTitle}`;
+
   if (sp.isLoading) {
     return (
       <main className="flex min-h-[60vh] flex-col items-center justify-center gap-3">
@@ -86,7 +91,9 @@ function StudyPathLearningPage() {
     );
   }
 
-  if (!sp.studyPath) {
+  const studyPath = sp.studyPath;
+
+  if (!studyPath) {
     return (
       <main className="container mx-auto max-w-3xl px-4 py-16 text-center">
         <h1 className="font-display text-3xl">Study path not available</h1>
@@ -100,10 +107,117 @@ function StudyPathLearningPage() {
     );
   }
 
-  const studyPath = sp.studyPath;
   const isCourseLevel = !studyPath.topic_id;
-  const courseSlug = context?.courseSlug ?? null;
-  const backLabel = `Back to ${context?.courseTitle ?? "course"}`;
+  const areas = studyPath.content.weakAreas;
+  const completed = !!studyPath.completed_at;
+  const saved = !!studyPath.saved_at;
+  const spId = studyPath.id;
+  const areaPhrase = areas.length === 1 ? "the area" : `all ${areas.length} areas`;
+
+  // One guided page per weak area, wrapped by an overview page and a wrap-up
+  // page that carries the (unchanged) completion / My Learning / retake actions.
+  const sections: ReaderSection[] = [
+    {
+      key: "overview",
+      heading: "What to focus on",
+      body: (
+        <div className="space-y-4">
+          <p className="text-muted-foreground">
+            This short review targets the {areas.length} area{areas.length === 1 ? "" : "s"} you
+            found hardest on the quiz. Read each one, try the self-check questions, then mark it
+            reviewed at the end. This does not affect your official course or module progress.
+          </p>
+          <ul className="space-y-2">
+            {areas.map((a, i) => (
+              <li key={`${i}-${a.title}`} className="flex items-start gap-2.5">
+                <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                <span className="text-foreground">{a.title}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ),
+    },
+    ...areas.map(
+      (area, i): ReaderSection => ({
+        key: `area-${i}`,
+        heading: area.title,
+        body: <WeakAreaBody area={area} />,
+      }),
+    ),
+    {
+      key: "wrap-up",
+      heading: "Wrap up",
+      body: (
+        <div className="space-y-4">
+          <p className="text-muted-foreground">
+            You&apos;ve been through {areaPhrase} in this study path. When you feel ready, mark it
+            reviewed{topicId ? " and retake the quiz to check your progress." : "."}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {completed ? (
+              <p className="flex items-center gap-2 font-medium text-success">
+                <CheckCircle2 className="h-4 w-4" /> Study path completed.
+              </p>
+            ) : (
+              <Button
+                variant="outline"
+                disabled={sp.completing}
+                onClick={() => sp.markCompleted(spId)}
+              >
+                {sp.completing ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                )}
+                I&apos;ve reviewed this study path
+              </Button>
+            )}
+
+            {saved ? (
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 font-medium text-success">
+                  <BookmarkCheck className="h-4 w-4" /> Added to My Learning
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={sp.savingSaved}
+                  onClick={() => sp.setSaved(spId, false)}
+                >
+                  {sp.savingSaved ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  Remove from My Learning
+                </Button>
+              </div>
+            ) : (
+              <Button disabled={sp.savingSaved} onClick={() => sp.setSaved(spId, true)}>
+                {sp.savingSaved ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1.5 h-4 w-4" />
+                )}
+                Add to My Learning
+              </Button>
+            )}
+
+            {topicId && (
+              <Button
+                asChild
+                variant="secondary"
+                className="transition-transform hover:scale-[1.02] active:scale-95"
+              >
+                <Link to="/quiz/$topicId" params={{ topicId }} search={{ retake: true }}>
+                  <RotateCcw className="mr-1.5 h-4 w-4" /> Retake quiz
+                </Link>
+              </Button>
+            )}
+          </div>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <main className="container mx-auto max-w-3xl px-4 py-12">
@@ -121,7 +235,7 @@ function StudyPathLearningPage() {
       >
         <p className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
           <Sparkles className="h-3.5 w-3.5 text-primary" />
-          Personalized Learning
+          Your Personalized Learning
         </p>
         <h1 className="mt-2 font-display text-4xl">{studyPath.content.title}</h1>
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -137,33 +251,25 @@ function StudyPathLearningPage() {
             </Badge>
           )}
         </div>
-        <p className="mt-3 max-w-prose text-sm text-muted-foreground">
-          This revision was generated from the questions you missed. It is personal to you and does
-          not affect your official course or module progress.
-        </p>
       </motion.div>
 
-      <div className="mt-8">
-        <StudyPathContentView
-          studyPath={studyPath}
-          topicId={studyPath.topic_id}
-          completing={sp.completing}
-          onMarkCompleted={sp.markCompleted}
-          saved={!!studyPath.saved_at}
-          savingSaved={sp.savingSaved}
-          onSetSaved={sp.setSaved}
-          showRetake={!!studyPath.topic_id}
+      <div className="mt-6">
+        <GuidedReader
+          sections={sections}
+          resetKey={spId}
+          ariaLabel={`${studyPath.content.title} — guided reading`}
+          finalCta={
+            <Button asChild>
+              {courseSlug ? (
+                <Link to="/courses/$slug" params={{ slug: courseSlug }}>
+                  Back to {courseTitle}
+                </Link>
+              ) : (
+                <Link to="/dashboard">Back to dashboard</Link>
+              )}
+            </Button>
+          }
         />
-      </div>
-
-      <div className="mt-10">
-        <Button asChild variant="outline">
-          <BackLink
-            courseSlug={courseSlug}
-            label={backLabel}
-            className="inline-flex items-center gap-1.5"
-          />
-        </Button>
       </div>
     </main>
   );

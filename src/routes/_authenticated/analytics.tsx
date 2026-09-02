@@ -21,6 +21,7 @@ import {
   Activity,
   BarChart3,
   Clock,
+  History,
   Lightbulb,
   Puzzle,
   Target,
@@ -30,6 +31,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { attemptStatus } from "@/lib/quiz-timer";
 import {
   DEFAULT_STATS,
   formatDuration as formatClock,
@@ -55,6 +57,24 @@ const CHART_COLORS = [
   "var(--chart-4)",
   "var(--chart-5)",
 ];
+
+/** Cap the quiz-attempt history to a reasonable page. */
+const HISTORY_LIMIT = 100;
+
+type HistoryRow = {
+  id: string;
+  score: number | null;
+  total: number | null;
+  answered_count: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  timed_out: boolean | null;
+  expires_at: string | null;
+  topic_id: string | null;
+  course_quiz_id: string | null;
+  topics: { title: string; courses: { title: string } | null } | null;
+  course_quizzes: { title: string; courses: { title: string } | null } | null;
+};
 
 type AnalyticsCourse = { id: string; title: string; slug: string };
 type ProgressRow = {
@@ -168,6 +188,42 @@ function GameTile({
   );
 }
 
+/* A donut segment's members, listed by name. Rendered from the same set that
+ * produces the segment count, so the list length always matches the chart.
+ * Scrolls past a handful of rows to stay compact. */
+function NameList({
+  label,
+  color,
+  names,
+  emptyHint,
+}: {
+  label: string;
+  color: string;
+  names: string[];
+  emptyHint: string;
+}) {
+  return (
+    <div>
+      <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+        {label}
+        <span className="font-medium normal-case tracking-normal">({names.length})</span>
+      </p>
+      {names.length === 0 ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">{emptyHint}</p>
+      ) : (
+        <ul className="mt-1.5 max-h-36 space-y-1 overflow-y-auto pr-1 text-xs text-foreground">
+          {names.map((n, i) => (
+            <li key={`${i}-${n}`} className="truncate">
+              {n}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /* Shared recharts tooltip styling. */
 const tooltipStyle = {
   contentStyle: {
@@ -263,9 +319,11 @@ function useAnalyticsData() {
     queryKey: ["dash-topics", enrolledCourseIds],
     enabled: enrolledCourseIds.length > 0,
     queryFn: async () => {
+      // Same query key + column set as useStudentDashboard's `dash-topics` so the
+      // two share one cache entry. `title` also backs the lesson-completion list.
       const { data, error } = await supabase
         .from("topics")
-        .select("id, course_id")
+        .select("id, course_id, title")
         .in("course_id", enrolledCourseIds);
       if (error) throw error;
       return data ?? [];
@@ -289,7 +347,35 @@ function useAnalyticsData() {
     },
   });
 
-  return { progressQuery, attemptsQuery, moduleAttemptsQuery, enrolledTopicsQuery, sessionsQuery };
+  // Full quiz-attempt history for the signed-in student — module quizzes AND
+  // General Course Quizzes, finished or in progress. RLS (`attempts_select_own`)
+  // is the boundary; the extra `.eq("user_id", …)` is defence in depth. Capped
+  // at a sensible page so a very active account doesn't pull an unbounded set.
+  const historyQuery = useQuery({
+    queryKey: ["analytics-attempt-history", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("quiz_attempts")
+        .select(
+          "id, score, total, answered_count, started_at, finished_at, timed_out, expires_at, topic_id, course_quiz_id, topics(title, courses(title)), course_quizzes(title, courses(title))",
+        )
+        .eq("user_id", user!.id)
+        .order("started_at", { ascending: false })
+        .limit(HISTORY_LIMIT);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  return {
+    progressQuery,
+    attemptsQuery,
+    moduleAttemptsQuery,
+    enrolledTopicsQuery,
+    sessionsQuery,
+    historyQuery,
+  };
 }
 
 /**
@@ -312,8 +398,14 @@ function useGameStats(): GameStats {
 /* ------------------------------------------------------------------ */
 
 function AnalyticsPage() {
-  const { progressQuery, attemptsQuery, moduleAttemptsQuery, enrolledTopicsQuery, sessionsQuery } =
-    useAnalyticsData();
+  const {
+    progressQuery,
+    attemptsQuery,
+    moduleAttemptsQuery,
+    enrolledTopicsQuery,
+    sessionsQuery,
+    historyQuery,
+  } = useAnalyticsData();
   const gameStats = useGameStats();
   // Memoize the fallbacks so the empty-array reference is stable across renders
   // (otherwise every dependent useMemo re-runs on each render while loading).
@@ -337,15 +429,30 @@ function AnalyticsPage() {
     () => (sessionsQuery.data ?? []) as unknown as SessionRow[],
     [sessionsQuery.data],
   );
-  // Topic ids that belong to the student's enrolled courses.
-  const enrolledTopicIds = useMemo(
+  // Topics that belong to the student's enrolled courses (id + title).
+  const enrolledTopics = useMemo(
     () =>
-      new Set(
-        ((enrolledTopicsQuery.data ?? []) as unknown as { id: string }[]).map((t) => t.id),
-      ),
+      (enrolledTopicsQuery.data ?? []) as unknown as {
+        id: string;
+        course_id: string;
+        title: string;
+      }[],
     [enrolledTopicsQuery.data],
   );
+  const enrolledTopicIds = useMemo(
+    () => new Set(enrolledTopics.map((t) => t.id)),
+    [enrolledTopics],
+  );
+  const topicTitleById = useMemo(
+    () => new Map(enrolledTopics.map((t) => [t.id, t.title])),
+    [enrolledTopics],
+  );
   const loading = progressQuery.isLoading || attemptsQuery.isLoading || sessionsQuery.isLoading;
+
+  const history = useMemo<HistoryRow[]>(
+    () => (historyQuery.data ?? []) as unknown as HistoryRow[],
+    [historyQuery.data],
+  );
 
   /* ---- Derived datasets ---------------------------------------- */
 
@@ -449,12 +556,59 @@ function AnalyticsPage() {
       if (a.finished_at) completed.add(a.topic_id);
     }
     const pct = started.size > 0 ? Math.round((completed.size / started.size) * 100) : 0;
-    return { started: started.size, completed: completed.size, pct };
-  }, [moduleAttempts, enrolledTopicIds]);
+    // Name lists straight from the same sets that produce the counts, so the
+    // lists can never disagree with the donut. "In progress" is the started set
+    // minus the completed set (completed + inProgress === started).
+    const nameOf = (id: string) => topicTitleById.get(id) ?? "Untitled module";
+    const completedList = [...completed].map(nameOf).sort((a, b) => a.localeCompare(b));
+    const inProgressList = [...started]
+      .filter((id) => !completed.has(id))
+      .map(nameOf)
+      .sort((a, b) => a.localeCompare(b));
+    return {
+      started: started.size,
+      completed: completed.size,
+      pct,
+      completedList,
+      inProgressList,
+    };
+  }, [moduleAttempts, enrolledTopicIds, topicTitleById]);
 
   const completionData = useMemo(
     () => [{ name: "Completed", value: lessonStats.pct, fill: "var(--chart-1)" }],
     [lessonStats.pct],
+  );
+
+  // Full attempt history — one row per quiz_attempts row, newest first.
+  const historyRows = useMemo(
+    () =>
+      history.map((r) => {
+        const isModule = !!r.topic_id;
+        const rel = isModule ? r.topics : r.course_quizzes;
+        const title = rel?.title ?? (isModule ? "Module quiz" : "General Course Quiz");
+        const finished = !!r.finished_at;
+        const pct = finished && r.total ? Math.round(((r.score ?? 0) / r.total) * 100) : null;
+        const expired = !finished && !!r.expires_at && Date.now() >= Date.parse(r.expires_at);
+        return {
+          id: r.id,
+          title,
+          courseTitle: rel?.courses?.title ?? null,
+          isModule,
+          finished,
+          score: r.score,
+          total: r.total,
+          pct,
+          status: attemptStatus({
+            finished,
+            answered: r.answered_count,
+            total: r.total,
+            timedOut: r.timed_out ?? false,
+            expired,
+          }),
+          date: r.finished_at ?? r.started_at,
+        };
+      }),
+    [history],
   );
 
   const kpis = [
@@ -483,6 +637,7 @@ function AnalyticsPage() {
     (progress.length > 0 ||
       attempts.length > 0 ||
       moduleAttempts.length > 0 ||
+      historyRows.length > 0 ||
       hasGameData ||
       sessions.length > 0);
 
@@ -622,6 +777,23 @@ function AnalyticsPage() {
                   </span>
                 </span>
               </div>
+
+              {lessonStats.started > 0 && (
+                <div className="mt-4 grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
+                  <NameList
+                    label="Completed"
+                    color="var(--chart-1)"
+                    names={lessonStats.completedList}
+                    emptyHint="None completed yet"
+                  />
+                  <NameList
+                    label="In progress"
+                    color="var(--chart-2)"
+                    names={lessonStats.inProgressList}
+                    emptyHint="Nothing in progress"
+                  />
+                </div>
+              )}
             </ChartCard>
 
             {/* Where the time goes — Column */}
@@ -776,6 +948,113 @@ function AnalyticsPage() {
               </ChartCard>
             )}
           </motion.div>
+
+          {/* Quiz attempt history — the signed-in student's own attempts only
+              (RLS `attempts_select_own`); module quizzes + General Course
+              Quizzes, finished or in progress. */}
+          <motion.section
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="show"
+            viewport={viewportOnce}
+            className="mt-6 rounded-2xl border border-border bg-card p-5"
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h2 className="font-display text-xl leading-tight">Quiz attempt history</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Every module quiz and General Course Quiz attempt on your account
+                </p>
+              </div>
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                <History className="h-4 w-4" />
+              </span>
+            </div>
+
+            {historyQuery.isLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="h-9 animate-pulse rounded-lg bg-muted/60" />
+                ))}
+              </div>
+            ) : historyQuery.isError ? (
+              <p className="rounded-xl border border-dashed border-border bg-card/50 p-6 text-center text-sm text-destructive">
+                Couldn&apos;t load your quiz history. Please refresh to try again.
+              </p>
+            ) : historyRows.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border bg-card/50 p-6 text-center text-sm text-muted-foreground">
+                No quiz attempts yet — take a quiz and it&apos;ll show up here.
+              </p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="pb-2 font-medium">Quiz</th>
+                        <th className="pb-2 font-medium">Course</th>
+                        <th className="pb-2 font-medium">Type</th>
+                        <th className="pb-2 text-right font-medium">Score</th>
+                        <th className="pb-2 text-right font-medium">%</th>
+                        <th className="pb-2 pl-3 font-medium">Status</th>
+                        <th className="pb-2 pl-3 font-medium">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/70">
+                      {historyRows.map((r) => (
+                        <tr key={r.id}>
+                          <td className="max-w-[10rem] truncate py-2 pr-2 font-medium">
+                            {r.title}
+                          </td>
+                          <td className="max-w-[9rem] truncate py-2 pr-2 text-muted-foreground">
+                            {r.courseTitle ?? "—"}
+                          </td>
+                          <td className="py-2 pr-2">
+                            <span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
+                              {r.isModule ? "Module" : "General"}
+                            </span>
+                          </td>
+                          <td className="py-2 text-right tabular-nums">
+                            {r.finished ? `${r.score ?? 0}/${r.total ?? 0}` : "—"}
+                          </td>
+                          <td className="py-2 text-right tabular-nums">
+                            {r.pct == null ? "—" : `${r.pct}%`}
+                          </td>
+                          <td className="py-2 pl-3">
+                            <span
+                              className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${
+                                r.status.key === "completed-full"
+                                  ? "border-success/40 bg-success/10 text-success"
+                                  : r.status.key === "completed-incomplete"
+                                    ? "border-amber-500/40 bg-amber-500/10 text-amber-600"
+                                    : "border-border bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              {r.status.marker} {r.status.label}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap py-2 pl-3 text-muted-foreground">
+                            {r.date
+                              ? new Date(r.date).toLocaleDateString(undefined, {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                })
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {historyRows.length >= HISTORY_LIMIT && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Showing your most recent {HISTORY_LIMIT} attempts.
+                  </p>
+                )}
+              </>
+            )}
+          </motion.section>
 
           {/* Word games */}
           {hasGameData && (

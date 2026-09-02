@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Camera, Loader2, LogOut, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useRole } from "@/hooks/use-role";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -34,6 +35,7 @@ export const Route = createFileRoute("/_authenticated/profile")({
 
 function ProfilePage() {
   const { user } = useAuth();
+  const { isLecturer, lecturerCourseId } = useRole();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -69,6 +71,23 @@ function ProfilePage() {
       return ((data ?? []) as unknown as { courses: EnrolledCourse | null }[])
         .map((row) => row.courses)
         .filter((c): c is EnrolledCourse => !!c);
+    },
+  });
+
+  // The one course a lecturer is assigned to teach (from lecturer_slots via
+  // useRole — never client-supplied). Students never run this query.
+  const { data: taughtCourse } = useQuery({
+    // Distinct key: the lecturer pages' ["lecturer-course", id] entry selects a
+    // different column set.
+    queryKey: ["profile-taught-course", lecturerCourseId],
+    enabled: isLecturer && !!lecturerCourseId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("courses")
+        .select("title, slug")
+        .eq("id", lecturerCourseId!)
+        .maybeSingle();
+      return data;
     },
   });
 
@@ -237,61 +256,87 @@ function ProfilePage() {
       </section>
 
       {/* Stats */}
-      <section className="mt-6 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">
-            Courses enrolled
-          </p>
-          <p className="mt-1 font-display text-4xl">{enrolled?.length ?? 0}</p>
-        </div>
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">Learning style</p>
-          <p className="mt-1 font-display text-2xl">
-            {profile?.vark_primary ? VARK_LABEL[profile.vark_primary] : "Not set"}
-          </p>
-          <Link
-            to="/onboarding/vark"
-            className="mt-2 inline-block text-xs underline-offset-4 hover:underline"
-          >
-            {profile?.vark_primary ? "Retake VARK" : "Take VARK"}
-          </Link>
-        </div>
-      </section>
+      {isLecturer ? (
+        <section className="mt-6">
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <p className="text-xs uppercase tracking-widest text-muted-foreground">
+              Course you teach
+            </p>
+            <p className="mt-1 font-display text-2xl">{taughtCourse?.title ?? "Not assigned"}</p>
+            {taughtCourse?.slug && (
+              <Link
+                to="/courses/$slug"
+                params={{ slug: taughtCourse.slug }}
+                className="mt-2 inline-block text-xs underline-offset-4 hover:underline"
+              >
+                View course →
+              </Link>
+            )}
+          </div>
+        </section>
+      ) : (
+        <>
+          {/* Stats */}
+          <section className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-card p-6">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                Courses enrolled
+              </p>
+              <p className="mt-1 font-display text-4xl">{enrolled?.length ?? 0}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-6">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                Learning style
+              </p>
+              <p className="mt-1 font-display text-2xl">
+                {profile?.vark_primary ? VARK_LABEL[profile.vark_primary] : "Not set"}
+              </p>
+              <Link
+                to="/onboarding/vark"
+                className="mt-2 inline-block text-xs underline-offset-4 hover:underline"
+              >
+                {profile?.vark_primary ? "Retake VARK" : "Take VARK"}
+              </Link>
+            </div>
+          </section>
 
-      {/* Enrolled courses list */}
-      <section className="mt-6 rounded-2xl border border-border bg-card p-6">
-        <h2 className="font-display text-xl">Your courses</h2>
-        {enrolled && enrolled.length > 0 ? (
-          <ul className="mt-4 divide-y divide-border">
-            {enrolled.map((c) => (
-              <li key={c.slug}>
-                <Link
-                  to="/courses/$slug"
-                  params={{ slug: c.slug }}
-                  className="flex items-center justify-between py-3 hover:text-primary"
-                >
-                  <span>{c.title}</span>
-                  <span className="text-xs text-muted-foreground">Open →</span>
+          {/* Enrolled courses list */}
+          <section className="mt-6 rounded-2xl border border-border bg-card p-6">
+            <h2 className="font-display text-xl">Your courses</h2>
+            {enrolled && enrolled.length > 0 ? (
+              <ul className="mt-4 divide-y divide-border">
+                {enrolled.map((c) => (
+                  <li key={c.slug}>
+                    <Link
+                      to="/courses/$slug"
+                      params={{ slug: c.slug }}
+                      className="flex items-center justify-between py-3 hover:text-primary"
+                    >
+                      <span>{c.title}</span>
+                      <span className="text-xs text-muted-foreground">Open →</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">
+                You haven't started any courses yet.{" "}
+                <Link to="/courses" className="text-primary underline-offset-4 hover:underline">
+                  Browse courses
                 </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-3 text-sm text-muted-foreground">
-            You haven't started any courses yet.{" "}
-            <Link to="/courses" className="text-primary underline-offset-4 hover:underline">
-              Browse courses
-            </Link>
-          </p>
-        )}
-      </section>
+              </p>
+            )}
+          </section>
+        </>
+      )}
 
       {/* Danger zone */}
       <section className="mt-6 rounded-2xl border border-destructive/40 bg-destructive/5 p-6">
         <h2 className="font-display text-xl text-destructive">Danger zone</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Deleting your account is permanent. Your profile, progress, and quiz attempts will be
-          removed.
+          {isLecturer
+            ? "Deleting your account is permanent. Your AceTutor sign-in, profile and lecturer workspace access are removed, and your Lecturer ID is released so it can be re-assigned. The course you teach and its materials, quizzes and enrolled students' data are part of the platform and are not deleted."
+            : "Deleting your account is permanent. Your profile, progress, and quiz attempts will be removed."}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
@@ -313,8 +358,9 @@ function ProfilePage() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete your account?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This cannot be undone. Your profile, progress, and quiz history will be
-                  permanently deleted.
+                  {isLecturer
+                    ? "This cannot be undone. Your sign-in, profile and lecturer workspace access are permanently deleted and your Lecturer ID is released. Your course and its content stay on the platform."
+                    : "This cannot be undone. Your profile, progress, and quiz history will be permanently deleted."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

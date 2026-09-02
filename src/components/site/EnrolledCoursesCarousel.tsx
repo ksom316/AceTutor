@@ -4,6 +4,7 @@ import useEmblaCarousel from "embla-carousel-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, ArrowRight, BookOpen, Play } from "lucide-react";
 import type { PerCourse } from "@/hooks/use-student-dashboard";
+import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const AUTOPLAY_MS = 3000;
@@ -194,9 +195,12 @@ function CourseSlide({
   featured: boolean;
 }) {
   const started = course.touched > 0 || course.pct > 0;
+  const complete = course.pct >= 100;
   const status = featured
-    ? "Continue learning"
-    : course.pct >= 100
+    ? complete
+      ? "Course complete"
+      : "Continue learning"
+    : complete
       ? "Completed"
       : started
         ? "In progress"
@@ -244,9 +248,10 @@ function CourseSlide({
         <Link
           to="/courses/$slug"
           params={{ slug: course.slug }}
-          className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
+          className="mt-3 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-white px-4 py-2 text-xs font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
         >
-          <Play className="h-3.5 w-3.5 fill-current" /> {started ? "Resume" : "Start"}
+          <Play className="h-3.5 w-3.5 fill-current" />{" "}
+          {COURSE_CTA_LABEL[courseCtaState(course.pct)]}
         </Link>
       </div>
     </motion.div>

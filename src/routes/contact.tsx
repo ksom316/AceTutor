@@ -20,6 +20,7 @@ import { Footer } from "@/components/site/Footer";
 import { AppShell } from "@/components/site/AppShell";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useRole } from "@/hooks/use-role";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 
 export const Route = createFileRoute("/contact")({
@@ -47,6 +48,22 @@ const quickFacts = [
     title: "Friendly support",
     body: "Questions, feedback, or partnerships — all welcome.",
   },
+];
+
+const lecturerTopics = [
+  "Managing your assigned course, modules and topics",
+  "Creating and organising learning materials",
+  "Building and editing quizzes and course assessments",
+  "Reading student and course performance",
+  "Lecturer workspace or sign-in problems",
+];
+
+const studentTopics = [
+  "Finding and enrolling in a course",
+  "Lessons, quizzes and your results",
+  "Personalized study paths and the AI tutor",
+  "Progress tracking and your learning style",
+  "Account or sign-in problems",
 ];
 
 /** Strips formatting to a dialable tel: href, preserving the leading +. */
@@ -111,6 +128,8 @@ function ContactPage() {
 }
 
 function ContactContent({ authed = false }: { authed?: boolean }) {
+  const { isLecturer } = useRole();
+  const topics = isLecturer ? lecturerTopics : studentTopics;
   return (
     <main className="relative overflow-hidden">
       {/* Ambient gradient glow + floating orbs */}
@@ -282,11 +301,67 @@ function ContactContent({ authed = false }: { authed?: boolean }) {
                 ))}
               </motion.div>
             </section>
+
+            {/* What we can help with — role-aware */}
+            <section>
+              <div className="mb-4 flex items-center gap-2">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <MessageCircle className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="text-lg font-semibold tracking-tight">What we can help with</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {isLecturer
+                      ? "Common topics for lecturers using AceTutor."
+                      : "Common topics students reach out about."}
+                  </p>
+                </div>
+              </div>
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {topics.map((t) => (
+                  <li
+                    key={t}
+                    className="flex items-start gap-2 rounded-xl border border-border bg-card/60 p-3 text-sm text-muted-foreground"
+                  >
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <span>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           </div>
         </div>
 
         {/* Closing CTA band — marketing-only; signed-in users see the app CTA below */}
-        {authed ? (
+        {authed && isLecturer ? (
+          <motion.div
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="show"
+            viewport={viewportOnce}
+            className="mt-14 overflow-hidden rounded-3xl border border-primary/20 bg-gradient-to-br from-primary/10 to-transparent p-8 text-center md:p-12"
+          >
+            <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
+              Back to your workspace?
+            </h2>
+            <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground md:text-base">
+              Head back to your lecturer workspace while you wait for our reply.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <Button asChild size="lg" className="h-12 rounded-full px-6 text-base">
+                <Link to="/lecturer">Go to dashboard</Link>
+              </Button>
+              <Button
+                asChild
+                size="lg"
+                variant="outline"
+                className="h-12 rounded-full px-6 text-base"
+              >
+                <Link to="/lecturer/materials">Manage materials</Link>
+              </Button>
+            </div>
+          </motion.div>
+        ) : authed ? (
           <motion.div
             variants={fadeUp}
             initial="hidden"

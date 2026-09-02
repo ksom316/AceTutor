@@ -153,33 +153,33 @@ export function StudyPathContentView({
 
 /* ------------------------------------------------------------------ */
 
-function WeakAreaCard({ index, area }: { index: number; area: WeakArea }) {
+/**
+ * The explanation / worked example / self-check body for one weak area, with no
+ * outer card. Shared by the compact `WeakAreaCard` (result + course surfaces)
+ * and the guided reader on the dedicated learning page.
+ */
+export function WeakAreaBody({ area }: { area: WeakArea }) {
   return (
-    <li className={CARD}>
-      <div className="flex items-baseline gap-2">
-        <span className="text-sm font-semibold text-muted-foreground">{index}.</span>
-        <h4 className="font-display text-lg">{area.title}</h4>
-      </div>
-
-      <div className="mt-3">
+    <div className="space-y-5">
+      <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Explanation
         </p>
-        <div className="prose-lesson mt-1 max-w-none break-words text-sm text-foreground">
+        <div className="prose-lesson mt-1.5 max-w-none break-words text-foreground">
           <ReactMarkdown>{area.explanation}</ReactMarkdown>
         </div>
       </div>
 
-      <div className="mt-4">
+      <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Worked example
         </p>
-        <div className="prose-lesson mt-1 max-w-none break-words rounded-lg bg-muted/60 p-3 text-sm text-foreground">
+        <div className="prose-lesson mt-1.5 max-w-none break-words rounded-lg bg-muted/60 p-4 text-foreground">
           <ReactMarkdown>{area.example}</ReactMarkdown>
         </div>
       </div>
 
-      <div className="mt-4">
+      <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Quick self-check
         </p>
@@ -188,6 +188,20 @@ function WeakAreaCard({ index, area }: { index: number; area: WeakArea }) {
             <PracticeItem key={i} question={item.question} answer={item.answer} />
           ))}
         </ul>
+      </div>
+    </div>
+  );
+}
+
+function WeakAreaCard({ index, area }: { index: number; area: WeakArea }) {
+  return (
+    <li className={CARD}>
+      <div className="flex items-baseline gap-2">
+        <span className="text-sm font-semibold text-muted-foreground">{index}.</span>
+        <h4 className="font-display text-lg">{area.title}</h4>
+      </div>
+      <div className="mt-3">
+        <WeakAreaBody area={area} />
       </div>
     </li>
   );

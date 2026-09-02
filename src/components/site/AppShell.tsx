@@ -3,6 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Bell, Moon, Sun } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { useTheme } from "@/hooks/use-theme";
+import { useRole } from "@/hooks/use-role";
 import { AppSidebar } from "@/components/site/AppSidebar";
 import { SearchBar } from "@/components/site/SearchBar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -12,7 +13,9 @@ import { useNotifications } from "@/hooks/use-notifications";
 function TopBar() {
   const { theme, toggle } = useTheme();
   const router = useRouter();
+  const { isLecturer } = useRole();
   const { unreadCount } = useNotifications();
+  const notificationsPath = isLecturer ? "/lecturer/notifications" : "/notifications";
   return (
     <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur-xl">
       <button
@@ -29,7 +32,7 @@ function TopBar() {
         <button
           type="button"
           aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"}
-          onClick={() => router.navigate({ to: "/notifications" })}
+          onClick={() => router.navigate({ to: notificationsPath })}
           className="relative grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
         >
           <Bell className="h-4 w-4" />

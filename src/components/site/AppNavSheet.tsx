@@ -214,10 +214,11 @@ export function AppNavSheet({ user }: { user: User }) {
               <AlertDialogTrigger asChild>
                 <button
                   type="button"
+                  aria-label="Sign out"
                   className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
                 >
                   <LogOut className="h-4 w-4 shrink-0" />
-                  <span>Logout</span>
+                  <span>Sign out</span>
                 </button>
               </AlertDialogTrigger>
               <AlertDialogContent>
