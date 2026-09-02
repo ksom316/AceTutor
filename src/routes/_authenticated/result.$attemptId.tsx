@@ -21,7 +21,13 @@ import { useStudyPath } from "@/hooks/use-study-path";
 import { canAttemptCourseQuiz } from "@/lib/course-quiz";
 import { attemptStatus } from "@/lib/quiz-timer";
 import { StudyPathPanel } from "@/components/course/StudyPathPanel";
-import { isSufficientAttempt } from "@/lib/quiz-performance";
+import {
+  computeModulePerformances,
+  improvementLabel,
+  isSufficientAttempt,
+  justReachedStrong,
+  type PerfAttempt,
+} from "@/lib/quiz-performance";
 
 export const Route = createFileRoute("/_authenticated/result/$attemptId")({
   component: ResultPage,
@@ -197,6 +203,33 @@ function ResultPage() {
   });
   const canRetryCourseQuiz =
     maxAttempts == null || canAttemptCourseQuiz(attemptsUsed ?? 0, maxAttempts);
+
+  // Adaptive loop: once THIS attempt is a sufficient module attempt, the
+  // student's module standing may have changed. Recompute it from all of their
+  // attempts for this module (same shared model as everywhere else — no second
+  // performance system) so the page can say whether the module is now strong or
+  // still needs strengthening, and by how much they've improved.
+  const thisAttemptSufficient = !!attemptShape && isSufficientAttempt(attemptShape);
+  const { data: moduleAttempts = [] } = useQuery({
+    queryKey: ["result-module-attempts", moduleTopicId, user?.id],
+    enabled: !!moduleTopicId && !!user && thisAttemptSufficient,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("quiz_attempts")
+        .select("id, topic_id, score, total, finished_at, answered_count, started_at")
+        .eq("user_id", user!.id)
+        .eq("topic_id", moduleTopicId!);
+      return (data ?? []) as PerfAttempt[];
+    },
+  });
+  const modulePerf =
+    moduleTopicId && thisAttemptSufficient && moduleAttempts.length > 0
+      ? (computeModulePerformances(
+          [{ id: moduleTopicId, title: data?.attempt?.topics?.title ?? "This module" }],
+          moduleAttempts,
+        )[0] ?? null)
+      : null;
+  const moduleNowStrong = modulePerf?.state === "strong";
 
   if (isLoading || !data?.attempt) {
     return (
@@ -426,11 +459,49 @@ function ResultPage() {
         </motion.section>
       )}
 
+      {/* Adaptive-loop status — when this sufficient retake has carried the
+          module to a strong level, say so and do NOT offer a remediation path.
+          The historical Study Path row (if any) stays untouched in the DB. */}
+      {moduleNowStrong && (
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: EASE }}
+          className="mt-10 rounded-2xl border border-success/30 bg-success/5 p-6"
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-success/10 text-success">
+              <CheckCircle2 className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-display text-xl">Your performance in this module is strong</h2>
+              <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+                {modulePerf && justReachedStrong(modulePerf)
+                  ? "Your recent quiz performance has brought this module up to a strong level. No Study Path is needed right now — keep practising to hold it there."
+                  : "You're at or above par on your quiz average for this module, so there's no Study Path to build. Keep practising to hold it there."}
+                {modulePerf?.averageScore !== null && modulePerf?.averageScore !== undefined
+                  ? ` Current module average: ${modulePerf.averageScore}%.`
+                  : ""}
+              </p>
+            </div>
+          </div>
+        </motion.section>
+      )}
+
       {/* Personalized study path — offered right after the score, before the
           detailed corrections, so the student discovers it without scrolling
-          past every wrong-answer explanation. */}
-      {studyPathEligible && (
+          past every wrong-answer explanation. Hidden once the module is strong. */}
+      {studyPathEligible && !moduleNowStrong && (
         <div className="mt-10">
+          {modulePerf && improvementLabel(modulePerf) && (
+            <p
+              className={`mb-2 text-sm font-medium ${
+                (modulePerf.improvementPoints ?? 0) > 0 ? "text-success" : "text-muted-foreground"
+              }`}
+            >
+              This module still needs strengthening — {improvementLabel(modulePerf)}.
+            </p>
+          )}
           <StudyPathPanel
             studyPath={sp.studyPath}
             isLoading={sp.isLoading}

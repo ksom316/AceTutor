@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { moduleStudyPathCta, useCourseStudyPaths } from "@/hooks/use-study-path";
-import type { CoursePerformance, ModulePerformance } from "@/lib/quiz-performance";
+import {
+  improvementLabel,
+  type CoursePerformance,
+  type ModulePerformance,
+} from "@/lib/quiz-performance";
 
 /**
  * The student's unified "Personalized Learning" experience for one course — the
@@ -85,7 +89,19 @@ export function PersonalizedLearningSection({
               return (
                 <div key={m.topic.id} className="rounded-xl border border-border bg-card p-4">
                   <p className="font-medium">{m.topic.title}</p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">{lastQuizLabel(m)}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    {m.averageScore !== null ? `Quiz average: ${m.averageScore}% · ` : ""}
+                    {lastQuizLabel(m)}
+                  </p>
+                  {improvementLabel(m) && (
+                    <p
+                      className={`mt-0.5 text-xs font-medium ${
+                        (m.improvementPoints ?? 0) > 0 ? "text-success" : "text-muted-foreground"
+                      }`}
+                    >
+                      {improvementLabel(m)}
+                    </p>
+                  )}
                   <p className="mt-1 text-xs text-muted-foreground">
                     {cta.kind === "build" ? (
                       "Needs strengthening"

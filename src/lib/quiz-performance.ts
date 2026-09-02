@@ -112,6 +112,18 @@ export type ModulePerformance = {
    *  student-facing "last quiz" figure. May come from a partial attempt, so
    *  pair it with `answeredCount` / `totalQuestions` when displaying. */
   lastUsableScore: number | null;
+  /** Score % of the most recent SUFFICIENT attempt (the one that actually moved
+   *  the average). null when there is no sufficient attempt. Distinct from
+   *  `lastUsableScore`, which can be a partial. */
+  latestSufficientScore: number | null;
+  /** Score % of the SECOND-most-recent sufficient attempt — the "before" in a
+   *  retake comparison. null when there are fewer than two sufficient attempts. */
+  previousSufficientScore: number | null;
+  /** `latestSufficientScore - previousSufficientScore`, in percentage points.
+   *  null unless there are at least two sufficient attempts. Positive = improved.
+   *  The module `averageScore` / `state` are unaffected by this — it is purely a
+   *  "what changed since you last had reliable evidence" signal for the UI. */
+  improvementPoints: number | null;
   /** Answered / total questions of that most recent usable attempt, so the UI
    *  can show "100% · 1/20 answered". null when there is no usable attempt. */
   answeredCount: number | null;
@@ -159,6 +171,22 @@ export function computeModulePerformances(
 
     const latestUsable = usable[usable.length - 1];
     const lastUsableScore = latestUsable ? pct(latestUsable.score, latestUsable.total) : null;
+
+    // Retake comparison — latest vs previous SUFFICIENT attempt only (both
+    // `finished` are sorted ascending above, so `sufficient` is too). Never
+    // involves a partial attempt, and never changes `averageScore` / `state`.
+    const latestSufficient = sufficient[sufficient.length - 1];
+    const previousSufficient = sufficient[sufficient.length - 2];
+    const latestSufficientScore = latestSufficient
+      ? pct(latestSufficient.score, latestSufficient.total)
+      : null;
+    const previousSufficientScore = previousSufficient
+      ? pct(previousSufficient.score, previousSufficient.total)
+      : null;
+    const improvementPoints =
+      latestSufficientScore !== null && previousSufficientScore !== null
+        ? latestSufficientScore - previousSufficientScore
+        : null;
     const answeredCount = latestUsable ? answeredCountOf(latestUsable) : null;
     const totalQuestions = latestUsable ? (latestUsable.total ?? 0) : null;
     const coveragePercent =
@@ -182,6 +210,9 @@ export function computeModulePerformances(
       topic: t,
       averageScore,
       lastUsableScore,
+      latestSufficientScore,
+      previousSufficientScore,
+      improvementPoints,
       answeredCount,
       totalQuestions,
       coveragePercent,
@@ -280,6 +311,36 @@ export function computeCoursePerformance(
     sufficientAttemptCount,
     unusableAttemptCount,
   };
+}
+
+/**
+ * "↑ 8 points since your previous quiz" / "↓ 5 points since your previous quiz",
+ * or null when there is no meaningful two-attempt comparison to show (fewer than
+ * two sufficient attempts, or no change). Percentage points, never relative %.
+ * Shared so every surface phrases the retake delta identically.
+ */
+export function improvementLabel(m: ModulePerformance): string | null {
+  const d = m.improvementPoints;
+  if (d === null || d === 0) return null;
+  const n = Math.abs(d);
+  return d > 0
+    ? `↑ ${n} point${n === 1 ? "" : "s"} since your previous quiz`
+    : `↓ ${n} point${n === 1 ? "" : "s"} since your previous quiz`;
+}
+
+/**
+ * True when a retake has just carried this module up to a strong level: it is
+ * strong now, the previous sufficient attempt was below par, and the latest
+ * sufficient attempt improved on it. UI-only signal for a positive message — the
+ * authoritative state is still `m.state`.
+ */
+export function justReachedStrong(m: ModulePerformance): boolean {
+  return (
+    m.state === "strong" &&
+    m.previousSufficientScore !== null &&
+    m.previousSufficientScore < WEAK_THRESHOLD &&
+    (m.improvementPoints ?? 0) > 0
+  );
 }
 
 /**

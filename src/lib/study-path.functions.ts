@@ -12,6 +12,7 @@ import {
   answeredCountOf,
   isSufficientAttempt,
   sufficientModuleAverage,
+  WEAK_THRESHOLD,
   type PerfAttempt,
 } from "@/lib/quiz-performance";
 
@@ -408,6 +409,16 @@ export const generateStudyPath = createServerFn({ method: "POST" })
         topic_id: moduleTopicId,
       }));
       moduleAverage = sufficientModuleAverage(moduleAttempts);
+
+      // A retake can carry the module's average up to a strong level. Once it
+      // is at or above par, there is no remediation to build — the adaptive
+      // loop is closed. Any Study Path already created for an earlier attempt
+      // stays in the student's history (the existing-path check above still
+      // returns it); this only blocks generating a NEW remediation path.
+      if (moduleAverage !== null && moduleAverage >= WEAK_THRESHOLD) {
+        return { status: "not-needed" };
+      }
+
       const sufficientIds = moduleAttempts.filter(isSufficientAttempt).map((a) => a.id);
       if (sufficientIds.length > 0) wrongAttemptIds = sufficientIds;
     }

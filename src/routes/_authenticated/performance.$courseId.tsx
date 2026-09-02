@@ -9,7 +9,13 @@ import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { moduleStudyPathCta, useCourseStudyPaths } from "@/hooks/use-study-path";
-import { computeCoursePerformance, type PerfAttempt, type PerfTopic } from "@/lib/quiz-performance";
+import {
+  computeCoursePerformance,
+  improvementLabel,
+  justReachedStrong,
+  type PerfAttempt,
+  type PerfTopic,
+} from "@/lib/quiz-performance";
 import { fadeUp } from "@/lib/motion";
 
 export const Route = createFileRoute("/_authenticated/performance/$courseId")({
@@ -244,6 +250,28 @@ function MyPerformancePage() {
                     </Badge>
                   )}
                 </div>
+                {(m.state === "weak" || m.state === "strong") && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Latest quiz: {m.lastUsableScore ?? 0}%
+                    {m.coveragePercent !== null &&
+                    m.coveragePercent < 100 &&
+                    m.answeredCount !== null &&
+                    m.totalQuestions !== null
+                      ? ` · ${m.answeredCount}/${m.totalQuestions} answered`
+                      : ""}
+                    {improvementLabel(m) ? (
+                      <span
+                        className={
+                          (m.improvementPoints ?? 0) > 0
+                            ? "ml-1.5 font-medium text-success"
+                            : "ml-1.5 font-medium text-muted-foreground"
+                        }
+                      >
+                        · {improvementLabel(m)}
+                      </span>
+                    ) : null}
+                  </p>
+                )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {m.state === "weak" &&
                     (() => {
@@ -286,7 +314,9 @@ function MyPerformancePage() {
                   {m.state === "strong" && (
                     <p className="text-xs text-muted-foreground">
                       <TrendingUp className="mr-1 inline h-3.5 w-3.5 text-success" />
-                      You&apos;re doing well in this module.
+                      {justReachedStrong(m)
+                        ? "Your recent quiz performance has brought this module up to a strong level."
+                        : "You're doing well in this module."}
                     </p>
                   )}
                   {m.state === "insufficient" && (

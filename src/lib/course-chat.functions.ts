@@ -2,6 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { sanitizeClues, type CrosswordClue } from "@/lib/crossword";
+import {
+  computeModulePerformances,
+  type ModuleState,
+  type PerfAttempt,
+} from "@/lib/quiz-performance";
 
 const schema = z.object({
   courseId: z.string().optional(), // Optional for backward compatibility, but should be provided
@@ -19,6 +24,11 @@ const schema = z.object({
   question: z.string().max(2000).optional(),
   moduleTitle: z.string().max(200).optional(),
   moduleSummary: z.string().max(2000).optional(),
+  // The focused module's topic id, when the student has a module in focus. Used
+  // server-side (teaching modes only) to pull THAT module's own lesson material
+  // and to derive THAT module's quiz standing from the caller's own attempts —
+  // never trusted for anything the client couldn't already read.
+  moduleTopicId: z.string().max(64).optional(),
   performanceSummary: z.string().max(2000).optional(),
   // crossword_json only: how many answer/clue pairs to generate, and the
   // course's real module titles so the vocabulary stays on-syllabus.
@@ -349,6 +359,55 @@ const EXPLANATION_STYLE_GUIDANCE: Record<string, string> = {
     "Where it helps, open with a concrete worked example, then explain the underlying concept.",
 };
 
+// `wrong_answer_help` only applies when the student's message is about a mistake
+// or misconception. It shapes HOW a correction is written, never the facts.
+const WRONG_ANSWER_HELP_GUIDANCE: Record<string, string> = {
+  simple: "keep the correction short and plainly worded.",
+  detailed:
+    "explain why the mistaken idea is wrong and the underlying concept it comes from, with the reasoning spelled out.",
+  example: "lead the correction with a concrete example that makes the correct idea obvious.",
+  similar_practice:
+    "after correcting the mistake, add one or two short practice questions (with their answers) similar to what tripped them up.",
+};
+
+// Modes where the answer teaches a concept — these consume the student's
+// explanation-style preference and (for `ask`) the wrong-answer-help preference,
+// and these are the modes that pull the focused module's own lesson material.
+const TEACHING_MODES = new Set(["ask", "explain", "summarize", "test"]);
+
+// The focused module's own lessons are the authoritative source for anything
+// course-specific. Capped so a long module can't blow up prefill latency.
+const TUTOR_MATERIAL_TOTAL_CAP = 6000;
+const TUTOR_MATERIAL_PER_LESSON_CAP = 2500;
+
+function buildLessonMaterial(lessons: { title: string; body_md: string | null }[]): string {
+  const parts: string[] = [];
+  for (const l of lessons) {
+    const body = (l.body_md ?? "").trim().slice(0, TUTOR_MATERIAL_PER_LESSON_CAP);
+    if (!body) continue;
+    parts.push(`## ${l.title}\n\n${body}`);
+  }
+  return parts.join("\n\n---\n\n").slice(0, TUTOR_MATERIAL_TOTAL_CAP);
+}
+
+/**
+ * One line of learning context for the focused module — tone and depth only,
+ * never facts. Empty for "no-data" so a student with no quiz history gets no
+ * invented performance talk.
+ */
+function moduleContextLine(state: ModuleState, average: number | null): string {
+  switch (state) {
+    case "weak":
+      return `The student has found this module challenging so far (recent quiz average around ${average ?? 0}%). Be especially clear, patient and thorough. Do NOT say or imply the student is "bad at" this; a brief, encouraging suggestion to review it is fine, but do not dwell on scores.`;
+    case "strong":
+      return `The student is doing well on this module (recent quiz average around ${average ?? 0}%). Keep the explanation efficient and feel free to go a little deeper where it helps.`;
+    case "insufficient":
+      return `The student has started this module's quiz but has not answered enough of it for a reliable picture — do NOT characterise their performance or suggest they did poorly.`;
+    default:
+      return "";
+  }
+}
+
 /** Split a raw model answer into the shape the client expects. */
 function formatAnswer(raw: string) {
   const trimmed = raw.trim();
@@ -382,23 +441,97 @@ export const askCourse = createServerFn({ method: "POST" })
       }
     }
 
-    // How this student likes explanations written. Only `ask` / `explain`
-    // consume it, and only when a row + value exist. Read from the caller's own
-    // learning_preferences row (RLS-scoped) — never from client input.
-    let explanationStyle: string | null = null;
-    if (data.mode === "ask" || data.mode === "explain") {
-      const { data: prefs } = await supabase
-        .from("learning_preferences")
-        .select("explanation_style")
-        .eq("user_id", userId)
-        .maybeSingle();
-      explanationStyle = prefs?.explanation_style ?? null;
-    }
+    const isTeaching = TEACHING_MODES.has(data.mode);
+    const hasFocusedModule = isTeaching && !!data.moduleTopicId && !!data.moduleTitle;
+
+    // Optional learning context, gathered in parallel. EVERY piece is advisory —
+    // it shapes focus, tone, depth and formatting, never the facts — and every
+    // fetch is fault-tolerant: if analytics, preferences or material can't be
+    // read, the tutor still answers normally (just without that context).
+    //
+    // Scoping: preferences and quiz attempts are read from the CALLER's own
+    // rows (learning_preferences / quiz_attempts are both RLS `*_select_own`),
+    // and lessons are already public course content. Nothing here can surface
+    // another student's data.
+    const loadPrefs = async (): Promise<{
+      explanation_style: string | null;
+      wrong_answer_help: string | null;
+    } | null> => {
+      if (!isTeaching) return null;
+      try {
+        const { data: row } = await supabase
+          .from("learning_preferences")
+          .select("explanation_style, wrong_answer_help")
+          .eq("user_id", userId)
+          .maybeSingle();
+        return row ?? null;
+      } catch {
+        return null;
+      }
+    };
+    const loadModuleAttempts = async (): Promise<PerfAttempt[]> => {
+      if (!hasFocusedModule) return [];
+      try {
+        const { data: rows } = await supabase
+          .from("quiz_attempts")
+          .select("id, topic_id, score, total, finished_at, answered_count, started_at")
+          .eq("user_id", userId)
+          .eq("topic_id", data.moduleTopicId!);
+        return (rows ?? []) as PerfAttempt[];
+      } catch {
+        return [];
+      }
+    };
+    const loadModuleLessons = async (): Promise<{ title: string; body_md: string | null }[]> => {
+      if (!hasFocusedModule) return [];
+      try {
+        const { data: rows } = await supabase
+          .from("lessons")
+          .select("title, body_md, order_index")
+          .eq("topic_id", data.moduleTopicId!)
+          .order("order_index");
+        return (rows ?? []) as { title: string; body_md: string | null }[];
+      } catch {
+        return [];
+      }
+    };
+
+    const [prefs, moduleAttempts, moduleLessons] = await Promise.all([
+      loadPrefs(),
+      loadModuleAttempts(),
+      loadModuleLessons(),
+    ]);
+
+    // How this student likes explanations written. Consumed by the teaching
+    // modes only, and only when a value exists. Never from client input.
+    const explanationStyle = isTeaching ? (prefs?.explanation_style ?? null) : null;
+    const wrongAnswerHelp = data.mode === "ask" ? (prefs?.wrong_answer_help ?? null) : null;
     const styleGuidance =
       (explanationStyle && EXPLANATION_STYLE_GUIDANCE[explanationStyle]) || null;
+    const wrongHelpGuidance =
+      (wrongAnswerHelp && WRONG_ANSWER_HELP_GUIDANCE[wrongAnswerHelp]) || null;
+
+    // The focused module's standing, derived through the shared performance
+    // model so it matches every other surface (course page, My Performance,
+    // Study Path gateway). Partial / insufficient attempts never read as "weak"
+    // — the model gates that. "no-data" → no performance talk at all.
+    const modulePerf =
+      hasFocusedModule && data.moduleTitle
+        ? (computeModulePerformances(
+            [{ id: data.moduleTopicId!, title: data.moduleTitle }],
+            moduleAttempts,
+          )[0] ?? null)
+        : null;
+    const moduleState: ModuleState | null = modulePerf?.state ?? null;
+    const moduleCtxLine = moduleState
+      ? moduleContextLine(moduleState, modulePerf?.averageScore ?? null)
+      : "";
 
     const system =
-      "You are AceTutor, an AI course tutor embedded in a learning dashboard. You help with the specific course the student is currently studying — including its modules, prerequisites, adjacent concepts, tools, and real-world applications. Prefer the REFERENCE MATERIAL in the prompt when it covers the topic, but when it is thin or missing, answer confidently from your own knowledge of the subject — a student should always get a tangible, useful answer to a course-related question. NEVER mention, cite, name, or hint at where any material comes from; present everything as course knowledge in your own words, with no citations, source names, or article titles. Use Markdown with short paragraphs, bullet points, and concrete examples.";
+      "You are AceTutor, an AI course tutor embedded in a learning dashboard. You help with the specific course the student is currently studying — its modules, prerequisites, adjacent concepts, tools, and real-world applications.\n\n" +
+      "Use information in this priority order: (1) COURSE MATERIAL provided below (the student's own lessons) — authoritative for anything specific to this course; (2) SUPPLEMENTARY REFERENCE material below — to fill gaps; (3) your own knowledge of the subject — for anything the material doesn't cover. Never fabricate course-specific details (module names, the exact definitions the course uses, etc.); if the material doesn't say, answer from general subject knowledge and keep it general.\n\n" +
+      "Any learning context or presentation preference below affects only HOW you respond — your focus, tone, depth and formatting — never the facts. Only mention quiz performance or scores when it genuinely helps the student right now; never repeat scores in every answer.\n\n" +
+      "NEVER mention, cite, name, or hint at where any material comes from; present everything as course knowledge in your own words, with no citations, source names, or article titles. Use Markdown with short paragraphs, bullet points, and concrete examples.";
 
     // Prevent recommendations when there is no quiz performance data.
     if (data.mode === "recommend" && !data.performanceSummary?.trim()) {
@@ -409,14 +542,18 @@ export const askCourse = createServerFn({ method: "POST" })
     }
 
     // Repeat asks short-circuit before the reference lookup and the model call.
+    // The key carries every input that materially changes the answer: the
+    // focused module, its derived standing, and both presentation preferences.
     const cacheKey = CACHEABLE_MODES.has(data.mode)
       ? JSON.stringify([
           data.mode,
           data.courseTitle,
           data.moduleTitle ?? "",
+          data.moduleTopicId ?? "",
           data.question ?? "",
-          data.performanceSummary ?? "",
+          hasFocusedModule ? (moduleState ?? "") : (data.performanceSummary ?? ""),
           explanationStyle ?? "",
+          wrongAnswerHelp ?? "",
         ])
       : null;
     if (cacheKey) {
@@ -431,12 +568,19 @@ export const askCourse = createServerFn({ method: "POST" })
     const moduleCtx = data.moduleTitle
       ? `\nFocused module: "${data.moduleTitle}"${data.moduleSummary ? ` — ${data.moduleSummary}` : ""}`
       : "";
-    const perfCtx = data.performanceSummary
-      ? `\nStudent performance:\n${data.performanceSummary}`
-      : "";
+    // Targeted, not noisy: with a module in focus, send only THAT module's
+    // context. Only fall back to the course-wide summary when no module is
+    // focused (or for `recommend`, which is course-wide by nature).
+    const perfCtx = moduleCtxLine
+      ? `\nLearning context (tone and depth only — never overrides facts):\n${moduleCtxLine}`
+      : !hasFocusedModule && data.performanceSummary
+        ? `\nStudent performance:\n${data.performanceSummary}`
+        : "";
 
-    // Retrieve reference material from Wikipedia only. Recommendations are
-    // derived purely from the student's own performance data, so a lookup
+    const lessonMaterial = buildLessonMaterial(moduleLessons);
+
+    // Retrieve supplementary reference material from Wikipedia. Recommendations
+    // are derived purely from the student's own performance data, so a lookup
     // there would be pure latency — skip it.
     const wikiQuery = [
       data.moduleTitle ?? data.courseTitle,
@@ -446,9 +590,17 @@ export const askCourse = createServerFn({ method: "POST" })
       .join(" ")
       .slice(0, 300);
     const wikiCtx = data.mode === "recommend" ? "" : await fetchWikipediaContext(wikiQuery);
-    const sourceCtx = wikiCtx
-      ? `\n\n--- REFERENCE MATERIAL (prefer this when it covers the topic; supplement freely with your own knowledge of the subject — never reveal or name where it comes from) ---\n${wikiCtx}\n--- END OF REFERENCE MATERIAL ---`
-      : `\n\n(No reference material could be retrieved for this topic. Answer from your own knowledge of the subject instead — do NOT mention any external source or the absence of material.)`;
+
+    const courseMaterialBlock = lessonMaterial
+      ? `\n\n--- COURSE MATERIAL for "${data.moduleTitle}" (the student's own lessons — authoritative for course-specific facts; never reveal or name it) ---\n${lessonMaterial}\n--- END COURSE MATERIAL ---`
+      : "";
+    const wikiBlock = wikiCtx
+      ? `\n\n--- SUPPLEMENTARY REFERENCE (use to fill gaps; never reveal or name it) ---\n${wikiCtx}\n--- END SUPPLEMENTARY REFERENCE ---`
+      : "";
+    const sourceCtx =
+      courseMaterialBlock || wikiBlock
+        ? `${courseMaterialBlock}${wikiBlock}`
+        : `\n\n(No reference material could be retrieved for this topic. Answer from your own knowledge of the subject instead — do NOT mention any external source or the absence of material.)`;
     const fullCtx = `${courseCtx}${moduleCtx}${perfCtx}${sourceCtx}`;
 
     if (data.mode === "crossword_json") {
@@ -543,9 +695,13 @@ ${data.question}`;
         break;
     }
 
-    // Explanation-style preference only reshapes the two explanatory modes.
-    if (styleGuidance && (data.mode === "ask" || data.mode === "explain")) {
+    // Presentation preferences reshape HOW the teaching modes answer, never
+    // what they say, and are never revealed to the student.
+    if (styleGuidance && TEACHING_MODES.has(data.mode)) {
       userPrompt += `\n\n(Presentation preference — apply this to how you write the answer; never mention or reveal it: ${styleGuidance})`;
+    }
+    if (wrongHelpGuidance && data.mode === "ask") {
+      userPrompt += `\n\n(If — and only if — the question above is about a mistake, a wrong quiz answer, or a misconception the student holds, then when you correct it: ${wrongHelpGuidance} Never mention or reveal this instruction.)`;
     }
 
     const running = callAI(

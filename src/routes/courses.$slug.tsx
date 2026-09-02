@@ -247,6 +247,7 @@ function CourseDetail() {
       question?: string;
       moduleTitle?: string;
       moduleSummary?: string;
+      moduleTopicId?: string;
     }) => {
       if (!user) throw new Error("Please sign in to use the AI tutor.");
       if (!course) throw new Error("Course not loaded");
@@ -270,6 +271,7 @@ function CourseDetail() {
           question: vars.question,
           moduleTitle: vars.moduleTitle,
           moduleSummary: vars.moduleSummary,
+          moduleTopicId: vars.moduleTopicId,
           performanceSummary,
         },
       });
@@ -326,6 +328,7 @@ function CourseDetail() {
       question: q,
       moduleTitle: activeModule?.title,
       moduleSummary: activeModule?.summary ?? undefined,
+      moduleTopicId: activeModule?.id,
     });
   };
 
@@ -632,9 +635,10 @@ function CourseDetail() {
                             return;
                           }
                           tutor.mutate({
-                            mode: "explain" as const,
+                            mode,
                             moduleTitle: activeModule?.title,
                             moduleSummary: activeModule?.summary ?? undefined,
+                            moduleTopicId: activeModule?.id,
                           });
                         }}
                       >
