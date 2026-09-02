@@ -11,7 +11,7 @@ import { callAI } from "@/lib/course-chat.functions";
  * current_lecturer_course() — so the client can only ever hold its own course's
  * data. This server fn re-checks the caller is a lecturer, then forwards ONLY
  * the small aggregated payload below to the shared OpenRouter path (callAI).
- * No raw attempt rows, emails, VARK, timestamps or ids are sent — just quiz and
+ * No raw attempt rows, emails, timestamps or ids are sent — just quiz and
  * student averages the lecturer already sees on the page.
  */
 

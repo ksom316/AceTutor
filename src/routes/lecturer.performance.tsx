@@ -45,7 +45,7 @@ export const Route = createFileRoute("/lecturer/performance")({
  * One row from get_course_quiz_performance() — one module-quiz OR General Course
  * Quiz attempt in the lecturer's own course. The RPC is SECURITY DEFINER and
  * derives the course from current_lecturer_course(); it never accepts a course
- * id and never returns email / VARK. `finished_at` is null while an attempt is
+ * id and never returns email. `finished_at` is null while an attempt is
  * in progress; `topic` / `topic_id` are null for general quizzes and
  * `course_quiz_id` is null for module quizzes (the generated type flattens all
  * of these to string).

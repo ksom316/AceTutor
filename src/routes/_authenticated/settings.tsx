@@ -223,9 +223,9 @@ function SettingRow({ icon: Icon, title, description, ...rest }: SettingRowProps
 
 /**
  * Resets the user's learning data after an explicit confirmation. Deletes
- * enrollments, lesson progress, quiz history (attempts + answers) and the
- * student's learning preferences (plus any legacy VARK data), but never touches
- * the profile's name/details or the auth password.
+ * enrollments, lesson progress, recorded study time, quiz history (attempts +
+ * answers) and the student's learning preferences, but never touches the
+ * profile's name/details or the auth password.
  */
 function ResetAccountButton() {
   const { user } = useAuth();
@@ -265,15 +265,6 @@ function ResetAccountButton() {
       if (enrollDel.error) throw enrollDel.error;
       const prefsDel = await supabase.from("learning_preferences").delete().eq("user_id", uid);
       if (prefsDel.error) throw prefsDel.error;
-
-      // Legacy VARK data — cleared here too until the old system is removed.
-      const varkDel = await supabase.from("vark_responses").delete().eq("user_id", uid);
-      if (varkDel.error) throw varkDel.error;
-      const profileUpd = await supabase
-        .from("profiles")
-        .update({ vark_primary: null })
-        .eq("id", uid);
-      if (profileUpd.error) throw profileUpd.error;
 
       await queryClient.invalidateQueries();
       toast.success("Your account data has been reset");

@@ -250,24 +250,18 @@ export type Database = {
           created_at: string;
           full_name: string | null;
           id: string;
-          vark_primary: Database["public"]["Enums"]["vark_style"] | null;
-          vark_scores: Json | null;
         };
         Insert: {
           avatar_url?: string | null;
           created_at?: string;
           full_name?: string | null;
           id: string;
-          vark_primary?: Database["public"]["Enums"]["vark_style"] | null;
-          vark_scores?: Json | null;
         };
         Update: {
           avatar_url?: string | null;
           created_at?: string;
           full_name?: string | null;
           id?: string;
-          vark_primary?: Database["public"]["Enums"]["vark_style"] | null;
-          vark_scores?: Json | null;
         };
         Relationships: [];
       };
@@ -610,30 +604,6 @@ export type Database = {
         };
         Relationships: [];
       };
-      vark_responses: {
-        Row: {
-          answers: Json;
-          computed_style: Database["public"]["Enums"]["vark_style"];
-          created_at: string;
-          id: string;
-          user_id: string;
-        };
-        Insert: {
-          answers: Json;
-          computed_style: Database["public"]["Enums"]["vark_style"];
-          created_at?: string;
-          id?: string;
-          user_id: string;
-        };
-        Update: {
-          answers?: Json;
-          computed_style?: Database["public"]["Enums"]["vark_style"];
-          created_at?: string;
-          id?: string;
-          user_id?: string;
-        };
-        Relationships: [];
-      };
     };
     Views: {
       [_ in never]: never;
@@ -854,7 +824,6 @@ export type Database = {
     Enums: {
       app_role: "student" | "teacher" | "admin";
       modality: "text" | "video" | "audio" | "slides";
-      vark_style: "visual" | "aural" | "read_write" | "kinesthetic";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -982,7 +951,6 @@ export const Constants = {
     Enums: {
       app_role: ["student", "admin"],
       modality: ["text", "video", "audio", "slides"],
-      vark_style: ["visual", "aural", "read_write", "kinesthetic"],
     },
   },
 } as const;
