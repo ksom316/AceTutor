@@ -44,6 +44,10 @@ import {
   summariseCourseModules,
   type LecturerModuleAttempt,
 } from "@/lib/lecturer-analytics";
+import {
+  askLecturerAssistant,
+  lecturerAssistantErrorMessage,
+} from "@/lib/lecturer-assistant.functions";
 
 export const Route = createFileRoute("/lecturer/performance")({
   component: LecturerPerformance,
@@ -441,6 +445,23 @@ function LecturerPerformance() {
   const loading = perfQuery.isLoading;
   const hasData = perf.length > 0;
 
+  // AI Lecturer Assistant — grounded Q&A. Only the question is sent; the server
+  // derives the course + recomputes the analytics itself (no client numbers).
+  const runAssistant = useServerFn(askLecturerAssistant);
+  const [assistantQuestion, setAssistantQuestion] = useState("");
+  const assistant = useMutation({
+    mutationFn: async (question: string) => {
+      const res = await runAssistant({ data: { question } });
+      return res.answer;
+    },
+  });
+  const askAssistant = (q: string) => {
+    const trimmed = q.trim();
+    if (!trimmed || assistant.isPending) return;
+    setAssistantQuestion(trimmed);
+    assistant.mutate(trimmed);
+  };
+
   // AI analysis of the aggregated numbers above. Only the small summary payload
   // is sent — no raw attempt rows, ids, emails or timestamps.
   const runAnalyse = useServerFn(analyseCoursePerformance);
@@ -751,6 +772,87 @@ function LecturerPerformance() {
               </CardContent>
             </Card>
           ) : null}
+
+          {/* AI Lecturer Assistant — grounded Q&A over the analytics above. The
+              server re-derives the course + analytics; only the question is
+              sent. Advisory only. */}
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Sparkles className="h-4 w-4 text-primary" /> AI Lecturer Assistant
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ask about your course&apos;s performance. Answers are grounded in the evidence-based
+                analytics above (sufficient attempts only) — not a general chatbot.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  askAssistant(assistantQuestion);
+                }}
+                className="flex flex-col gap-2 sm:flex-row"
+              >
+                <Input
+                  value={assistantQuestion}
+                  onChange={(e) => setAssistantQuestion(e.target.value)}
+                  placeholder="e.g. Which modules need attention?"
+                  className="rounded-xl"
+                  aria-label="Ask the AI Lecturer Assistant"
+                  maxLength={500}
+                  disabled={assistant.isPending}
+                />
+                <Button
+                  type="submit"
+                  className="rounded-full sm:shrink-0"
+                  disabled={assistant.isPending || !assistantQuestion.trim()}
+                >
+                  {assistant.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Sparkles className="mr-1.5 h-4 w-4" /> Ask
+                    </>
+                  )}
+                </Button>
+              </form>
+
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "Which modules need attention?",
+                  "Which modules are strongest?",
+                  "Are students improving?",
+                  "How much assessment evidence do I have?",
+                  "What should I focus on next?",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    disabled={assistant.isPending}
+                    onClick={() => askAssistant(q)}
+                    className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+
+              {assistant.isPending ? (
+                <div className="flex items-center gap-2 pt-1 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Analysing course performance…
+                </div>
+              ) : assistant.isError ? (
+                <p className="pt-1 text-sm text-destructive">
+                  {lecturerAssistantErrorMessage(assistant.error)}
+                </p>
+              ) : assistant.data ? (
+                <div className="prose-lesson max-w-none border-t border-border pt-3 text-sm text-foreground">
+                  <ReactMarkdown>{assistant.data}</ReactMarkdown>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
 
           {/* Performance overview — graded attempts only, by week */}
           <Card className="mt-6">
