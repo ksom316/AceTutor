@@ -8,8 +8,10 @@ import {
   BarChart3,
   BookOpen,
   Brain,
+  ClipboardList,
   Gamepad2,
-  Headphones,
+  GraduationCap,
+  Layers,
   LayoutDashboard,
   Sparkles,
   Target,
@@ -82,9 +84,60 @@ const courses = [
 
 const stats = [
   { value: "5", label: "Courses" },
-  { value: "16", label: "VARK questions" },
-  { value: "3", label: "Modalities" },
-  { value: "24/7", label: "AI tutor" },
+  { value: "4", label: "Lesson formats" },
+  { value: "2", label: "Assessment types" },
+  { value: "24/7", label: "AI assistance" },
+];
+
+const studentPoints = [
+  "Learn from structured lessons in text, video or audio",
+  "Practise with module quizzes and course assessments",
+  "Ask an AI tutor grounded in your actual course material",
+  "Follow a personalized study path for the areas you missed",
+  "Track your module and course progress as you go",
+];
+
+const lecturerPoints = [
+  "Organize course materials, modules and topics in one workspace",
+  "Create and manage module quizzes and course assessments",
+  "Monitor the students enrolled in your course",
+  "Review quiz performance and course analytics",
+  "See which topics students are struggling with",
+];
+
+const platformFeatures = [
+  { Icon: Layers, name: "Structured courses & materials", audience: "Students & lecturers" },
+  { Icon: ClipboardList, name: "Quizzes & assessments", audience: "Students & lecturers" },
+  { Icon: Brain, name: "AI-assisted learning", audience: "Students" },
+  { Icon: Sparkles, name: "Personalized learning", audience: "Students" },
+  { Icon: BarChart3, name: "Progress & performance analytics", audience: "Students & lecturers" },
+];
+
+const connectSteps = [
+  {
+    n: "01",
+    t: "Lecturers build the course",
+    d: "Materials, modules, topics and assessments, organized in one workspace.",
+    Icon: GraduationCap,
+  },
+  {
+    n: "02",
+    t: "Students learn and practise",
+    d: "Lessons in their preferred format, then module quizzes and course assessments.",
+    Icon: BookOpen,
+  },
+  {
+    n: "03",
+    t: "Performance becomes insight",
+    d: "Results feed progress tracking for students and analytics for lecturers.",
+    Icon: BarChart3,
+  },
+  {
+    n: "04",
+    t: "Support reaches the right place",
+    d: "Students get personalized study paths; lecturers see which topics need attention.",
+    Icon: Target,
+  },
 ];
 
 function VisitorHome() {
@@ -124,20 +177,22 @@ function VisitorHome() {
               transition={{ duration: 0.6 }}
               className="text-center lg:text-left"
             >
-              {/* <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                <Sparkles className="h-3 w-3" /> Next-Gen Adaptive Tutor
-              </span> */}
-              <h1 className="mt-6 text-5xl font-bold leading-[1.02] tracking-tight md:text-7xl">
-                One Tutor. <span className="text-primary">Three Ways</span> to Learn.
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                <Sparkles className="h-3 w-3" /> Learning · Teaching · Assessment · Insight
+              </span>
+              <h1 className="mt-5 text-5xl font-bold leading-[1.03] tracking-tight md:text-7xl">
+                One platform for <span className="text-primary">learning</span> and{" "}
+                <span className="text-primary">teaching</span>.
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-base text-muted-foreground md:text-lg lg:mx-0">
-                AceTutor adapts every lesson to your VARK learning style — switching between text,
-                video, and audio — and tests what you know with quizzes that get smarter as you do.
+                AceTutor brings course content, quizzes, AI-assisted help and performance insights
+                into one place — so students can learn and practise while lecturers manage their
+                course and see how it&apos;s going.
               </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
                 <Button asChild size="lg" className="h-12 rounded-full px-6 text-base">
                   <Link to="/signup">
-                    Get Started Free <ArrowRight className="ml-1.5 h-4 w-4" />
+                    Get started <ArrowRight className="ml-1.5 h-4 w-4" />
                   </Link>
                 </Button>
                 <Button
@@ -146,9 +201,19 @@ function VisitorHome() {
                   size="lg"
                   className="h-12 rounded-full px-6 text-base"
                 >
-                  <Link to="/login">Login</Link>
+                  <Link to="/login">Log in</Link>
                 </Button>
               </div>
+              <p className="mt-4 text-sm text-muted-foreground">
+                Teaching a course?{" "}
+                <Link
+                  to="/signup"
+                  search={{ role: "lecturer" }}
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  Sign up as a lecturer
+                </Link>
+              </p>
 
               <motion.div
                 variants={staggerContainer}
@@ -186,23 +251,107 @@ function VisitorHome() {
         </div>
       </section>
 
-      {/* Feature carousel */}
-      <FeatureCarousel />
+      {/* Both sides — students and lecturers */}
+      <section className="container mx-auto max-w-6xl px-4 py-16">
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="show"
+          viewport={viewportOnce}
+          className="max-w-2xl"
+        >
+          <h2 className="text-4xl font-bold tracking-tight">Built for both sides of the course</h2>
+          <p className="mt-2 text-muted-foreground">
+            The same platform, seen from two angles — one for the people learning, one for the
+            person running the course.
+          </p>
+        </motion.div>
 
-      {/* Brand showcase — the three poster designs, recreated as scrollable slides. */}
-      <section className="container mx-auto max-w-6xl px-4 pb-16">
-        <BrandShowcaseCarousel cta={{ label: "Get started", to: "/signup" }} />
+        <motion.div
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={viewportOnce}
+          className="mt-8 grid gap-4 md:grid-cols-2"
+        >
+          <motion.div
+            variants={staggerItem}
+            className="rounded-3xl border border-border bg-card p-6 md:p-8"
+          >
+            <div className="flex items-center gap-2">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                <BookOpen className="h-5 w-5" />
+              </span>
+              <h3 className="text-xl font-semibold">For students</h3>
+            </div>
+            <ul className="mt-4 space-y-2.5 text-sm text-muted-foreground">
+              {studentPoints.map((p) => (
+                <li key={p} className="flex items-start gap-2.5">
+                  <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+
+          <motion.div
+            variants={staggerItem}
+            className="rounded-3xl border border-border bg-card p-6 md:p-8"
+          >
+            <div className="flex items-center gap-2">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                <GraduationCap className="h-5 w-5" />
+              </span>
+              <h3 className="text-xl font-semibold">For lecturers</h3>
+            </div>
+            <ul className="mt-4 space-y-2.5 text-sm text-muted-foreground">
+              {lecturerPoints.map((p) => (
+                <li key={p} className="flex items-start gap-2.5">
+                  <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        </motion.div>
+
+        {/* Key platform features */}
+        <motion.div
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="show"
+          viewport={viewportOnce}
+          className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5"
+        >
+          {platformFeatures.map(({ Icon, name, audience }) => (
+            <motion.div
+              key={name}
+              variants={staggerItem}
+              className="rounded-2xl border border-border/60 bg-card p-4"
+            >
+              <Icon className="h-5 w-5 text-primary" />
+              <p className="mt-2.5 text-sm font-semibold leading-snug">{name}</p>
+              <p className="mt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {audience}
+              </p>
+            </motion.div>
+          ))}
+        </motion.div>
       </section>
+
+      {/* Feature carousel — a closer look at the student experience */}
+      <FeatureCarousel />
 
       {/* Courses preview */}
       <section className="container mx-auto max-w-6xl px-4 py-16">
         <div className="mb-8 flex items-end justify-between">
           <div>
             <h2 className="text-4xl font-bold tracking-tight">
-              Five university courses, ready now.
+              Structured courses, ready to teach.
             </h2>
             <p className="mt-2 text-muted-foreground">
-              Hand-curated topics for the BSc CS / IT curriculum.
+              Courses built for the BSc CS / IT curriculum — enroll to learn, or run one as a
+              lecturer.
             </p>
           </div>
           <Link
@@ -233,7 +382,7 @@ function VisitorHome() {
         </motion.div>
       </section>
 
-      {/* How it works */}
+      {/* How the two sides connect */}
       <section className="container mx-auto max-w-6xl px-4 py-16">
         <motion.div
           variants={fadeUp}
@@ -242,34 +391,20 @@ function VisitorHome() {
           viewport={viewportOnce}
           className="rounded-3xl border border-border bg-card p-8 md:p-12"
         >
-          <h2 className="text-3xl font-bold tracking-tight md:text-4xl">How AceTutor works</h2>
+          <h2 className="text-3xl font-bold tracking-tight md:text-4xl">
+            How the two sides connect
+          </h2>
+          <p className="mt-2 max-w-2xl text-muted-foreground">
+            One course, shared between the lecturer running it and the students taking it.
+          </p>
           <motion.ol
             variants={staggerContainer}
             initial="hidden"
             whileInView="show"
             viewport={viewportOnce}
-            className="mt-8 grid gap-6 md:grid-cols-3"
+            className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4"
           >
-            {[
-              {
-                n: "01",
-                t: "Tell us how you learn",
-                d: "Answer 16 short questions to discover your VARK style.",
-                Icon: Brain,
-              },
-              {
-                n: "02",
-                t: "Study in your modality",
-                d: "Lessons default to your preferred medium. Switch any time.",
-                Icon: Headphones,
-              },
-              {
-                n: "03",
-                t: "Quiz, review, repeat",
-                d: "Adaptive quizzes diagnose gaps with plain-language feedback.",
-                Icon: Target,
-              },
-            ].map(({ n, t, d, Icon }) => (
+            {connectSteps.map(({ n, t, d, Icon }) => (
               <motion.li
                 key={n}
                 variants={staggerItem}
@@ -306,11 +441,11 @@ function VisitorHome() {
             className="absolute -bottom-16 -left-6 h-44 w-44 rounded-full bg-white/10 blur-2xl"
           />
           <h2 className="relative mx-auto max-w-2xl text-3xl font-bold tracking-tight md:text-5xl">
-            Learn the way your brain actually works.
+            Bring your course together.
           </h2>
           <p className="relative mx-auto mt-4 max-w-xl text-sm text-primary-foreground/85 md:text-base">
-            Take the VARK intake, pick a course, and start studying in your modality — text, video,
-            or audio — today.
+            Create an account to start learning, or sign up as a lecturer to set up and run your
+            course.
           </p>
           <div className="relative mt-8 flex flex-wrap justify-center gap-3">
             <Button
@@ -319,7 +454,7 @@ function VisitorHome() {
               className="h-12 rounded-full bg-white px-6 text-base text-primary hover:bg-white/90"
             >
               <Link to="/signup">
-                Get Started Free <ArrowRight className="ml-1.5 h-4 w-4" />
+                Get started <ArrowRight className="ml-1.5 h-4 w-4" />
               </Link>
             </Button>
             <Button
@@ -328,9 +463,17 @@ function VisitorHome() {
               variant="outline"
               className="h-12 rounded-full border-white/40 bg-transparent px-6 text-base text-primary-foreground hover:bg-white/10 hover:text-primary-foreground"
             >
-              <Link to="/login">Login</Link>
+              <Link to="/signup" search={{ role: "lecturer" }}>
+                Sign up as a lecturer
+              </Link>
             </Button>
           </div>
+          <p className="relative mt-4 text-xs text-primary-foreground/75">
+            Already have an account?{" "}
+            <Link to="/login" className="font-medium underline underline-offset-4">
+              Log in
+            </Link>
+          </p>
         </motion.div>
       </section>
     </>
