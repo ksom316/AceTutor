@@ -545,7 +545,7 @@ function CourseDetail() {
                           }
                         }}
                         rows={1}
-                        placeholder="Ask anything about this course (e.g. explain Week 3, generate quiz, summarize notes...)"
+                        placeholder="Ask anything about this course (e.g. explain a topic, summarize a lecture, help me revise…)"
                         className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
                       />
                       <Button

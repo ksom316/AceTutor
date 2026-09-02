@@ -94,6 +94,8 @@ function Dashboard() {
     quizzes,
     avgScore,
     totalSeconds,
+    isLoading: dashLoading,
+    isError: dashError,
   } = useStudentDashboard(user?.id);
 
   const firstName = profile?.full_name?.split(" ")[0] ?? "there";
@@ -346,10 +348,29 @@ function Dashboard() {
                   </motion.div>
                 ))}
               </motion.div>
+            ) : dashError ? (
+              <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  We couldn&apos;t load your courses just now.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : dashLoading ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-40 animate-pulse rounded-2xl border border-border bg-card" />
+                ))}
+              </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
                 <p className="text-sm text-muted-foreground">
-                  You're not enrolled in any course yet.
+                  You&apos;re not enrolled in any course yet.
                 </p>
                 <Link
                   to="/courses"

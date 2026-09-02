@@ -108,7 +108,7 @@ export function PersonalizedLearningSection({
                     ) : (
                       <>
                         Study Path · {areaCount} area{areaCount === 1 ? "" : "s"} to revise ·{" "}
-                        {cta.kind === "review" ? "Reviewed" : "In progress"}
+                        {cta.kind === "review" ? "Complete" : "In progress"}
                       </>
                     )}
                   </p>

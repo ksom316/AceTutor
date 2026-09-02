@@ -77,18 +77,20 @@ export type RecentAttempt = {
  * stay warm across navigations.
  */
 export function useStudentDashboard(userId: string | undefined) {
-  const { data: enrollments } = useQuery({
+  const enrollmentsQuery = useQuery({
     queryKey: ["dash-enrollments", userId],
     enabled: !!userId,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("enrollments")
         .select("course_id, created_at, courses(id, slug, title, summary)")
         .eq("user_id", userId!)
         .order("created_at", { ascending: false });
+      if (error) throw error;
       return data ?? [];
     },
   });
+  const enrollments = enrollmentsQuery.data;
 
   const enrolledCourses = useMemo(
     () =>
@@ -377,5 +379,11 @@ export function useStudentDashboard(userId: string | undefined) {
     quizzes: stats.quizzes,
     avgScore: stats.avgScore,
     totalSeconds: stats.totalSeconds,
+    /** True once the primary enrollments read has settled, so the dashboard can
+     *  tell "no courses" apart from "still loading". */
+    isLoading: enrollmentsQuery.isLoading,
+    /** The primary read failed — the dashboard should show an error, not an
+     *  empty "you have no courses" state. */
+    isError: enrollmentsQuery.isError,
   };
 }
