@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { resolvePostAuthDestination } from "@/lib/post-auth-redirect";
 
 type CallbackSearch = {
   redirect?: string;
@@ -135,9 +136,10 @@ async function waitForSessionAndNavigate(
 }
 
 /**
- * Sync the Google profile info (name, avatar) into the database and navigate to
- * the correct destination: an explicit in-app redirect target if one was set,
- * otherwise the Home page (for every role).
+ * Sync the Google profile info (name, avatar) into the database, then hand off
+ * to the shared post-auth router: a claimed lecturer lands in their workspace, a
+ * first-time student in learning-preferences onboarding, and an explicit in-app
+ * redirect (or the student home) wins for everyone else.
  */
 async function syncProfileAndNavigate(
   user: NonNullable<ReturnType<typeof useAuth>["user"]>,
@@ -174,12 +176,9 @@ async function syncProfileAndNavigate(
         ? searchRedirect
         : undefined;
 
-  // Default post-auth destination is the Home page for every role (not the
-  // dashboard). An explicit in-app redirect target (e.g. OAuth started from the
-  // login page, or a `?redirect=` deep link) still wins. Students are invited to
-  // set Learning Preferences by the Home-page nudge, so there is no forced
-  // onboarding redirect here.
-  const target = redirectTarget || "/";
+  // Role- and preference-aware routing lives in one shared place so the Google
+  // flow, the email-confirmation flow and password login can never diverge.
+  const dest = await resolvePostAuthDestination(user.id, redirectTarget);
 
-  navigate({ to: target, replace: true });
+  navigate({ to: dest.to, replace: true });
 }

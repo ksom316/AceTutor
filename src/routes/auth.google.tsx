@@ -45,7 +45,9 @@ function GoogleAccountPicker() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState<string | null>(null);
 
-  const target = redirect?.startsWith("/") ? redirect : "/dashboard";
+  // Only an explicit in-app deep link is carried through; with none, the
+  // post-auth router in /auth/callback picks the destination by role/preferences.
+  const target = redirect?.startsWith("/") ? redirect : undefined;
 
   const pick = async (acc: (typeof DEMO_ACCOUNTS)[number]) => {
     if (busy) return;
@@ -71,8 +73,12 @@ function GoogleAccountPicker() {
       toast.error(error.message || "Could not sign in with this account");
       return;
     }
-    // /auth/callback syncs the profile and sends the user to `target`.
-    navigate({ to: "/auth/callback", search: { redirect: target }, replace: true });
+    // /auth/callback syncs the profile and runs the shared post-auth router.
+    navigate({
+      to: "/auth/callback",
+      search: target ? { redirect: target } : {},
+      replace: true,
+    });
   };
 
   const useAnotherAccount = async () => {
@@ -84,7 +90,8 @@ function GoogleAccountPicker() {
     // This avoids putting query params in the redirectTo URL, which can cause
     // issues with Supabase's URL validation and fallback to the configured
     // Site URL in production.
-    sessionStorage.setItem("oauth_redirect", target);
+    if (target) sessionStorage.setItem("oauth_redirect", target);
+    else sessionStorage.removeItem("oauth_redirect");
 
     const redirectOrigin = window.location.origin;
     const { data, error } = await supabase.auth.signInWithOAuth({

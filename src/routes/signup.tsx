@@ -1,16 +1,17 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Mail, Lock, User, ArrowRight, GraduationCap, KeyRound } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, GraduationCap, KeyRound, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useRole } from "@/hooks/use-role";
 import { claimLecturerSlot, stashPendingLecturerId } from "@/lib/lecturer-claim";
+import { resolvePostAuthDestination } from "@/lib/post-auth-redirect";
 import { GoogleAuthButton } from "@/components/site/GoogleAuthButton";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import logoAsset from "@/assets/ace-logo.jpg";
@@ -47,10 +48,6 @@ function SignupPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  // After signup both students and lecturers land on the Home page (never the
-  // dashboard, and never straight into preference onboarding — students are
-  // invited to set preferences by the Home nudge).
-  const target = redirect?.startsWith("/") ? redirect : "/";
   const [accountType, setAccountType] = useState<AccountType>(role ?? "student");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -58,12 +55,24 @@ function SignupPage() {
   const [lecturerId, setLecturerId] = useState("");
   const [idStatus, setIdStatus] = useState<IdStatus>("idle");
   const [loading, setLoading] = useState(false);
+  // When email confirmation is enabled, signUp returns no session — we then show
+  // a "check your email" panel instead of navigating anywhere.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  // Once a submit has taken over routing, the "already signed in" effect must
+  // stand down so it can't fight onSubmit's own navigation.
+  const submittedRef = useRef(false);
+  const routedRef = useRef(false);
 
-  // Already signed in (or signup just completed) → Home for both roles.
+  // Already signed in (or an immediate-session signup just completed) → hand off
+  // to the shared post-auth router (role- and preference-aware).
   useEffect(() => {
-    if (!user || roleLoading) return;
-    navigate({ to: target });
-  }, [user, roleLoading, navigate, target]);
+    if (submittedRef.current || routedRef.current || !user || roleLoading || pendingEmail) return;
+    routedRef.current = true;
+    void resolvePostAuthDestination(user.id, redirect).then((dest) => {
+      if (!submittedRef.current) navigate({ to: dest.to, replace: true });
+    });
+  }, [user, roleLoading, redirect, navigate, pendingEmail]);
 
   // Debounced availability feedback for the Lecturer ID. UX only — the real
   // check is claim_lecturer_slot() on submit.
@@ -113,7 +122,26 @@ function SignupPage() {
       });
       if (error) {
         setLoading(false);
-        toast.error(error.message);
+        const dup = /already|registered|exists/i.test(error.message);
+        toast.error(
+          dup
+            ? "An account with this email already exists. Sign in with the Lecturer option to finish setup."
+            : error.message,
+        );
+        if (dup) {
+          stashPendingLecturerId(parsed.data.lecturerId);
+          navigate({ to: "/login" });
+        }
+        return;
+      }
+
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        setLoading(false);
+        stashPendingLecturerId(parsed.data.lecturerId);
+        toast.error(
+          "An account with this email already exists. Sign in with the Lecturer option to finish setup.",
+        );
+        navigate({ to: "/login" });
         return;
       }
 
@@ -128,9 +156,10 @@ function SignupPage() {
           );
           return; // account exists as a student; no lecturer privileges granted
         }
+        submittedRef.current = true;
         await qc.invalidateQueries({ queryKey: ["user-role"] });
         toast.success("Lecturer account created — welcome!");
-        navigate({ to: "/" });
+        navigate({ to: "/lecturer", replace: true });
         return;
       }
 
@@ -144,28 +173,79 @@ function SignupPage() {
       return;
     }
 
-    // ---- Student signup (unchanged) ----
+    // ---- Student signup ----
     const parsed = baseSchema.safeParse({ fullName, email, password });
     if (!parsed.success) {
       toast.error(parsed.error.issues[0].message);
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: parsed.data.email,
       password: parsed.data.password,
       options: {
-        emailRedirectTo: window.location.origin + target,
+        // Land the confirmation link on the shared callback so the same
+        // role/preference-aware router runs after the email is verified.
+        emailRedirectTo: window.location.origin + "/auth/callback",
         data: { full_name: parsed.data.fullName },
       },
     });
-    setLoading(false);
     if (error) {
-      toast.error(error.message);
+      setLoading(false);
+      // One person = one AceTutor account. If the email is already registered
+      // (possibly via Google), don't create parallel application data — point
+      // them at sign-in instead.
+      const dup = /already|registered|exists/i.test(error.message);
+      toast.error(
+        dup
+          ? "An account with this email already exists. Please sign in — if you first used Google, choose “Continue with Google”."
+          : error.message,
+      );
+      if (dup) navigate({ to: "/login", search: redirect ? { redirect } : {} });
       return;
     }
-    toast.success("Account created — let's get started!");
-    navigate({ to: target });
+
+    // Supabase returns a user with an empty `identities` array (and no error, no
+    // session) when the email already exists — an anti-enumeration signal. Treat
+    // it the same way: never silently create a duplicate profile.
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setLoading(false);
+      toast.error(
+        "An account with this email already exists. Please sign in — if you first used Google, choose “Continue with Google”.",
+      );
+      navigate({ to: "/login", search: redirect ? { redirect } : {} });
+      return;
+    }
+
+    if (data.session) {
+      // Email confirmation disabled — the session is live now. Route via the
+      // shared helper (a brand-new student → learning-preferences onboarding).
+      submittedRef.current = true;
+      await qc.invalidateQueries({ queryKey: ["user-role"] });
+      const dest = await resolvePostAuthDestination(data.session.user.id, redirect);
+      setLoading(false);
+      toast.success("Account created — let's get started!");
+      navigate({ to: dest.to, replace: true });
+      return;
+    }
+
+    // Email confirmation enabled — no session yet. Show the "check your email"
+    // panel; the confirmation link resumes the flow at /auth/callback.
+    setLoading(false);
+    setPendingEmail(parsed.data.email);
+  };
+
+  const resendConfirmation = async () => {
+    if (!pendingEmail || resending) return;
+    setResending(true);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: pendingEmail,
+      options: { emailRedirectTo: window.location.origin + "/auth/callback" },
+    });
+    setResending(false);
+    if (error) toast.error(error.message);
+    else toast.success("Confirmation email sent again — check your inbox.");
   };
 
   const idHint: Record<IdStatus, { text: string; className: string } | null> = {
@@ -176,6 +256,52 @@ function SignupPage() {
     invalid: { text: "Invalid Lecturer ID", className: "text-destructive" },
   };
   const hint = idHint[idStatus];
+
+  // Email confirmation is enabled: signup succeeded but there is no session yet.
+  // Show an explicit "check your email" screen so it never looks like a failure.
+  if (pendingEmail) {
+    return (
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
+        <div className="absolute inset-x-0 top-0 -z-10 h-[480px] [background:radial-gradient(50%_50%_at_50%_0%,color-mix(in_oklab,var(--color-primary)_16%,transparent),transparent_70%)]" />
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-md"
+        >
+          <div className="rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary">
+              <MailCheck className="h-6 w-6" />
+            </div>
+            <h1 className="mt-5 font-display text-2xl font-bold">Confirm your email</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Your account was created. We sent a confirmation link to{" "}
+              <span className="font-medium text-foreground">{pendingEmail}</span>. Open it to
+              activate your account — you&apos;ll then be taken straight into setting up your
+              learning preferences.
+            </p>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Can&apos;t find it? Check your spam folder, or resend the link below.
+            </p>
+            <div className="mt-6 flex flex-col gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resendConfirmation}
+                disabled={resending}
+                className="w-full rounded-xl h-11"
+              >
+                {resending ? "Sending…" : "Resend confirmation email"}
+              </Button>
+              <Button asChild variant="ghost" className="w-full rounded-xl h-11">
+                <Link to="/login">Back to sign in</Link>
+              </Button>
+            </div>
+          </div>
+        </motion.div>
+      </main>
+    );
+  }
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
@@ -353,7 +479,7 @@ function SignupPage() {
               <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
                 <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
               </div>
-              <GoogleAuthButton label="Sign up with Google" redirect={target} />
+              <GoogleAuthButton label="Sign up with Google" redirect={redirect} />
             </>
           )}
         </motion.div>

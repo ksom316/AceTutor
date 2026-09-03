@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useRole } from "@/hooks/use-role";
 import { verifyLecturerLogin } from "@/lib/lecturer-claim";
+import { resolvePostAuthDestination } from "@/lib/post-auth-redirect";
 import { GoogleAuthButton } from "@/components/site/GoogleAuthButton";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import logoAsset from "@/assets/ace-logo.jpg";
@@ -35,7 +36,7 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const { user } = useAuth();
-  const { isLecturer, loading: roleLoading } = useRole();
+  const { loading: roleLoading } = useRole();
   const { redirect } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -47,16 +48,18 @@ function LoginPage() {
   // Once a submit has taken over routing, the "already signed in" effect below
   // must stand down so it can't fight onSubmit's own navigation / sign-out.
   const submittedRef = useRef(false);
+  // Guards the async "already signed in" effect so it navigates at most once.
+  const routedRef = useRef(false);
 
-  // Send the user back to wherever they were headed (e.g. a quiz page),
-  // falling back to the dashboard.
-  const target = redirect?.startsWith("/") ? redirect : "/dashboard";
-
-  // Already signed in (e.g. hit /login directly) → route by the DB-backed role.
+  // Already signed in (e.g. hit /login directly) → hand off to the shared
+  // post-auth router (role- and preference-aware, one decision for every flow).
   useEffect(() => {
-    if (submittedRef.current || !user || roleLoading) return;
-    navigate({ to: isLecturer ? "/lecturer" : target });
-  }, [user, roleLoading, isLecturer, navigate, target]);
+    if (submittedRef.current || routedRef.current || !user || roleLoading) return;
+    routedRef.current = true;
+    void resolvePostAuthDestination(user.id, redirect).then((dest) => {
+      if (!submittedRef.current) navigate({ to: dest.to, replace: true });
+    });
+  }, [user, roleLoading, redirect, navigate]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -112,8 +115,9 @@ function LoginPage() {
       return;
     }
     await qc.invalidateQueries({ queryKey: ["user-role"] });
+    const dest = await resolvePostAuthDestination(userId, redirect);
     setLoading(false);
-    navigate({ to: target });
+    navigate({ to: dest.to });
   };
 
   const forgotPassword = async () => {
@@ -289,7 +293,7 @@ function LoginPage() {
               <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
                 <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
               </div>
-              <GoogleAuthButton label="Sign in with Google" redirect={target} />
+              <GoogleAuthButton label="Sign in with Google" redirect={redirect} />
             </>
           )}
         </motion.div>
