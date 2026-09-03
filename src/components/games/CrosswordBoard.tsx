@@ -49,9 +49,11 @@ export function CrosswordBoard({
   const reportedRef = useRef(false);
 
   // The grid sizes its cells to whatever space the board area has, so the whole
-  // puzzle fits the screen on start instead of pushing out a scrollbar.
+  // puzzle fits the screen on start instead of pushing out a scrollbar. The
+  // upper bound is generous so the board grows to fill a large desktop instead
+  // of sitting small in the middle; on laptops/phones the fit logic shrinks it.
   const gridBox = useRef<HTMLDivElement>(null);
-  const cell = useFitSquare(gridBox, puzzle.cols, puzzle.rows, 2);
+  const cell = useFitSquare(gridBox, puzzle.cols, puzzle.rows, 2, { max: 88 });
   const cellPx = cell || 32;
 
   const across = useMemo(
@@ -395,7 +397,7 @@ export function CrosswordBoard({
         </motion.div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_400px]">
         {/* Grid */}
         <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:flex-none">
           <div

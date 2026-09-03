@@ -45,9 +45,10 @@ export function WordSearchBoard({
   const reportedRef = useRef(false);
 
   // Cells size to the available board area so the whole grid fits the screen on
-  // start rather than pushing out a scrollbar.
+  // start rather than pushing out a scrollbar. The generous upper bound lets the
+  // grid grow to fill a large desktop; the fit logic shrinks it on smaller ones.
   const gridBox = useRef<HTMLDivElement>(null);
-  const cell = useFitSquare(gridBox, puzzle.size, puzzle.size, 2);
+  const cell = useFitSquare(gridBox, puzzle.size, puzzle.size, 2, { max: 88 });
   const cellPx = cell || 32;
 
   const total = puzzle.words.length;
@@ -239,7 +240,7 @@ export function WordSearchBoard({
         </motion.div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:grid-rows-[minmax(0,1fr)]">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_380px]">
         {/* Letter grid */}
         <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:flex-none">
           <div

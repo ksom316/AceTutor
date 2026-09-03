@@ -374,7 +374,7 @@ function GamesPage() {
     // spilling into a page scrollbar.
     return (
       <div className="flex h-[calc(100svh-4rem)] flex-col bg-background">
-        <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4">
+        <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4 lg:px-8">
           <div className="flex shrink-0 items-center justify-between gap-3">
             <p className="min-w-0 truncate text-sm font-medium text-muted-foreground">
               {activeGameMeta.label} · {puzzleLabel} · {activeDifficulty.label}
