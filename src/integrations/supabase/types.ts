@@ -679,6 +679,10 @@ export type Database = {
         Args: { _lecturer_id: string };
         Returns: string;
       };
+      clear_course_conversations: {
+        Args: { _course_id: string };
+        Returns: number;
+      };
       current_lecturer_course: {
         Args: Record<PropertyKey, never>;
         Returns: string;

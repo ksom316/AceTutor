@@ -135,11 +135,28 @@ export function useAiConversation(courseId: string | undefined) {
     setSelection("new");
   }, [send]);
 
+  // Clear Conversation — delete ALL of this student's AI conversations for the
+  // current course (server-side RPC, auth.uid()-scoped) and drop to a fresh one.
+  const clearCourseConversations = useMutation({
+    mutationFn: async () => {
+      if (!courseId) throw new Error("No course selected.");
+      const { error } = await supabase.rpc("clear_course_conversations", { _course_id: courseId });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      send.reset();
+      setSelection("new");
+      qc.removeQueries({ queryKey: ["ai-messages"] });
+      await qc.invalidateQueries({ queryKey: ["ai-conversation", user?.id, courseId] });
+    },
+  });
+
   return {
     conversationId,
     messages: messagesQuery.data ?? [],
     isLoading: latestQuery.isLoading || (!!conversationId && messagesQuery.isLoading),
     send,
     startNewConversation,
+    clearCourseConversations,
   };
 }

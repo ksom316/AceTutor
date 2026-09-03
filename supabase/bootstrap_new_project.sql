@@ -1794,6 +1794,29 @@ begin
 end;
 $$;
 
+-- Clear Conversation: delete ALL of the caller's OWN AI conversations for one
+-- course (messages cascade). Scoped by auth.uid() + the given course id, so a
+-- student can only clear their own and only for that one course.
+create or replace function public.clear_course_conversations(_course_id uuid)
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_deleted integer;
+begin
+  if auth.uid() is null then
+    raise exception 'forbidden';
+  end if;
+  if _course_id is null then
+    raise exception 'clear_course_conversations: course id required';
+  end if;
+  delete from public.ai_conversations
+   where user_id = auth.uid() and course_id = _course_id;
+  get diagnostics v_deleted = row_count;
+  return v_deleted;
+end;
+$$;
+
 
 -- ============================================================================
 -- 4. TRIGGERS
@@ -2146,6 +2169,9 @@ grant  execute on function public.get_course_student_mastery()                  
 
 revoke execute on function public.append_ai_turn(uuid, text, text, text)                           from public, anon;
 grant  execute on function public.append_ai_turn(uuid, text, text, text)                           to authenticated;
+
+revoke execute on function public.clear_course_conversations(uuid)                                 from public, anon;
+grant  execute on function public.clear_course_conversations(uuid)                                 to authenticated;
 
 revoke execute on function public.save_study_path(uuid, jsonb, uuid[])                             from public, anon;
 grant  execute on function public.save_study_path(uuid, jsonb, uuid[])                             to authenticated;

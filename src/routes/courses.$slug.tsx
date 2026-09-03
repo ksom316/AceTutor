@@ -459,6 +459,7 @@ function CourseDetail() {
               courseId={course.id}
               courseTitle={course.title}
               courseSummary={course.summary ?? undefined}
+              topics={topics}
               activeModule={activeModule}
               onClearModule={() => setActiveModule(null)}
               enrolled={!!isEnrolled}

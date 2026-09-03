@@ -1,19 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { AlertTriangle, ArrowUp, Compass, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUp,
+  Compass,
+  ListChecks,
+  Loader2,
+  RotateCcw,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useAiConversation, type SendVars, type TutorMode } from "@/hooks/use-ai-conversation";
+import { QuizMeDialog } from "@/components/course/QuizMeDialog";
 
 type FocusModule = { id: string; title: string; summary: string | null } | null;
 
-const QUICK_ACTIONS: { mode: Exclude<TutorMode, "ask" | "guide">; label: string }[] = [
+const QUICK_ACTIONS: { mode: Exclude<TutorMode, "ask" | "guide" | "test">; label: string }[] = [
   { mode: "explain", label: "📘 Explain Topic" },
   { mode: "summarize", label: "📄 Summarize Lecture" },
-  { mode: "test", label: "🎯 Test My Knowledge" },
   { mode: "general", label: "🧭 General Overview" },
 ];
 
@@ -35,6 +55,7 @@ export function CourseTutorChat({
   courseId,
   courseTitle,
   courseSummary,
+  topics,
   activeModule,
   onClearModule,
   enrolled,
@@ -42,13 +63,17 @@ export function CourseTutorChat({
   courseId: string;
   courseTitle: string;
   courseSummary?: string;
+  topics: { id: string; title: string }[];
   activeModule: FocusModule;
   onClearModule: () => void;
   enrolled: boolean;
 }) {
-  const { messages, isLoading, send, startNewConversation } = useAiConversation(courseId);
+  const { messages, isLoading, send, startNewConversation, clearCourseConversations } =
+    useAiConversation(courseId);
   const [input, setInput] = useState("");
   const [guideMode, setGuideMode] = useState(false);
+  const [quizMeOpen, setQuizMeOpen] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -157,17 +182,27 @@ export function CourseTutorChat({
               </button>
             </Badge>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              abortRef.current?.abort();
-              setGuideMode(false);
-              startNewConversation();
-            }}
-            className="ml-auto inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <RotateCcw className="h-3 w-3" /> New conversation
-          </button>
+          <span className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                abortRef.current?.abort();
+                setGuideMode(false);
+                startNewConversation();
+              }}
+              className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <RotateCcw className="h-3 w-3" /> New chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmClear(true)}
+              disabled={clearCourseConversations.isPending}
+              className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
+            >
+              <Trash2 className="h-3 w-3" /> Clear conversation
+            </button>
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -312,6 +347,19 @@ export function CourseTutorChat({
             <Compass className="mr-1.5 h-3.5 w-3.5" />
             {guideMode ? "Guide Me · on" : "Guide Me"}
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full"
+            disabled={send.isPending}
+            onClick={() => {
+              if (!enrolled) return requireEnroll();
+              setQuizMeOpen(true);
+            }}
+          >
+            <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Quiz Me
+          </Button>
           {QUICK_ACTIONS.map(({ mode, label }) => (
             <Button
               key={mode}
@@ -327,6 +375,46 @@ export function CourseTutorChat({
           ))}
         </div>
       </CardContent>
+
+      <QuizMeDialog
+        open={quizMeOpen}
+        onOpenChange={setQuizMeOpen}
+        courseId={courseId}
+        topics={topics}
+        focusedTopicId={activeModule?.id}
+      />
+
+      <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear this course&apos;s AI conversation history?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes <span className="font-medium">all</span> of your AI tutor
+              conversations for <span className="font-medium">{courseTitle}</span> and their
+              messages. It can&apos;t be undone from the chat. Your quizzes, Mastery Score,
+              progress, learning preferences and other courses&apos; conversations are not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setConfirmClear(false);
+                abortRef.current?.abort();
+                setGuideMode(false);
+                clearCourseConversations.mutate(undefined, {
+                  onSuccess: () => toast.success("Conversation history cleared"),
+                  onError: (e) =>
+                    toast.error((e as Error)?.message || "Couldn't clear the conversation"),
+                });
+              }}
+            >
+              Clear history
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

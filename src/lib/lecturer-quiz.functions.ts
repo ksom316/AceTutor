@@ -106,8 +106,8 @@ function buildSourceText(lessons: SourceLesson[]): string {
 }
 
 /** Pull the JSON payload out of a model reply — tolerant of ``` fences and of
- *  a bare top-level array. */
-function extractJson(raw: string): string {
+ *  a bare top-level array. Exported for reuse by the practice-quiz generator. */
+export function extractJson(raw: string): string {
   // A leading BOM / stray whitespace / ``` fence is handled by slicing from the
   // first bracket to the last matching one.
   const s = raw
@@ -131,8 +131,9 @@ function coerceInt(v: unknown): number | null {
   return null;
 }
 
-/** Models phrase the answer key many ways — accept the common ones. */
-function pickCorrectIndex(q: Record<string, unknown>, choices: string[]): number {
+/** Models phrase the answer key many ways — accept the common ones. Exported
+ *  for reuse by the practice-quiz generator. */
+export function pickCorrectIndex(q: Record<string, unknown>, choices: string[]): number {
   const numeric = [q.correctIndex, q.correct_index, q.answerIndex, q.answer_index, q.correct];
   for (const c of numeric) {
     const n = coerceInt(c);
