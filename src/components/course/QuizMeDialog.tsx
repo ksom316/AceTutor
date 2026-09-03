@@ -95,6 +95,8 @@ export function QuizMeDialog({
   const [result, setResult] = useState<PracticeGradeResult | null>(null);
 
   // Restore an in-progress quiz on open (survives an accidental refresh).
+  // Anything else — a completed/graded quiz, an error, a half-configured setup —
+  // must NOT carry over: every fresh open lands on the clean setup screen.
   useEffect(() => {
     if (!open) return;
     try {
@@ -103,6 +105,8 @@ export function QuizMeDialog({
         const saved = JSON.parse(raw) as ActiveQuiz;
         if (saved?.questions?.length && saved.quizToken) {
           setQuiz(saved);
+          setResult(null);
+          setErrorMsg("");
           setPhase("quiz");
           return;
         }
@@ -110,6 +114,10 @@ export function QuizMeDialog({
     } catch {
       /* ignore */
     }
+    setQuiz(null);
+    setResult(null);
+    setErrorMsg("");
+    setPhase("setup");
     setTopicId(defaultTopic);
   }, [open, storageKey, defaultTopic]);
 
@@ -192,9 +200,10 @@ export function QuizMeDialog({
       setConfirmLeave(true);
       return;
     }
+    // Any other exit (Close / Return to Tutor / error screen / after results):
+    // wipe the whole practice session so the next open starts fresh.
     onOpenChange(false);
-    // Leave setup/results state intact so re-opening is quick; only wipe on
-    // explicit "Practice Again" / a fresh generation.
+    reset();
   };
 
   const setAnswer = (choiceIdx: number) => {
@@ -328,7 +337,7 @@ export function QuizMeDialog({
               quiz={quiz}
               result={result}
               onPracticeAgain={reset}
-              onClose={() => onOpenChange(false)}
+              onClose={() => requestClose(false)}
             />
           )}
         </DialogContent>
