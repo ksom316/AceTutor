@@ -192,7 +192,7 @@ export function WordSearchBoard({
   }
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex flex-col gap-4 lg:h-full">
       {/* Toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
         <span className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
@@ -240,12 +240,12 @@ export function WordSearchBoard({
         </motion.div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="flex flex-col gap-4 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_380px]">
         {/* Letter grid */}
-        <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:flex-none">
+        <div className="flex flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:min-h-0 lg:flex-none">
           <div
             ref={gridBox}
-            className="flex min-h-0 flex-1 items-center justify-center overflow-auto"
+            className="flex max-h-[75svh] w-full items-center justify-center overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1"
           >
             <motion.div
               animate={rejected ? { x: [0, -6, 6, -4, 0] } : { x: 0 }}
@@ -300,8 +300,8 @@ export function WordSearchBoard({
           </p>
         </div>
 
-        {/* Word list */}
-        <div className="max-h-[38vh] shrink-0 overflow-y-auto rounded-3xl border border-border bg-card p-4 shadow-sm lg:max-h-none lg:h-full lg:shrink">
+        {/* Word list — beside the grid on desktop, stacked below it on narrow screens. */}
+        <div className="rounded-3xl border border-border bg-card p-4 shadow-sm lg:h-full lg:shrink lg:overflow-y-auto">
           <div className="flex items-baseline justify-between">
             <h3 className="font-display text-base">Words to find</h3>
             <span className="text-xs text-muted-foreground">{remaining} left</span>

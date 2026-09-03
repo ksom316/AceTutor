@@ -369,12 +369,14 @@ function GamesPage() {
   ) : null;
 
   if (boardActive || regenerating) {
-    // Fills the workspace pane, not the viewport — the sidebar and top bar stay
-    // put (4rem = the AppShell top bar). The board fits this box without ever
-    // spilling into a page scrollbar.
+    // Desktop (lg+): fills the workspace pane at a fixed height so the board
+    // fits without a page scrollbar. Below lg the board sizes to the available
+    // width instead and the page scrolls normally — trying to fit a full puzzle
+    // + clues into one short viewport is what made it tiny on phones / split
+    // windows.
     return (
-      <div className="flex h-[calc(100svh-4rem)] flex-col bg-background">
-        <div className="mx-auto flex h-full w-full max-w-[1800px] flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4 lg:px-8">
+      <div className="flex min-h-[calc(100svh-4rem)] flex-col bg-background lg:h-[calc(100svh-4rem)] lg:min-h-0">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4 lg:h-full lg:px-8">
           <div className="flex shrink-0 items-center justify-between gap-3">
             <p className="min-w-0 truncate text-sm font-medium text-muted-foreground">
               {activeGameMeta.label} · {puzzleLabel} · {activeDifficulty.label}
@@ -388,9 +390,9 @@ function GamesPage() {
               <X className="h-3.5 w-3.5" /> Exit
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="flex-1 lg:min-h-0 lg:overflow-y-auto">
             {board ?? (
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+              <div className="flex min-h-[60svh] flex-col items-center justify-center gap-3 text-muted-foreground lg:h-full lg:min-h-0">
                 <Loader2 className="h-6 w-6 animate-spin" />
                 <p className="text-sm">Building your next puzzle…</p>
               </div>

@@ -307,7 +307,7 @@ export function CrosswordBoard({
   }
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex flex-col gap-4 lg:h-full">
       {/* Toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
         <span className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
@@ -397,12 +397,12 @@ export function CrosswordBoard({
         </motion.div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="flex flex-col gap-4 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_400px]">
         {/* Grid */}
-        <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:flex-none">
+        <div className="flex flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:min-h-0 lg:flex-none">
           <div
             ref={gridBox}
-            className="flex min-h-0 flex-1 items-center justify-center overflow-auto"
+            className="flex max-h-[75svh] w-full items-center justify-center overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1"
           >
             {/* The board frames itself against the card: blocked squares are
                 filled with the foreground colour and open squares keep a solid
@@ -499,8 +499,8 @@ export function CrosswordBoard({
           )}
         </div>
 
-        {/* Clues */}
-        <div className="max-h-[38vh] shrink-0 space-y-4 overflow-y-auto lg:max-h-none lg:h-full lg:shrink lg:pr-1">
+        {/* Clues — beside the grid on desktop, stacked below it on narrow screens. */}
+        <div className="space-y-4 lg:h-full lg:shrink lg:overflow-y-auto lg:pr-1">
           <ClueList
             title="Across"
             words={across}
