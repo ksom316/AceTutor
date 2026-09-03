@@ -273,12 +273,11 @@ function SignupPage() {
             <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary">
               <MailCheck className="h-6 w-6" />
             </div>
-            <h1 className="mt-5 font-display text-2xl font-bold">Confirm your email</h1>
+            <h1 className="mt-5 font-display text-2xl font-bold">Check your email</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              Your account was created. We sent a confirmation link to{" "}
-              <span className="font-medium text-foreground">{pendingEmail}</span>. Open it to
-              activate your account — you&apos;ll then be taken straight into setting up your
-              learning preferences.
+              Your AceTutor account was created. We sent a confirmation link to{" "}
+              <span className="font-medium text-foreground">{pendingEmail}</span>. Click it to
+              activate your account, then sign in.
             </p>
             <p className="mt-4 text-xs text-muted-foreground">
               Can&apos;t find it? Check your spam folder, or resend the link below.

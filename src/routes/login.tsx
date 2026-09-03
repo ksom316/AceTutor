@@ -45,6 +45,10 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [lecturerId, setLecturerId] = useState("");
   const [loading, setLoading] = useState(false);
+  // Set when a sign-in attempt fails specifically because the email has not been
+  // confirmed yet — drives the inline "resend confirmation" notice below.
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
   // Once a submit has taken over routing, the "already signed in" effect below
   // must stand down so it can't fight onSubmit's own navigation / sign-out.
   const submittedRef = useRef(false);
@@ -80,9 +84,22 @@ function LoginPage() {
     if (error || !signIn.user) {
       submittedRef.current = false;
       setLoading(false);
-      toast.error(error?.message ?? "Could not sign in.");
+      // Supabase reports an unconfirmed email as its own error — surface that
+      // clearly instead of a misleading "invalid credentials" message.
+      const notConfirmed =
+        error?.code === "email_not_confirmed" ||
+        /email not confirmed|confirm your email/i.test(error?.message ?? "");
+      if (notConfirmed) {
+        setUnconfirmedEmail(parsed.data.email);
+        toast.error(
+          "Please confirm your email before signing in. Check your inbox for the activation link.",
+        );
+      } else {
+        toast.error(error?.message ?? "Could not sign in.");
+      }
       return;
     }
+    setUnconfirmedEmail(null);
     const userId = signIn.user.id;
 
     if (accountType === "lecturer") {
@@ -118,6 +135,19 @@ function LoginPage() {
     const dest = await resolvePostAuthDestination(userId, redirect);
     setLoading(false);
     navigate({ to: dest.to });
+  };
+
+  const resendConfirmation = async () => {
+    if (!unconfirmedEmail || resending) return;
+    setResending(true);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: unconfirmedEmail,
+      options: { emailRedirectTo: window.location.origin + "/auth/callback" },
+    });
+    setResending(false);
+    if (error) toast.error(error.message);
+    else toast.success("Confirmation email sent — check your inbox.");
   };
 
   const forgotPassword = async () => {
@@ -196,6 +226,27 @@ function LoginPage() {
             </div>
           </div>
 
+          {unconfirmedEmail && (
+            <div className="mb-5 rounded-xl border border-border bg-muted/40 p-4">
+              <p className="flex items-start gap-2 text-sm">
+                <Mail className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                <span>
+                  Please confirm your email before signing in. We sent an activation link to{" "}
+                  <span className="font-medium text-foreground">{unconfirmedEmail}</span>.
+                </span>
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={resendConfirmation}
+                disabled={resending}
+                className="mt-3 h-10 w-full rounded-lg"
+              >
+                {resending ? "Sending…" : "Resend confirmation email"}
+              </Button>
+            </div>
+          )}
+
           <form onSubmit={onSubmit} className="space-y-5">
             <div className="space-y-1.5">
               <label
@@ -211,7 +262,10 @@ function LoginPage() {
                   type="email"
                   placeholder="you@school.edu"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (unconfirmedEmail) setUnconfirmedEmail(null);
+                  }}
                   required
                   maxLength={255}
                   className="pl-9 rounded-xl"
