@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refresh AceTutor Session</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            max-width: 700px;
+            margin: 60px auto;
+            padding: 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #6366f1;
+            margin-top: 0;
+            font-size: 28px;
+        }
+        .status {
+            padding: 16px;
+            border-radius: 12px;
+            margin: 20px 0;
+            font-size: 15px;
+        }
+        .info { background: #eff6ff; border-left: 4px solid #3b82f6; color: #1e40af; }
+        .success { background: #f0fdf4; border-left: 4px solid #10b981; color: #065f46; }
+        .error { background: #fef2f2; border-left: 4px solid #ef4444; color: #991b1b; }
+        button {
+            background: #6366f1;
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+            transition: all 0.2s;
+        }
+        button:hover { background: #4f46e5; transform: translateY(-1px); }
+        button:disabled { background: #9ca3af; cursor: not-allowed; transform: none; }
+        .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 8px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        code { background: #f3f4f6; padding: 2px 8px; border-radius: 4px; font-size: 14px; }
+        .steps { background: #fafafa; padding: 20px; border-radius: 12px; margin: 20px 0; }
+        .steps ol { margin: 8px 0; padding-left: 24px; }
+        .steps li { margin: 8px 0; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🔄 Refresh Your Session</h1>
+
+        <div id="status" class="status info">
+            Your authentication session has expired. Click the button below to sign in again.
+        </div>
+
+        <button id="refreshBtn" onclick="refreshSession()">
+            🔑 Sign In Again
+        </button>
+
+        <div class="steps">
+            <strong>What happens next:</strong>
+            <ol>
+                <li>You'll be redirected to the login page</li>
+                <li>Sign in with your demo account (Jane Doe or Alex Mensah)</li>
+                <li>Return to the course page and try the AI tutor again</li>
+            </ol>
+        </div>
+
+        <div class="steps" style="margin-top: 20px;">
+            <strong>💡 Alternative: Manual Refresh</strong>
+            <ol>
+                <li>Go to: <code>http://localhost:8080/login</code></li>
+                <li>Click "Continue with Google"</li>
+                <li>Select your demo account</li>
+                <li>Navigate back to your course</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        function refreshSession() {
+            const btn = document.getElementById('refreshBtn');
+            const status = document.getElementById('status');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Redirecting...';
+            status.className = 'status info';
+            status.textContent = 'Redirecting to login page...';
+
+            // Clear any stale session data
+            localStorage.clear();
+            sessionStorage.clear();
+
+            // Redirect after a brief moment
+            setTimeout(() => {
+                window.location.href = 'http://localhost:8080/login';
+            }, 1000);
+        }
+
+        // Auto-check if we're already on localhost:8080
+        if (window.location.hostname === 'localhost' && window.location.port === '8080') {
+            const status = document.getElementById('status');
+            status.className = 'status success';
+            status.innerHTML = '✅ You\'re on the AceTutor app! Just click the button to sign in again.';
+        }
+    </script>
+</body>
+</html>
