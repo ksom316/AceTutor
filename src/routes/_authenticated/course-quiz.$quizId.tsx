@@ -7,6 +7,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { QuizRunner, type RunnerQuestion } from "@/components/course/QuizRunner";
+import { QuizRecoveryGate } from "@/components/course/QuizRecoveryGate";
+import { loadSavedAnswers, orderQuestionsForAttempt } from "@/lib/quiz-recovery";
+import { useAnswerSync } from "@/hooks/use-answer-sync";
 import { canAttemptCourseQuiz, deadlineStatus, formatDeadline } from "@/lib/course-quiz";
 
 export const Route = createFileRoute("/_authenticated/course-quiz/$quizId")({
@@ -53,6 +56,14 @@ function GeneralCourseQuizRoute() {
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [deadlineIso, setDeadlineIso] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Quiz Recovery — identical to the module quiz: pick up a pre-existing
+  // unfinished attempt, restore its saved answers, show the "Unfinished Quiz"
+  // gate. Resuming a General Course Quiz does NOT consume another attempt.
+  const [resumed, setResumed] = useState(false);
+  const [resumeAccepted, setResumeAccepted] = useState(false);
+  const [restoredAnswers, setRestoredAnswers] = useState<Record<string, number>>({});
+
+  const sync = useAnswerSync(attemptId);
 
   useStudyCourse(course?.id ?? null);
 
@@ -116,8 +127,9 @@ function GeneralCourseQuizRoute() {
         setStatus("error");
         return;
       }
+      // Server-random order; re-ordered deterministically per attempt below so
+      // a recovered assessment keeps the order it started with.
       const loaded = (qs ?? []) as RunnerQuestion[];
-      setQuestions(loaded);
       if (loaded.length === 0) {
         setStatus("not-published");
         return;
@@ -141,8 +153,13 @@ function GeneralCourseQuizRoute() {
       if (!active) return;
 
       if (existing) {
+        const saved = await loadSavedAnswers(existing.id);
+        if (!active) return;
+        setQuestions(orderQuestionsForAttempt(loaded, existing.id));
+        setRestoredAnswers(saved);
         setAttemptId(existing.id);
         setDeadlineIso(existing.expires_at);
+        setResumed(true);
         setStatus("ready");
         if (retakeRef.current) {
           navigate({ to: "/course-quiz/$quizId", params: { quizId }, search: {}, replace: true });
@@ -196,6 +213,31 @@ function GeneralCourseQuizRoute() {
         .single();
       if (!active) return;
       if (aErr) {
+        // A concurrent load / double-click already created the active attempt
+        // (partial unique index quiz_attempts_one_active_general) — resume it.
+        if (aErr.code === "23505") {
+          const { data: raced } = await supabase
+            .from("quiz_attempts")
+            .select("id, expires_at")
+            .eq("user_id", user.id)
+            .eq("course_quiz_id", quizId)
+            .is("finished_at", null)
+            .order("started_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!active) return;
+          if (raced) {
+            const saved = await loadSavedAnswers(raced.id);
+            if (!active) return;
+            setQuestions(orderQuestionsForAttempt(loaded, raced.id));
+            setRestoredAnswers(saved);
+            setAttemptId(raced.id);
+            setDeadlineIso(raced.expires_at);
+            setResumed(true);
+            setStatus("ready");
+            return;
+          }
+        }
         // The BEFORE INSERT trigger surfaces deadline / enrolment / attempt-cap
         // errors here — map them to the matching screen.
         if (/deadline/i.test(aErr.message)) {
@@ -210,6 +252,7 @@ function GeneralCourseQuizRoute() {
         setStatus("error");
         return;
       }
+      setQuestions(orderQuestionsForAttempt(loaded, attempt.id));
       setAttemptId(attempt.id);
       setDeadlineIso(attempt.expires_at);
       setStatus("ready");
@@ -226,9 +269,15 @@ function GeneralCourseQuizRoute() {
     };
   }, [user, quizId, qc, navigate]);
 
+  const { seedSaved } = sync;
+  useEffect(() => {
+    if (Object.keys(restoredAnswers).length > 0) seedSaved(restoredAnswers);
+  }, [restoredAnswers, seedSaved]);
+
   const onSubmit = async (answers: Record<string, number>, timedOut: boolean) => {
     if (!attemptId) return;
     setSubmitting(true);
+    await sync.retryUnsynced();
     const { error } = await supabase.rpc("grade_quiz", {
       _attempt_id: attemptId,
       _answers: answers,
@@ -297,6 +346,19 @@ function GeneralCourseQuizRoute() {
     );
   }
 
+  if (resumed && !resumeAccepted && attemptId) {
+    return (
+      <QuizRecoveryGate
+        eyebrow="General Course Assessment"
+        title={quiz?.title ?? "this assessment"}
+        deadlineIso={deadlineIso}
+        answeredCount={Object.keys(restoredAnswers).length}
+        totalQuestions={questions.length}
+        onResume={() => setResumeAccepted(true)}
+      />
+    );
+  }
+
   return (
     <QuizRunner
       eyebrow="General Course Assessment"
@@ -309,6 +371,9 @@ function GeneralCourseQuizRoute() {
       attemptReady={!!attemptId}
       questions={questions}
       deadlineIso={deadlineIso}
+      initialAnswers={restoredAnswers}
+      onAnswer={sync.onAnswer}
+      unsyncedIds={sync.unsyncedIds}
       onSubmit={onSubmit}
     />
   );

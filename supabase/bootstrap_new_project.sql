@@ -152,6 +152,15 @@ create table if not exists public.quiz_attempts (
   constraint quiz_attempts_owner_ck check (num_nonnulls(topic_id, course_quiz_id) = 1)
 );
 create index if not exists quiz_attempts_course_quiz_id_idx on public.quiz_attempts(course_quiz_id, user_id);
+-- At most one ACTIVE (unfinished) attempt per quiz per student — a reload /
+-- double-click race can never open parallel attempts. Finished attempts are
+-- unaffected, so retakes stay unlimited (module) / capped by the trigger (general).
+create unique index if not exists quiz_attempts_one_active_module
+  on public.quiz_attempts (user_id, topic_id)
+  where finished_at is null and topic_id is not null;
+create unique index if not exists quiz_attempts_one_active_general
+  on public.quiz_attempts (user_id, course_quiz_id)
+  where finished_at is null and course_quiz_id is not null;
 
 -- 2.9 attempt_answers  (one answered question in an attempt)
 create table if not exists public.attempt_answers (
@@ -160,7 +169,10 @@ create table if not exists public.attempt_answers (
   question_id    uuid not null references public.questions(id) on delete cascade,
   selected_index int not null,
   is_correct     boolean not null,
-  time_ms        int
+  time_ms        int,
+  -- One row per (attempt, question): answers are UPSERTed as the student
+  -- progresses (Quiz Recovery), so changing an answer overwrites, never dupes.
+  constraint attempt_answers_attempt_question_key unique (attempt_id, question_id)
 );
 
 -- 2.10 progress  (lesson completion + watch time)
@@ -550,8 +562,9 @@ begin
     raise exception 'This quiz attempt is not linked to a quiz.';
   end if;
 
+  -- UPSERT every answer the client submitted (may be '{}' on timeout-finalize).
   for rec in
-    select q.id, q.correct_index, q.explanation
+    select q.id, q.correct_index
     from public.questions q
     where q.id::text in (select jsonb_object_keys(_answers))
       and (
@@ -560,19 +573,19 @@ begin
       )
   loop
     v_sel := (_answers ->> rec.id::text)::int;
-    v_answered := v_answered + 1;
     insert into public.attempt_answers (attempt_id, question_id, selected_index, is_correct)
-    values (_attempt_id, rec.id, v_sel, v_sel = rec.correct_index);
-    if v_sel = rec.correct_index then
-      v_score := v_score + 1;
-    end if;
-
-    question_id := rec.id;
-    is_correct := (v_sel = rec.correct_index);
-    correct_index := rec.correct_index;
-    explanation := rec.explanation;
-    return next;
+    values (_attempt_id, rec.id, v_sel, v_sel = rec.correct_index)
+    on conflict (attempt_id, question_id)
+    do update set selected_index = excluded.selected_index,
+                  is_correct     = excluded.is_correct;
   end loop;
+
+  -- Authoritative totals from everything persisted for this attempt (incremental
+  -- Quiz Recovery saves + this submission).
+  select count(*), count(*) filter (where aa.is_correct)
+    into v_answered, v_score
+    from public.attempt_answers aa
+    where aa.attempt_id = _attempt_id;
 
   update public.quiz_attempts
     set score = v_score,
@@ -593,7 +606,77 @@ begin
             updated_at = now();
     end if;
   end if;
+
+  return query
+    select aa.question_id, aa.is_correct, q.correct_index, q.explanation
+    from public.attempt_answers aa
+    join public.questions q on q.id = aa.question_id
+    where aa.attempt_id = _attempt_id;
 end;
+$$;
+
+-- Persist one selected answer for the caller's OWN in-progress attempt, mid-quiz.
+-- Idempotent UPSERT on (attempt_id, question_id) — changing an answer overwrites.
+-- Rejects a finished / expired attempt and any question outside the attempt's
+-- quiz. Returns nothing: correctness is never revealed while the quiz is live.
+create or replace function public.save_quiz_answer(
+  _attempt_id uuid, _question_id uuid, _selected_index int
+)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_user uuid; v_topic uuid; v_cq uuid;
+  v_finished timestamptz; v_expires timestamptz; v_correct int;
+begin
+  select user_id, topic_id, course_quiz_id, finished_at, expires_at
+    into v_user, v_topic, v_cq, v_finished, v_expires
+    from public.quiz_attempts where id = _attempt_id for update;
+
+  if v_user is null or v_user <> auth.uid() then
+    raise exception 'forbidden';
+  end if;
+  if v_finished is not null then
+    raise exception 'This attempt has already been submitted.';
+  end if;
+  if v_expires is not null and now() >= v_expires then
+    raise exception 'This attempt has run out of time.';
+  end if;
+  if _selected_index is null or _selected_index < 0 then
+    raise exception 'Invalid answer.';
+  end if;
+
+  select q.correct_index into v_correct
+  from public.questions q
+  where q.id = _question_id
+    and (
+      (v_topic is not null and q.topic_id = v_topic)
+      or (v_cq is not null and q.course_quiz_id = v_cq)
+    );
+  if v_correct is null then
+    raise exception 'That question is not part of this quiz.';
+  end if;
+
+  insert into public.attempt_answers (attempt_id, question_id, selected_index, is_correct)
+  values (_attempt_id, _question_id, _selected_index, _selected_index = v_correct)
+  on conflict (attempt_id, question_id)
+  do update set selected_index = excluded.selected_index,
+                is_correct     = excluded.is_correct;
+end;
+$$;
+
+-- The caller's previously selected answers (question_id + selected_index only)
+-- for their own attempt — used to restore an in-progress quiz on resume. Never
+-- returns is_correct / correct_index / explanation.
+create or replace function public.get_attempt_answers(_attempt_id uuid)
+returns table (question_id uuid, selected_index int)
+language sql stable security definer set search_path = public
+as $$
+  select aa.question_id, aa.selected_index
+  from public.attempt_answers aa
+  join public.quiz_attempts a on a.id = aa.attempt_id
+  where aa.attempt_id = _attempt_id
+    and a.user_id = auth.uid();
 $$;
 
 -- Grade the caller's own timed-out attempts (module or general) never submitted.
@@ -1808,9 +1891,15 @@ create policy "attempts_insert_own" on public.quiz_attempts for insert to authen
 create policy "attempts_update_own" on public.quiz_attempts for update to authenticated using (auth.uid() = user_id);
 create policy "attempts_delete_own" on public.quiz_attempts for delete to authenticated using (auth.uid() = user_id);
 
--- attempt_answers: rows whose parent attempt is yours
+-- attempt_answers: rows whose parent attempt is yours. SELECT is withheld until
+-- the attempt is FINISHED so a student can't read is_correct on the answers they
+-- saved mid-quiz (Quiz Recovery). Resume reads selected indices via the
+-- SECURITY DEFINER get_attempt_answers() instead.
 create policy "answers_select_own" on public.attempt_answers for select to authenticated
-  using (exists (select 1 from public.quiz_attempts a where a.id = attempt_id and a.user_id = auth.uid()));
+  using (exists (
+    select 1 from public.quiz_attempts a
+    where a.id = attempt_id and a.user_id = auth.uid() and a.finished_at is not null
+  ));
 create policy "answers_insert_own" on public.attempt_answers for insert to authenticated
   with check (exists (select 1 from public.quiz_attempts a where a.id = attempt_id and a.user_id = auth.uid()));
 create policy "answers_delete_own" on public.attempt_answers for delete to authenticated
@@ -1911,6 +2000,12 @@ grant  execute on function public.get_course_quiz_questions(uuid, int)          
 
 revoke execute on function public.grade_quiz(uuid, jsonb, boolean)                                 from public, anon;
 grant  execute on function public.grade_quiz(uuid, jsonb, boolean)                                 to authenticated;
+
+revoke execute on function public.save_quiz_answer(uuid, uuid, int)                                from public, anon;
+grant  execute on function public.save_quiz_answer(uuid, uuid, int)                                to authenticated;
+
+revoke execute on function public.get_attempt_answers(uuid)                                        from public, anon;
+grant  execute on function public.get_attempt_answers(uuid)                                        to authenticated;
 
 revoke execute on function public.finalize_expired_quiz_attempts()                                 from public, anon;
 grant  execute on function public.finalize_expired_quiz_attempts()                                 to authenticated;

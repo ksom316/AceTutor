@@ -741,6 +741,13 @@ export type Database = {
           user_id: string;
         }[];
       };
+      get_attempt_answers: {
+        Args: { _attempt_id: string };
+        Returns: {
+          question_id: string;
+          selected_index: number;
+        }[];
+      };
       get_quiz_questions: {
         Args: { _limit?: number; _topic_id: string };
         Returns: {
@@ -785,6 +792,10 @@ export type Database = {
       replace_course_quiz: {
         Args: { _questions: Json; _quiz_id: string };
         Returns: string;
+      };
+      save_quiz_answer: {
+        Args: { _attempt_id: string; _question_id: string; _selected_index: number };
+        Returns: undefined;
       };
       save_study_path: {
         Args: { _attempt_id: string; _content: Json; _weak_question_ids: string[] };
