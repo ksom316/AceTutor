@@ -17,6 +17,8 @@ import {
   type PerfAttempt,
   type PerfTopic,
 } from "@/lib/quiz-performance";
+import { computeCourseMastery } from "@/lib/mastery";
+import { MasteryBadge, MasteryTrend } from "@/components/course/MasteryBadge";
 import { fadeUp } from "@/lib/motion";
 
 export const Route = createFileRoute("/_authenticated/performance/$courseId")({
@@ -90,6 +92,7 @@ function MyPerformancePage() {
   });
 
   const perf = useMemo(() => computeCoursePerformance(topics, attempts), [topics, attempts]);
+  const mastery = useMemo(() => computeCourseMastery(topics, attempts), [topics, attempts]);
 
   // Deterministic module-state breakdown for the overview — straight off the
   // shared model, never a second calculation.
@@ -194,7 +197,7 @@ function MyPerformancePage() {
         </section>
       ) : (
         <>
-          <section className="mt-8 grid gap-4 sm:grid-cols-2">
+          <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="rounded-2xl border border-border bg-card p-6">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">
                 Course average
@@ -203,6 +206,31 @@ function MyPerformancePage() {
                 {perf.overall !== null ? `${perf.overall}%` : "—"}
               </p>
               <Progress value={perf.overall ?? 0} className="mt-3" />
+              <p className="mt-2 text-xs text-muted-foreground">
+                Averaged across your reliable attempts.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-6">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">
+                Course mastery
+              </p>
+              <p className="mt-1 font-display text-4xl">
+                {mastery.score !== null ? `${mastery.score}%` : "—"}
+              </p>
+              {mastery.score !== null ? (
+                <>
+                  <Progress value={mastery.score} className="mt-3" />
+                  <p className="mt-2">
+                    <MasteryBadge level={mastery.level} />
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">Not assessed</p>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                From your most recent quiz per module · {mastery.assessedModules} of{" "}
+                {topics.length} modules assessed.
+              </p>
             </div>
             <div className="rounded-2xl border border-border bg-card p-6">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -322,6 +350,19 @@ function MyPerformancePage() {
                     </Badge>
                   )}
                 </div>
+                {(() => {
+                  const mm = mastery.modules.find((x) => x.topic.id === m.topic.id);
+                  if (!mm) return null;
+                  return (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
+                      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Mastery
+                      </span>
+                      <MasteryBadge level={mm.level} score={mm.score} />
+                      <MasteryTrend mastery={mm} />
+                    </div>
+                  );
+                })()}
                 {(m.state === "weak" || m.state === "strong") && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     Latest quiz: {m.lastUsableScore ?? 0}%

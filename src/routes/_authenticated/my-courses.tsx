@@ -17,6 +17,8 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
+import { computeCourseMastery, masteryLabel } from "@/lib/mastery";
+import type { PerfAttempt } from "@/lib/quiz-performance";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 import { secondsByCourse, type StudySessionRow } from "@/lib/study-time";
 
@@ -38,8 +40,16 @@ type ProgressRow = {
   lessons: { id: string; topics: { course_id: string } | null } | null;
 };
 type AttemptRow = { score: number | null; total: number | null; finished_at: string | null };
-type TopicRow = { id: string; course_id: string };
-type ModuleAttemptRow = { topic_id: string; finished_at: string | null };
+type TopicRow = { id: string; course_id: string; title: string };
+type ModuleAttemptRow = {
+  id: string;
+  topic_id: string;
+  finished_at: string | null;
+  score: number | null;
+  total: number | null;
+  answered_count: number | null;
+  started_at: string | null;
+};
 
 function MyCoursesPage() {
   const { user } = useAuth();
@@ -138,7 +148,7 @@ function MyCoursesPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("topics")
-        .select("id, course_id")
+        .select("id, course_id, title")
         .in("course_id", enrolledIds);
       return (data ?? []) as unknown as TopicRow[];
     },
@@ -153,7 +163,7 @@ function MyCoursesPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("quiz_attempts")
-        .select("topic_id, finished_at")
+        .select("id, topic_id, finished_at, score, total, answered_count, started_at")
         .eq("user_id", user!.id)
         .not("topic_id", "is", null);
       return (data ?? []) as unknown as ModuleAttemptRow[];
@@ -208,12 +218,44 @@ function MyCoursesPage() {
       }
     }
 
+    // Course Mastery per course — mean of assessed modules' most-recent module-
+    // quiz scores. Separate from completion; never overrides it.
+    const courseByTopic = new Map<string, string>();
+    const masteryTopicsByCourse = new Map<string, { id: string; title: string }[]>();
+    for (const t of courseTopics ?? []) {
+      courseByTopic.set(t.id, t.course_id);
+      const list = masteryTopicsByCourse.get(t.course_id) ?? [];
+      list.push({ id: t.id, title: t.title });
+      masteryTopicsByCourse.set(t.course_id, list);
+    }
+    const masteryAttemptsByCourse = new Map<string, PerfAttempt[]>();
+    for (const a of moduleAttempts ?? []) {
+      const cid = courseByTopic.get(a.topic_id);
+      if (!cid) continue;
+      const list = masteryAttemptsByCourse.get(cid) ?? [];
+      list.push(a as PerfAttempt);
+      masteryAttemptsByCourse.set(cid, list);
+    }
+
     const perCourse = enrolledCourses.map((c) => {
       const total = totalModulesByCourse.get(c.id) ?? 0;
       const done = completedModulesByCourse.get(c.id) ?? 0;
       const touched = touchedByCourse.get(c.id) ?? 0;
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      return { ...c, total, done, touched, pct, seconds: secondsPerCourse.get(c.id) ?? 0 };
+      const cm = computeCourseMastery(
+        masteryTopicsByCourse.get(c.id) ?? [],
+        masteryAttemptsByCourse.get(c.id) ?? [],
+      );
+      return {
+        ...c,
+        total,
+        done,
+        touched,
+        pct,
+        seconds: secondsPerCourse.get(c.id) ?? 0,
+        masteryScore: cm.score,
+        masteryLevel: cm.level,
+      };
     });
 
     const att = attempts ?? [];
@@ -355,8 +397,15 @@ function MyCoursesPage() {
                           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                         />
                       </div>
-                      <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">
-                        {c.pct}% complete
+                      <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] font-medium text-muted-foreground">
+                        <span>{c.pct}% complete</span>
+                        <span aria-hidden>·</span>
+                        <span>
+                          Mastery{" "}
+                          {c.masteryScore !== null
+                            ? `${c.masteryScore}% · ${masteryLabel(c.masteryLevel)}`
+                            : "Not assessed"}
+                        </span>
                       </p>
                     </Link>
                   </motion.div>

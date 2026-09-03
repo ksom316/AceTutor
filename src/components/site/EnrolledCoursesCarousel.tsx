@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, ArrowRight, BookOpen, Play } from "lucide-react";
 import type { PerCourse } from "@/hooks/use-student-dashboard";
 import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
+import { masteryLabel } from "@/lib/mastery";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 const AUTOPLAY_MS = 3000;
@@ -245,6 +246,14 @@ function CourseSlide({
             transition={{ duration: 0.8, ease: EASE }}
           />
         </div>
+        {/* Mastery — how well the assessed modules are understood, kept distinct
+            from the completion bar above. */}
+        <p className="mt-2 text-xs text-primary-foreground/85">
+          Mastery ·{" "}
+          {course.masteryScore !== null
+            ? `${course.masteryScore}% · ${masteryLabel(course.masteryLevel)}`
+            : "Not assessed"}
+        </p>
         <Link
           to="/courses/$slug"
           params={{ slug: course.slug }}

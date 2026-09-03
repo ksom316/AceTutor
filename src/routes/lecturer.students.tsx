@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Search, Users } from "lucide-react";
+import { ChevronDown, Search, Users } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,8 +14,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MasteryBadge } from "@/components/course/MasteryBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
+import { computeCourseMastery, masteryLabel, type CourseMastery } from "@/lib/mastery";
+import type { PerfAttempt, PerfTopic } from "@/lib/quiz-performance";
 import { fadeUp } from "@/lib/motion";
 
 export const Route = createFileRoute("/lecturer/students")({
@@ -36,7 +39,32 @@ type Student = {
   last_active: string | null;
 };
 
-type SortKey = "name" | "enrolled" | "avg" | "active";
+/** One finished MODULE-quiz attempt row from get_course_student_mastery(). */
+type MasteryAttemptRow = {
+  user_id: string;
+  full_name: string;
+  attempt_id: string;
+  topic_id: string;
+  topic_title: string;
+  score: number | null;
+  total: number | null;
+  answered_count: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+/** Per-student mastery, derived from the raw rows with the SAME pure model the
+ *  student side uses (src/lib/mastery.ts). */
+type StudentMastery = {
+  course: CourseMastery;
+  /** Distinct modules with any finished attempt / total modules — matches the
+   *  student-side course-completion definition, computed from lecturer-visible
+   *  data only. */
+  completedModules: number;
+  totalModules: number;
+};
+
+type SortKey = "name" | "enrolled" | "avg" | "active" | "completion" | "mastery";
 
 function initialsOf(name: string): string {
   return (
@@ -70,12 +98,29 @@ function lastActiveLabel(iso: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function StudentRow({ student }: { student: Student }) {
+function StudentRow({
+  student,
+  mastery,
+  masteryLoading,
+}: {
+  student: Student;
+  mastery: StudentMastery | undefined;
+  masteryLoading: boolean;
+}) {
+  const [open, setOpen] = useState(false);
   const name = student.full_name?.trim() || "Unnamed student";
   // The lecturer can only sign avatars in their own storage folder (RLS), so
   // only already-absolute avatar URLs (e.g. Google) are shown; everything else
   // falls back to initials.
   const imageSrc = student.avatar_url?.startsWith("http") ? student.avatar_url : undefined;
+
+  const completionPct =
+    mastery && mastery.totalModules > 0
+      ? Math.round((mastery.completedModules / mastery.totalModules) * 100)
+      : null;
+  const courseMastery = mastery?.course ?? null;
+  const assessedModules = courseMastery?.modules.filter((m) => m.score !== null) ?? [];
+  const hasBreakdown = (courseMastery?.modules.length ?? 0) > 0;
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -94,7 +139,7 @@ function StudentRow({ student }: { student: Student }) {
         </div>
         <dl className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <div className="flex items-center gap-1.5">
-            <dt className="text-muted-foreground">Quiz attempts</dt>
+            <dt className="text-muted-foreground">Attempts</dt>
             <dd className="font-medium tabular-nums">{student.attempts}</dd>
           </div>
           <div className="flex items-center gap-1.5">
@@ -104,11 +149,78 @@ function StudentRow({ student }: { student: Student }) {
             </dd>
           </div>
           <div className="flex items-center gap-1.5">
+            <dt className="text-muted-foreground">Completion</dt>
+            <dd className="font-medium tabular-nums">
+              {masteryLoading ? "…" : completionPct !== null ? `${completionPct}%` : "—"}
+            </dd>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <dt className="text-muted-foreground">Course mastery</dt>
+            <dd className="font-medium tabular-nums">
+              {masteryLoading ? (
+                "…"
+              ) : courseMastery && courseMastery.score !== null ? (
+                <>
+                  {courseMastery.score}%{" "}
+                  <span className="font-normal text-muted-foreground">
+                    ({courseMastery.assessedModules} of {courseMastery.totalModules} modules)
+                  </span>
+                </>
+              ) : (
+                "Not assessed"
+              )}
+            </dd>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <dt className="text-muted-foreground">Status</dt>
+            <dd>
+              {masteryLoading || !courseMastery ? (
+                <span className="text-sm text-muted-foreground">…</span>
+              ) : (
+                <MasteryBadge level={courseMastery.level} />
+              )}
+            </dd>
+          </div>
+          <div className="flex items-center gap-1.5">
             <dt className="text-muted-foreground">Last activity</dt>
             <dd className="font-medium">{lastActiveLabel(student.last_active)}</dd>
           </div>
         </dl>
       </div>
+
+      {hasBreakdown && (
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronDown
+              className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+            />
+            {open ? "Hide" : "Show"} module mastery
+            {assessedModules.length > 0 ? ` (${assessedModules.length} assessed)` : ""}
+          </button>
+          {open && courseMastery && (
+            <ul className="mt-2 space-y-1.5 border-t border-border/60 pt-3">
+              {courseMastery.modules.map((m) => (
+                <li
+                  key={m.topic.id}
+                  className="flex flex-wrap items-center justify-between gap-2 text-sm"
+                >
+                  <span className="min-w-0 truncate">{m.topic.title}</span>
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    {m.score !== null
+                      ? `${m.score}% · ${masteryLabel(m.level)}`
+                      : masteryLabel("not-assessed")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -147,9 +259,71 @@ function LecturerStudents() {
     },
   });
 
+  // Modules (topics) in the lecturer's course — the denominator for course
+  // completion and the topic order for the module breakdown.
+  const topicsQuery = useQuery({
+    queryKey: ["lecturer-topics", lecturerCourseId],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("topics")
+        .select("id, title, order_index")
+        .eq("course_id", lecturerCourseId!)
+        .order("order_index");
+      if (error) throw error;
+      return (data ?? []) as PerfTopic[];
+    },
+  });
+
+  // Raw finished module-quiz attempts for every enrolled student, scoped to this
+  // lecturer's course by the SECURITY DEFINER function (never client-only).
+  const masteryQuery = useQuery({
+    queryKey: ["lecturer-student-mastery", lecturerCourseId],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_course_student_mastery");
+      if (error) throw error;
+      return (data ?? []) as MasteryAttemptRow[];
+    },
+  });
+
   // Stable empty-array fallback so the sort/filter memo doesn't re-run every
   // render (matches the pattern in analytics.tsx / the Phase 5 dashboard).
   const students = useMemo<Student[]>(() => studentsQuery.data ?? [], [studentsQuery.data]);
+
+  const topics = useMemo<PerfTopic[]>(() => topicsQuery.data ?? [], [topicsQuery.data]);
+
+  const masteryByStudent = useMemo(() => {
+    const rows = masteryQuery.data ?? [];
+    const byStudent = new Map<string, PerfAttempt[]>();
+    const finishedTopics = new Map<string, Set<string>>();
+    for (const r of rows) {
+      const list = byStudent.get(r.user_id) ?? [];
+      list.push({
+        id: r.attempt_id,
+        topic_id: r.topic_id,
+        score: r.score,
+        total: r.total,
+        finished_at: r.finished_at,
+        answered_count: r.answered_count,
+        started_at: r.started_at,
+      });
+      byStudent.set(r.user_id, list);
+      const set = finishedTopics.get(r.user_id) ?? new Set<string>();
+      set.add(r.topic_id);
+      finishedTopics.set(r.user_id, set);
+    }
+    const out = new Map<string, StudentMastery>();
+    for (const s of students) {
+      const attempts = byStudent.get(s.user_id) ?? [];
+      out.set(s.user_id, {
+        course: computeCourseMastery(topics, attempts),
+        completedModules: finishedTopics.get(s.user_id)?.size ?? 0,
+        totalModules: topics.length,
+      });
+    }
+    return out;
+  }, [masteryQuery.data, students, topics]);
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -172,13 +346,24 @@ function LecturerStudents() {
           const bt = b.last_active ? new Date(b.last_active).getTime() : 0;
           return bt - at;
         }
+        case "completion": {
+          const cm = (id: string) => {
+            const m = masteryByStudent.get(id);
+            return m && m.totalModules > 0 ? m.completedModules / m.totalModules : -1;
+          };
+          return cm(b.user_id) - cm(a.user_id);
+        }
+        case "mastery": {
+          const ms = (id: string) => masteryByStudent.get(id)?.course.score ?? -1;
+          return ms(b.user_id) - ms(a.user_id);
+        }
         case "name":
         default:
           return (a.full_name ?? "").localeCompare(b.full_name ?? "");
       }
     });
     return list;
-  }, [students, search, sort]);
+  }, [students, search, sort, masteryByStudent]);
 
   const courseName = courseQuery.data?.title;
 
@@ -214,6 +399,8 @@ function LecturerStudents() {
             <SelectItem value="name">Sort: Name</SelectItem>
             <SelectItem value="enrolled">Sort: Enrollment date</SelectItem>
             <SelectItem value="avg">Sort: Average score</SelectItem>
+            <SelectItem value="completion">Sort: Course completion</SelectItem>
+            <SelectItem value="mastery">Sort: Course mastery</SelectItem>
             <SelectItem value="active">Sort: Last activity</SelectItem>
           </SelectContent>
         </Select>
@@ -269,7 +456,12 @@ function LecturerStudents() {
             </p>
             <div className="space-y-3">
               {visible.map((s) => (
-                <StudentRow key={s.user_id} student={s} />
+                <StudentRow
+                  key={s.user_id}
+                  student={s}
+                  mastery={masteryByStudent.get(s.user_id)}
+                  masteryLoading={masteryQuery.isLoading || topicsQuery.isLoading}
+                />
               ))}
             </div>
           </>

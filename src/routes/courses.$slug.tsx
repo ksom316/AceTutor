@@ -40,6 +40,8 @@ import {
   computeCoursePerformance,
   type PerfAttempt,
 } from "@/lib/quiz-performance";
+import { computeCourseMastery } from "@/lib/mastery";
+import { MasteryBadge, MasteryTrend } from "@/components/course/MasteryBadge";
 import {
   attemptsUsageLabel,
   canAttemptCourseQuiz,
@@ -196,6 +198,12 @@ function CourseDetail() {
   // src/lib/quiz-performance.ts.
   const perf = useMemo(
     () => computeCoursePerformance(topics, attempts as PerfAttempt[]),
+    [topics, attempts],
+  );
+
+  // Course Mastery — latest-attempt based, kept separate from completion.
+  const mastery = useMemo(
+    () => computeCourseMastery(topics, attempts as PerfAttempt[]),
     [topics, attempts],
   );
 
@@ -373,14 +381,42 @@ function CourseDetail() {
               )}
 
               {user && isEnrolled && topics.length > 0 && (
-                <div className="mt-6 max-w-md">
-                  <div className="mb-1.5 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Course progress</span>
-                    <span>
-                      {analytics.completed}/{topics.length} modules · {analytics.progress}%
-                    </span>
+                <div className="mt-6 max-w-md space-y-3">
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Course progress</span>
+                      <span>
+                        {analytics.completed}/{topics.length} modules · {analytics.progress}%
+                      </span>
+                    </div>
+                    <Progress value={analytics.progress} />
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      How much of the course you&apos;ve completed.
+                    </p>
                   </div>
-                  <Progress value={analytics.progress} />
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Course mastery</span>
+                      <span>
+                        {mastery.score !== null
+                          ? `${mastery.assessedModules} of ${topics.length} modules assessed`
+                          : "Not assessed"}
+                      </span>
+                    </div>
+                    {mastery.score !== null ? (
+                      <>
+                        <Progress value={mastery.score} />
+                        <p className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <MasteryBadge level={mastery.level} score={mastery.score} />
+                          <span>How well you understand the assessed material.</span>
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">
+                        Complete a module quiz to see how well you understand the material.
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -784,6 +820,19 @@ function CourseDetail() {
                             {t.summary && (
                               <p className="text-sm text-muted-foreground">{t.summary}</p>
                             )}
+                            {(() => {
+                              const mm = mastery.modules.find((m) => m.topic.id === t.id);
+                              if (!mm) return null;
+                              return (
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <span className="text-xs text-muted-foreground">
+                                    Your mastery
+                                  </span>
+                                  <MasteryBadge level={mm.level} score={mm.score} />
+                                  <MasteryTrend mastery={mm} />
+                                </div>
+                              );
+                            })()}
                             <div className="mt-4 flex flex-wrap gap-2">
                               <Button
                                 size="sm"

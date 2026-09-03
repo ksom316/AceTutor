@@ -1042,6 +1042,39 @@ as $$
   order by started_at desc;
 $$;
 
+-- Raw finished MODULE-quiz attempts for students enrolled in the caller's
+-- managed course. General Course Quiz attempts are excluded (a.topic_id = t.id).
+-- src/lib/mastery.ts turns these into per-module / course mastery. Zero rows for
+-- a non-lecturer or another lecturer's course.
+create or replace function public.get_course_student_mastery()
+returns table (
+  user_id        uuid,
+  full_name      text,
+  attempt_id     uuid,
+  topic_id       uuid,
+  topic_title    text,
+  score          integer,
+  total          integer,
+  answered_count integer,
+  started_at     timestamptz,
+  finished_at    timestamptz
+)
+language sql stable security definer set search_path = public
+as $$
+  with lc as (select public.current_lecturer_course() as course_id)
+  select
+    a.user_id, p.full_name, a.id, a.topic_id, t.title,
+    a.score, a.total, a.answered_count, a.started_at, a.finished_at
+  from lc
+  join public.topics t        on t.course_id = lc.course_id
+  join public.quiz_attempts a on a.topic_id = t.id and a.finished_at is not null
+  join public.profiles p      on p.id = a.user_id
+  where exists (
+    select 1 from public.enrollments e
+    where e.course_id = lc.course_id and e.user_id = a.user_id
+  );
+$$;
+
 
 -- 3.10 study paths -------------------------------------------------------
 
@@ -1920,6 +1953,9 @@ grant  execute on function public.get_course_students()                         
 
 revoke execute on function public.get_course_quiz_performance()                                    from public, anon;
 grant  execute on function public.get_course_quiz_performance()                                    to authenticated;
+
+revoke execute on function public.get_course_student_mastery()                                     from public, anon;
+grant  execute on function public.get_course_student_mastery()                                     to authenticated;
 
 revoke execute on function public.save_study_path(uuid, jsonb, uuid[])                             from public, anon;
 grant  execute on function public.save_study_path(uuid, jsonb, uuid[])                             to authenticated;

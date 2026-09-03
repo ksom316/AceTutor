@@ -7,9 +7,12 @@ import { ArrowRight, FileText, Headphones, PlayCircle, Presentation, Sparkles } 
 import { Button } from "@/components/ui/button";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
 import { GuidedReader } from "@/components/course/GuidedReader";
+import { MasteryBadge, MasteryTrend } from "@/components/course/MasteryBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
+import { computeModuleMastery } from "@/lib/mastery";
+import type { PerfAttempt } from "@/lib/quiz-performance";
 import { splitLessonIntoSections } from "@/lib/reading-sections";
 import { fadeUp } from "@/lib/motion";
 
@@ -113,6 +116,26 @@ function TopicPage() {
 
   // Study time on a module belongs to its course.
   useStudyCourse(data?.topic?.course_id);
+
+  // This module's mastery — the score of the student's most recent completed
+  // official module quiz (never averaged). RLS scopes quiz_attempts to the
+  // caller, so this only ever reads the student's own attempts.
+  const { data: topicAttempts = [] } = useQuery({
+    queryKey: ["topic-mastery-attempts", user?.id, topicId],
+    enabled: !!user && !!enrollment,
+    queryFn: async () => {
+      const { data: rows } = await supabase
+        .from("quiz_attempts")
+        .select("id, topic_id, score, total, finished_at, answered_count, started_at")
+        .eq("user_id", user!.id)
+        .eq("topic_id", topicId);
+      return (rows ?? []) as PerfAttempt[];
+    },
+  });
+  const moduleMastery = useMemo(
+    () => computeModuleMastery({ id: topicId, title: data?.topic?.title ?? "" }, topicAttempts),
+    [topicId, data?.topic?.title, topicAttempts],
+  );
 
   const { data: learningPrefs } = useQuery({
     queryKey: ["topic-learning-prefs", user?.id],
@@ -266,6 +289,13 @@ function TopicPage() {
         </p>
         <h1 className="mt-2 font-display text-5xl">{data.topic.title}</h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">{data.topic.summary}</p>
+        {enrollment && moduleMastery.completedAttempts > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Your mastery</span>
+            <MasteryBadge level={moduleMastery.level} score={moduleMastery.score} />
+            <MasteryTrend mastery={moduleMastery} />
+          </div>
+        )}
       </motion.div>
 
       {availableModalities.length > 0 && (

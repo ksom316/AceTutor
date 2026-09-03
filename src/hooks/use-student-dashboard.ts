@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { secondsByCourse, type StudySessionRow } from "@/lib/study-time";
+import { computeCourseMastery, type MasteryLevel } from "@/lib/mastery";
+import type { PerfAttempt } from "@/lib/quiz-performance";
 
 export type PerCourse = {
   id: string;
@@ -14,6 +16,12 @@ export type PerCourse = {
   pct: number;
   /** Active learning seconds recorded for this course. */
   seconds: number;
+  /** Course Mastery — mean of the assessed modules' most-recent-attempt scores.
+   *  null ("Not assessed") when no module has a completed module-quiz attempt.
+   *  Kept strictly separate from `pct` (completion). */
+  masteryScore: number | null;
+  masteryLevel: MasteryLevel;
+  masteryAssessedModules: number;
 };
 
 export type DonutDatum = { name: "Completed" | "In Progress" | "Not Started"; value: number };
@@ -48,7 +56,15 @@ type GeneralAttemptRow = {
   course_quizzes: { title: string; courses: { title: string } | null } | null;
 };
 type TopicRow = { id: string; course_id: string; title: string };
-type ModuleAttemptRow = { topic_id: string; finished_at: string | null };
+type ModuleAttemptRow = {
+  id: string;
+  topic_id: string;
+  finished_at: string | null;
+  score: number | null;
+  total: number | null;
+  answered_count: number | null;
+  started_at: string | null;
+};
 
 /** A finished quiz attempt (module or general course quiz) for the "Recent quiz
  *  attempts" list. Module-centric summary stats are computed separately and are
@@ -202,7 +218,7 @@ export function useStudentDashboard(userId: string | undefined) {
     queryFn: async () => {
       const { data } = await supabase
         .from("quiz_attempts")
-        .select("topic_id, finished_at")
+        .select("id, topic_id, finished_at, score, total, answered_count, started_at")
         .eq("user_id", userId!)
         .not("topic_id", "is", null);
       return (data ?? []) as unknown as ModuleAttemptRow[];
@@ -288,12 +304,45 @@ export function useStudentDashboard(userId: string | undefined) {
     const secondsPerCourse = secondsByCourse(sessions);
     const totalSeconds = sessions.reduce((s, r) => s + r.seconds, 0);
 
+    // Course Mastery per course — the mean of the assessed modules' most-recent
+    // module-quiz attempt scores. Completely separate from completion above.
+    const courseByTopic = new Map<string, string>();
+    const masteryTopicsByCourse = new Map<string, { id: string; title: string }[]>();
+    for (const t of courseTopics ?? []) {
+      courseByTopic.set(t.id, t.course_id);
+      const list = masteryTopicsByCourse.get(t.course_id) ?? [];
+      list.push({ id: t.id, title: t.title });
+      masteryTopicsByCourse.set(t.course_id, list);
+    }
+    const masteryAttemptsByCourse = new Map<string, PerfAttempt[]>();
+    for (const a of moduleAttempts ?? []) {
+      const cid = courseByTopic.get(a.topic_id);
+      if (!cid) continue;
+      const list = masteryAttemptsByCourse.get(cid) ?? [];
+      list.push(a as PerfAttempt);
+      masteryAttemptsByCourse.set(cid, list);
+    }
+
     const perCourse: PerCourse[] = enrolledCourses.map((c) => {
       const total = totalModulesByCourse.get(c.id) ?? 0;
       const done = completedModulesByCourse.get(c.id) ?? 0;
       const touched = touchedByCourse.get(c.id) ?? 0;
       const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-      return { ...c, total, done, touched, pct, seconds: secondsPerCourse.get(c.id) ?? 0 };
+      const cm = computeCourseMastery(
+        masteryTopicsByCourse.get(c.id) ?? [],
+        masteryAttemptsByCourse.get(c.id) ?? [],
+      );
+      return {
+        ...c,
+        total,
+        done,
+        touched,
+        pct,
+        seconds: secondsPerCourse.get(c.id) ?? 0,
+        masteryScore: cm.score,
+        masteryLevel: cm.level,
+        masteryAssessedModules: cm.assessedModules,
+      };
     });
 
     const att = attempts ?? [];

@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudentDashboard, type ModuleBreakdownItem } from "@/hooks/use-student-dashboard";
 import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
+import { masteryLabel } from "@/lib/mastery";
 import { answeredCountOf, isSufficientAttempt } from "@/lib/quiz-performance";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 
@@ -341,8 +342,15 @@ function Dashboard() {
                           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                         />
                       </div>
-                      <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">
-                        {c.pct}% complete
+                      <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] font-medium text-muted-foreground">
+                        <span>{c.pct}% complete</span>
+                        <span aria-hidden>·</span>
+                        <span>
+                          Mastery{" "}
+                          {c.masteryScore !== null
+                            ? `${c.masteryScore}% · ${masteryLabel(c.masteryLevel)}`
+                            : "Not assessed"}
+                        </span>
                       </p>
                     </Link>
                   </motion.div>

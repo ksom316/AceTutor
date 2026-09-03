@@ -714,6 +714,21 @@ export type Database = {
           total: number;
         }[];
       };
+      get_course_student_mastery: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          answered_count: number;
+          attempt_id: string;
+          finished_at: string;
+          full_name: string;
+          score: number;
+          started_at: string;
+          topic_id: string;
+          topic_title: string;
+          total: number;
+          user_id: string;
+        }[];
+      };
       get_course_students: {
         Args: Record<PropertyKey, never>;
         Returns: {
