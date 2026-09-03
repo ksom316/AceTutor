@@ -13,10 +13,14 @@ import { supabase } from "@/integrations/supabase/client";
  * never from form state, user metadata or the URL, apart from a *genuine* in-app
  * `redirect` deep link (a specific protected page the user was trying to reach).
  *
- *   teacher + claimed slot             -> lecturer workspace
- *   student without saved preferences  -> learning-preferences onboarding
- *   genuine deep-link redirect         -> that path
- *   everyone else (returning student)  -> student home  ("/")
+ *   teacher + claimed slot                -> lecturer workspace
+ *   student, no learning_preferences row  -> learning-preferences onboarding
+ *   genuine deep-link redirect            -> that path
+ *   everyone else (returning student)     -> student home  ("/")
+ *
+ * "Has a learning_preferences row" — not "has non-null preference values" — is
+ * the onboarding gate: completing the form and pressing "Skip for now" both
+ * leave a row, so a student is asked exactly once and never looped back.
  *
  * A `redirect` that merely points at a generic landing surface ("/" or
  * "/dashboard") is NOT treated as a deep link: the `_authenticated` guard plants
@@ -77,11 +81,11 @@ export async function resolvePostAuthDestination(
     supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle(),
     // RLS (lecturer_slots_select_own) already scopes this to the caller's slot.
     supabase.from("lecturer_slots").select("course_id").maybeSingle(),
-    supabase
-      .from("learning_preferences")
-      .select("explanation_style, lesson_format, wrong_answer_help")
-      .eq("user_id", userId)
-      .maybeSingle(),
+    // Only the row's *existence* matters here: a completed set and a
+    // deliberate "Skip for now" both leave a row, and neither should be sent
+    // back through onboarding. A missing row means the student has never dealt
+    // with it.
+    supabase.from("learning_preferences").select("user_id").eq("user_id", userId).maybeSingle(),
   ]);
 
   const role = roleRes.data?.role ?? "student";
@@ -92,15 +96,12 @@ export async function resolvePostAuthDestination(
     return { to: LECTURER_HOME, reason: "lecturer" };
   }
 
-  // A student who has never saved a learning preference is sent to onboarding
-  // first — this takes precedence over a generic redirect (the completing screen
-  // itself offers "Skip for now"). Admins and lecturers are exempt.
-  if (role === "student") {
-    const p = prefsRes.data;
-    const hasPreferences = !!(p?.explanation_style || p?.lesson_format || p?.wrong_answer_help);
-    if (!hasPreferences) {
-      return { to: PREFERENCES_ONBOARDING, reason: "onboarding" };
-    }
+  // A student who has never dealt with onboarding (no learning_preferences row
+  // at all) is sent there first — this takes precedence over a generic redirect.
+  // Completing the form OR choosing "Skip for now" both leave a row, so neither
+  // is ever forced back here. Admins and lecturers are exempt.
+  if (role === "student" && prefsRes.data === null) {
+    return { to: PREFERENCES_ONBOARDING, reason: "onboarding" };
   }
 
   const safe = safeRedirect(redirect);

@@ -195,6 +195,31 @@ function PreferencesOnboarding() {
     navigate({ to: "/" });
   };
 
+  const skipForNow = async () => {
+    if (!user || saving) {
+      navigate({ to: "/" });
+      return;
+    }
+    setSaving(true);
+    // Persist an all-null row so this counts as "onboarding handled" — the
+    // student won't be sent back here on every login. Preference fields stay
+    // null (they made no choices), so the "personalize your learning" nudge
+    // still shows everywhere. On conflict this only bumps updated_at.
+    const { error } = await supabase.from("learning_preferences").upsert(
+      { user_id: user.id, updated_at: new Date().toISOString() },
+      { onConflict: "user_id" },
+    );
+    setSaving(false);
+    if (error) {
+      // Persistence failed — don't pretend the skip stuck. Let them continue to
+      // Home anyway; onboarding may reappear next login until it succeeds.
+      toast.error(error.message);
+    } else {
+      await queryClient.invalidateQueries({ queryKey: ["learning-preferences"] });
+    }
+    navigate({ to: "/" });
+  };
+
   return (
     <main className="container mx-auto max-w-2xl px-4 py-12">
       <motion.div
@@ -300,7 +325,7 @@ function PreferencesOnboarding() {
         <Button
           variant="ghost"
           className="text-muted-foreground"
-          onClick={() => navigate({ to: "/" })}
+          onClick={skipForNow}
           disabled={saving}
         >
           Skip for now
