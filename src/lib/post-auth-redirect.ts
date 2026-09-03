@@ -10,13 +10,21 @@ import { supabase } from "@/integrations/supabase/client";
  *
  * The decision is read straight from the database (`user_roles` +
  * `lecturer_slots` + `learning_preferences`, all RLS-scoped to the caller) —
- * never from form state, user metadata or the URL, apart from an explicit in-app
- * `redirect` deep link.
+ * never from form state, user metadata or the URL, apart from a *genuine* in-app
+ * `redirect` deep link (a specific protected page the user was trying to reach).
  *
- *   teacher + claimed slot            -> lecturer workspace
- *   student without saved preferences -> learning-preferences onboarding
- *   explicit in-app redirect          -> that path
- *   everyone else (student / admin)   -> student home
+ *   teacher + claimed slot             -> lecturer workspace
+ *   student without saved preferences  -> learning-preferences onboarding
+ *   genuine deep-link redirect         -> that path
+ *   everyone else (returning student)  -> student home  ("/")
+ *
+ * A `redirect` that merely points at a generic landing surface ("/" or
+ * "/dashboard") is NOT treated as a deep link: the `_authenticated` guard plants
+ * `?redirect=<current-path>` for any unauthenticated hit on a protected route,
+ * including the brief window while the user is signing out from `/dashboard`, so
+ * honouring it would send every returning student to `/dashboard` instead of
+ * home. Those surfaces are always reachable from the nav, so falling through to
+ * role-based routing loses nothing.
  *
  * This helper is only ever called at the *moment of authentication*. Learning
  * preferences stay optional: the route guards do NOT gate on them, so a student
@@ -30,16 +38,30 @@ export const LECTURER_HOME = "/lecturer";
 /** Learning-preferences onboarding. */
 export const PREFERENCES_ONBOARDING = "/onboarding/preferences";
 
-/** Auth screens can never be a post-auth landing target — that would bounce the
- *  user straight back to a form (or loop). */
-const NON_LANDING_PATHS = new Set(["/login", "/signup", "/auth/callback", "/auth/google"]);
+/**
+ * Paths that never count as a genuine deep-link `redirect`:
+ *  - auth screens would bounce the user back to a form (or loop);
+ *  - "/" and "/dashboard" are generic landing surfaces, not a specific page the
+ *    user was trying to reach — the guard synthesises them during sign-out, so
+ *    honouring them overrides the "returning student -> home" rule.
+ * Everything else (e.g. `/courses/dsa`, `/quiz/…`, `/result/…`) is a real
+ * destination and is preserved.
+ */
+const NON_DEEPLINK_PATHS = new Set([
+  "/login",
+  "/signup",
+  "/auth/callback",
+  "/auth/google",
+  "/",
+  "/dashboard",
+]);
 
-/** An in-app `redirect` is honoured only when it is a same-origin path that is
- *  not itself an auth screen. */
+/** An in-app `redirect` is honoured only when it is a same-origin path pointing
+ *  at a specific page (not an auth screen or a generic landing surface). */
 function safeRedirect(redirect: string | null | undefined): string | undefined {
   if (!redirect || !redirect.startsWith("/") || redirect.startsWith("//")) return undefined;
   const path = redirect.split(/[?#]/)[0];
-  if (NON_LANDING_PATHS.has(path)) return undefined;
+  if (NON_DEEPLINK_PATHS.has(path)) return undefined;
   return redirect;
 }
 
