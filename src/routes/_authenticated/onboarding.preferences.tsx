@@ -196,27 +196,42 @@ function PreferencesOnboarding() {
   };
 
   const skipForNow = async () => {
-    if (!user || saving) {
+    if (!user) {
       navigate({ to: "/" });
       return;
     }
+    if (saving) return;
     setSaving(true);
     // Persist an all-null row so this counts as "onboarding handled" — the
-    // student won't be sent back here on every login. Preference fields stay
-    // null (they made no choices), so the "personalize your learning" nudge
-    // still shows everywhere. On conflict this only bumps updated_at.
-    const { error } = await supabase.from("learning_preferences").upsert(
-      { user_id: user.id, updated_at: new Date().toISOString() },
-      { onConflict: "user_id" },
-    );
+    // student is never sent back here on future logins. The preference fields
+    // are written explicitly as null (identical shape to a completed save, just
+    // with no choices), so the "personalize your learning" nudge still shows
+    // everywhere. On conflict this is a harmless no-op bump of updated_at.
+    // `.select()` forces the row back so we can *confirm* it landed before
+    // navigating away — a failed write must not look like a successful skip.
+    const { data, error } = await supabase
+      .from("learning_preferences")
+      .upsert(
+        {
+          user_id: user.id,
+          explanation_style: null,
+          lesson_format: null,
+          wrong_answer_help: null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" },
+      )
+      .select("user_id")
+      .maybeSingle();
     setSaving(false);
-    if (error) {
-      // Persistence failed — don't pretend the skip stuck. Let them continue to
-      // Home anyway; onboarding may reappear next login until it succeeds.
-      toast.error(error.message);
-    } else {
-      await queryClient.invalidateQueries({ queryKey: ["learning-preferences"] });
+    if (error || !data) {
+      // Persistence failed or could not be confirmed. Stay on the page so the
+      // student can retry (or answer the questions instead) — do NOT navigate,
+      // which would leave them thinking the skip stuck when it didn't.
+      toast.error("Couldn't save that just now — check your connection and try again.");
+      return;
     }
+    await queryClient.invalidateQueries({ queryKey: ["learning-preferences"] });
     navigate({ to: "/" });
   };
 

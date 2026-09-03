@@ -88,7 +88,10 @@ export async function resolvePostAuthDestination(
     supabase.from("learning_preferences").select("user_id").eq("user_id", userId).maybeSingle(),
   ]);
 
-  const role = roleRes.data?.role ?? "student";
+  // Only trust the role when the query actually succeeded. A failed role query
+  // (network / RLS / auth not settled) must not let a lecturer fall into the
+  // student onboarding gate, nor a student be misclassified.
+  const role: string | null = roleRes.error ? null : (roleRes.data?.role ?? "student");
 
   // A claimed lecturer's home is always the lecturer workspace — never student
   // onboarding, never the student home, regardless of any redirect.
@@ -96,11 +99,15 @@ export async function resolvePostAuthDestination(
     return { to: LECTURER_HOME, reason: "lecturer" };
   }
 
-  // A student who has never dealt with onboarding (no learning_preferences row
-  // at all) is sent there first — this takes precedence over a generic redirect.
-  // Completing the form OR choosing "Skip for now" both leave a row, so neither
-  // is ever forced back here. Admins and lecturers are exempt.
-  if (role === "student" && prefsRes.data === null) {
+  // Onboarding gate. Send to /onboarding/preferences ONLY when we can positively
+  // confirm this is a student who has never dealt with it:
+  //   - role query succeeded and says "student", AND
+  //   - the learning_preferences probe succeeded (no error) and returned NO row.
+  // A query error (RLS hiccup, transient network, auth token not propagated yet)
+  // is NEVER read as "no preferences" — that is exactly what was bouncing
+  // returning students who had already skipped back into onboarding.
+  const prefsRowMissing = !prefsRes.error && prefsRes.data === null;
+  if (role === "student" && prefsRowMissing) {
     return { to: PREFERENCES_ONBOARDING, reason: "onboarding" };
   }
 
