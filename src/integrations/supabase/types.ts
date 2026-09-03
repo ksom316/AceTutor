@@ -8,6 +8,63 @@ export type Database = {
   };
   public: {
     Tables: {
+      ai_conversations: {
+        Row: {
+          course_id: string;
+          created_at: string;
+          id: string;
+          last_message_at: string;
+          title: string | null;
+          topic_id: string | null;
+          user_id: string;
+        };
+        Insert: {
+          course_id: string;
+          created_at?: string;
+          id?: string;
+          last_message_at?: string;
+          title?: string | null;
+          topic_id?: string | null;
+          user_id: string;
+        };
+        Update: {
+          course_id?: string;
+          created_at?: string;
+          id?: string;
+          last_message_at?: string;
+          title?: string | null;
+          topic_id?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      ai_messages: {
+        Row: {
+          content: string;
+          conversation_id: string;
+          created_at: string;
+          id: string;
+          mode: string;
+          role: string;
+        };
+        Insert: {
+          content: string;
+          conversation_id: string;
+          created_at?: string;
+          id?: string;
+          mode?: string;
+          role: string;
+        };
+        Update: {
+          content?: string;
+          conversation_id?: string;
+          created_at?: string;
+          id?: string;
+          mode?: string;
+          role?: string;
+        };
+        Relationships: [];
+      };
       attempt_answers: {
         Row: {
           attempt_id: string;
@@ -609,6 +666,15 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      append_ai_turn: {
+        Args: {
+          _assistant_content: string;
+          _conversation_id: string;
+          _mode: string;
+          _user_content: string;
+        };
+        Returns: undefined;
+      };
       claim_lecturer_slot: {
         Args: { _lecturer_id: string };
         Returns: string;

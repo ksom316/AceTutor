@@ -286,6 +286,31 @@ create table if not exists public.learning_preferences (
       ('simple', 'detailed', 'example', 'similar_practice'))
 );
 
+-- 2.17 ai_conversations + ai_messages  (persistent course-aware AI tutor chat)
+create table if not exists public.ai_conversations (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  course_id       uuid not null references public.courses(id) on delete cascade,
+  topic_id        uuid references public.topics(id) on delete set null,
+  title           text,
+  created_at      timestamptz not null default now(),
+  last_message_at timestamptz not null default now()
+);
+create index if not exists ai_conversations_user_course_idx
+  on public.ai_conversations (user_id, course_id, last_message_at desc);
+
+create table if not exists public.ai_messages (
+  id              uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.ai_conversations(id) on delete cascade,
+  role            text not null check (role in ('user', 'assistant')),
+  content         text not null,
+  mode            text not null default 'ask'
+                  check (mode in ('general', 'ask', 'explain', 'summarize', 'test', 'guide', 'recommend')),
+  created_at      timestamptz not null default now()
+);
+create index if not exists ai_messages_conversation_idx
+  on public.ai_messages (conversation_id, created_at);
+
 
 -- ============================================================================
 -- 3. FUNCTIONS  (all SECURITY DEFINER unless noted; search_path pinned)
@@ -1723,6 +1748,53 @@ end;
 $$;
 
 
+-- 3.14 AI tutor: the only writer for public.ai_messages ----------------------
+-- SECURITY DEFINER so it can insert despite the client having no write grant.
+-- Re-verifies the caller owns the conversation (auth.uid()), accepts only the
+-- four fields a turn needs, and always writes one user + one assistant row.
+create or replace function public.append_ai_turn(
+  _conversation_id   uuid,
+  _user_content      text,
+  _assistant_content text,
+  _mode              text
+)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_owner uuid;
+  v_mode  text := coalesce(nullif(trim(_mode), ''), 'ask');
+begin
+  if auth.uid() is null then
+    raise exception 'forbidden';
+  end if;
+  if _conversation_id is null
+     or coalesce(trim(_user_content), '') = ''
+     or coalesce(trim(_assistant_content), '') = '' then
+    raise exception 'append_ai_turn: missing required content';
+  end if;
+  if v_mode not in ('general', 'ask', 'explain', 'summarize', 'test', 'guide', 'recommend') then
+    raise exception 'append_ai_turn: invalid mode %', v_mode;
+  end if;
+
+  select user_id into v_owner
+  from public.ai_conversations where id = _conversation_id for update;
+  if v_owner is null or v_owner <> auth.uid() then
+    raise exception 'forbidden';
+  end if;
+
+  insert into public.ai_messages (conversation_id, role, content, mode) values
+    (_conversation_id, 'user',      _user_content,      v_mode),
+    (_conversation_id, 'assistant', _assistant_content, v_mode);
+
+  update public.ai_conversations
+     set last_message_at = now(),
+         title = coalesce(title, left(_user_content, 80))
+   where id = _conversation_id;
+end;
+$$;
+
+
 -- ============================================================================
 -- 4. TRIGGERS
 -- ============================================================================
@@ -1838,6 +1910,8 @@ alter table public.lecturer_slots        enable row level security;
 alter table public.notifications         enable row level security;
 alter table public.study_paths           enable row level security;
 alter table public.learning_preferences  enable row level security;
+alter table public.ai_conversations      enable row level security;
+alter table public.ai_messages           enable row level security;
 
 -- profiles: read / write only your own row
 create policy "profiles_select_own" on public.profiles for select to authenticated using (auth.uid() = id);
@@ -1946,6 +2020,24 @@ create policy "learning_preferences_update_own" on public.learning_preferences
 create policy "learning_preferences_delete_own" on public.learning_preferences
   for delete to authenticated using (auth.uid() = user_id);
 
+-- ai_conversations: a student owns and manages their own
+create policy "ai_conversations_select_own" on public.ai_conversations
+  for select to authenticated using (user_id = auth.uid());
+create policy "ai_conversations_insert_own" on public.ai_conversations
+  for insert to authenticated with check (user_id = auth.uid());
+create policy "ai_conversations_update_own" on public.ai_conversations
+  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "ai_conversations_delete_own" on public.ai_conversations
+  for delete to authenticated using (user_id = auth.uid());
+
+-- ai_messages: browser gets SELECT only. No insert/update/delete policy AND the
+-- grants are revoked below, so a client cannot forge or alter AI history. The
+-- only writer is the SECURITY DEFINER append_ai_turn() (section 3).
+create policy "ai_messages_select_own" on public.ai_messages for select to authenticated
+  using (exists (select 1 from public.ai_conversations c
+                 where c.id = conversation_id and c.user_id = auth.uid()));
+revoke insert, update, delete on public.ai_messages from anon, authenticated;
+
 
 -- ============================================================================
 -- 6. GRANTS
@@ -2051,6 +2143,9 @@ grant  execute on function public.get_course_quiz_performance()                 
 
 revoke execute on function public.get_course_student_mastery()                                     from public, anon;
 grant  execute on function public.get_course_student_mastery()                                     to authenticated;
+
+revoke execute on function public.append_ai_turn(uuid, text, text, text)                           from public, anon;
+grant  execute on function public.append_ai_turn(uuid, text, text, text)                           to authenticated;
 
 revoke execute on function public.save_study_path(uuid, jsonb, uuid[])                             from public, anon;
 grant  execute on function public.save_study_path(uuid, jsonb, uuid[])                             to authenticated;

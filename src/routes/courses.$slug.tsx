@@ -1,11 +1,9 @@
 import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import ReactMarkdown from "react-markdown";
 import {
-  AlertTriangle,
-  ArrowUp,
   BookOpen,
   Brain,
   Check,
@@ -19,7 +17,6 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
-  X,
 } from "lucide-react";
 import { PageShell } from "@/components/site/PageShell";
 import { Button } from "@/components/ui/button";
@@ -54,6 +51,7 @@ import { useStudyCourse } from "@/hooks/use-study-time";
 import { toast } from "sonner";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
 import { PersonalizedLearningSection } from "@/components/course/PersonalizedLearningSection";
+import { CourseTutorChat } from "@/components/course/CourseTutorChat";
 
 export const Route = createFileRoute("/courses/$slug")({
   component: CourseDetail,
@@ -83,10 +81,7 @@ function CourseDetail() {
   const { isLecturer } = useRole();
   const qc = useQueryClient();
   const ask = useServerFn(askCourse);
-  const [input, setInput] = useState("");
   const [activeModule, setActiveModule] = useState<TopicRow | null>(null);
-  const [showTutorResponse, setShowTutorResponse] = useState(true);
-  const tutorAbort = useRef<AbortController | null>(null);
 
   const { data: course, isLoading } = useQuery({
     queryKey: ["course", slug],
@@ -244,71 +239,6 @@ function CourseDetail() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const tutor = useMutation({
-    onMutate: () => {
-      // Abort any request still running from a previous ask.
-      tutorAbort.current?.abort();
-      setShowTutorResponse(true);
-    },
-    mutationFn: async (vars: {
-      mode: "general" | "ask" | "explain" | "summarize" | "test";
-      question?: string;
-      moduleTitle?: string;
-      moduleSummary?: string;
-      moduleTopicId?: string;
-    }) => {
-      if (!user) throw new Error("Please sign in to use the AI tutor.");
-      if (!course) throw new Error("Course not loaded");
-
-      // Check if session is still valid before making the request
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-        throw new Error("Your session has expired. Please refresh the page and sign in again.");
-      }
-
-      const controller = new AbortController();
-      tutorAbort.current = controller;
-
-      return ask({
-        signal: controller.signal,
-        data: {
-          courseId: course.id,
-          courseTitle: course.title,
-          courseSummary: course.summary ?? undefined,
-          mode: vars.mode,
-          question: vars.question,
-          moduleTitle: vars.moduleTitle,
-          moduleSummary: vars.moduleSummary,
-          moduleTopicId: vars.moduleTopicId,
-          performanceSummary,
-        },
-      });
-    },
-    onSettled: () => {
-      tutorAbort.current = null;
-    },
-    onError: (error: Error) => {
-      // The user cancelled the response — nothing to report.
-      if (error.name === "AbortError" || error.message.toLowerCase().includes("abort")) {
-        return;
-      }
-      if (
-        error.message.includes("Session expired") ||
-        error.message.includes("session has expired")
-      ) {
-        toast.error("Your session has expired", {
-          description: "Please refresh the page and sign in again to continue.",
-          action: {
-            label: "Refresh",
-            onClick: () => window.location.reload(),
-          },
-        });
-      } else {
-        toast.error(error.message);
-      }
-    },
-  });
-
   const recommendations = useQuery({
     queryKey: ["course-recs", course?.id, performanceSummary],
     enabled: !!course && !!user && attempts.length > 0 && !!performanceSummary.trim(),
@@ -327,18 +257,6 @@ function CourseDetail() {
     },
     staleTime: 1000 * 60 * 10,
   });
-
-  const submit = () => {
-    const q = input.trim();
-    if (!q || tutor.isPending) return;
-    tutor.mutate({
-      mode: "ask",
-      question: q,
-      moduleTitle: activeModule?.title,
-      moduleSummary: activeModule?.summary ?? undefined,
-      moduleTopicId: activeModule?.id,
-    });
-  };
 
   if (isLoading || !course) {
     return (
@@ -535,177 +453,16 @@ function CourseDetail() {
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_300px]">
           <div className="space-y-8">
-            {/* AI TUTOR */}
-            <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Sparkles className="h-5 w-5 text-primary" /> AI Course Tutor
-                    {activeModule && (
-                      <Badge variant="secondary" className="ml-2 font-normal">
-                        Focused on: {activeModule.title}
-                        <button
-                          onClick={() => setActiveModule(null)}
-                          className="ml-2 text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          ✕
-                        </button>
-                      </Badge>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (!isEnrolled) {
-                        toast.error("Enroll to use AI tutor", {
-                          description: "You need to be enrolled in this course to ask questions.",
-                          action: user ? {
-                            label: "Enroll",
-                            onClick: () => enroll.mutate(),
-                          } : undefined,
-                        });
-                        return;
-                      }
-                      submit();
-                    }}
-                  >
-                    <div className="flex items-end gap-2 rounded-2xl border border-border bg-background p-3 shadow-sm focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15">
-                      <textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            submit();
-                          }
-                        }}
-                        rows={1}
-                        placeholder="Ask anything about this course (e.g. explain a topic, summarize a lecture, help me revise…)"
-                        className="max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
-                      />
-                      <Button
-                        type="submit"
-                        size="icon"
-                        disabled={!input.trim() || tutor.isPending}
-                        className="h-9 w-9 shrink-0 rounded-full"
-                        aria-label="Send"
-                      >
-                        {tutor.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <ArrowUp className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </form>
-
-                  {(tutor.isPending || tutor.data || tutor.isError) && showTutorResponse && (
-                    <div className="relative mt-3 rounded-xl border border-border bg-background/50 p-5 pr-12">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          tutorAbort.current?.abort();
-                          tutor.reset();
-                          setShowTutorResponse(false);
-                        }}
-                        className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        aria-label={tutor.isPending ? "Stop response" : "Dismiss response"}
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                      {tutor.isPending && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
-                        </div>
-                      )}
-                      {tutor.isError && (
-                        <p className="text-sm text-destructive">
-                          Couldn't get a response: {(tutor.error as Error).message}
-                        </p>
-                      )}
-                      {tutor.data?.related === false && (
-                        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                          <div>
-                            <p className="font-medium text-foreground">
-                              That doesn't look related to {course.title}.
-                            </p>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              {tutor.data.reason ||
-                                `Try asking something specific to ${course.title}.`}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                      {tutor.data?.related !== false && tutor.data?.answer && (
-                        <div className="prose-lesson max-w-none text-foreground">
-                          <ReactMarkdown>{tutor.data.answer}</ReactMarkdown>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {[
-                      { mode: "explain" as const, label: "📘 Explain Topic" },
-                      { mode: "summarize" as const, label: "📄 Summarize Lecture" },
-                      { mode: "test" as const, label: "🎯 Test My Knowledge" },
-                    ].map(({ mode, label }) => (
-                      <Button
-                        key={mode}
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full"
-                        disabled={tutor.isPending}
-                        onClick={() => {
-                          if (!isEnrolled) {
-                            toast.error("Enroll to use AI tutor", {
-                              description: "You need to be enrolled in this course to use AI features.",
-                              action: user ? {
-                                label: "Enroll",
-                                onClick: () => enroll.mutate(),
-                              } : undefined,
-                            });
-                            return;
-                          }
-                          tutor.mutate({
-                            mode,
-                            moduleTitle: activeModule?.title,
-                            moduleSummary: activeModule?.summary ?? undefined,
-                            moduleTopicId: activeModule?.id,
-                          });
-                        }}
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="rounded-full"
-                      disabled={tutor.isPending}
-                      onClick={() => {
-                        if (!isEnrolled) {
-                          toast.error("Enroll to use AI tutor", {
-                            description: "You need to be enrolled in this course to use AI features.",
-                            action: user ? {
-                              label: "Enroll",
-                              onClick: () => enroll.mutate(),
-                            } : undefined,
-                          });
-                          return;
-                        }
-                        tutor.mutate({ mode: "general" });
-                      }}
-                    >
-                      General overview
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+            {/* AI TUTOR — persistent, course-grounded conversation + Guide Me */}
+            <CourseTutorChat
+              key={course.id}
+              courseId={course.id}
+              courseTitle={course.title}
+              courseSummary={course.summary ?? undefined}
+              activeModule={activeModule}
+              onClearModule={() => setActiveModule(null)}
+              enrolled={!!isEnrolled}
+            />
 
             {/* PERFORMANCE — existing course performance / analytics. Sits above
                 the curriculum and guidance sections. */}

@@ -20,7 +20,13 @@ const schema = z.object({
     "summarize",
     "test",
     "recommend",
+    "guide",
   ]),
+  // When present, this call is part of a persistent conversation: the server
+  // loads a bounded slice of that conversation's recent history for context and,
+  // on success, appends the user turn + the assistant reply to it. The
+  // conversation must belong to the caller AND to `courseId` (course isolation).
+  conversationId: z.string().uuid().optional(),
   question: z.string().max(2000).optional(),
   moduleTitle: z.string().max(200).optional(),
   moduleSummary: z.string().max(2000).optional(),
@@ -333,6 +339,7 @@ const MAX_TOKENS: Record<string, number> = {
   summarize: 700,
   test: 600,
   recommend: 700,
+  guide: 650,
 };
 const CROSSWORD_JSON_MAX_TOKENS = 1800;
 
@@ -371,9 +378,44 @@ const WRONG_ANSWER_HELP_GUIDANCE: Record<string, string> = {
 };
 
 // Modes where the answer teaches a concept — these consume the student's
-// explanation-style preference and (for `ask`) the wrong-answer-help preference,
-// and these are the modes that pull the focused module's own lesson material.
-const TEACHING_MODES = new Set(["ask", "explain", "summarize", "test"]);
+// explanation-style preference and (for `ask` / `guide`) the wrong-answer-help
+// preference, and these are the modes that pull the focused module's own lesson
+// material.
+const TEACHING_MODES = new Set(["ask", "explain", "summarize", "test", "guide"]);
+
+// ---- Guide Me (Socratic tutoring) --------------------------------------------
+// Guide Me is NOT an answer generator. It coaches the student to the answer one
+// step at a time. It stays a good tutor, not an obstruction: simple facts the
+// student clearly needs are given directly; the Socratic method is applied to
+// the reasoning, not to trivia.
+const GUIDE_SYSTEM =
+  "GUIDED MODE IS ACTIVE. You are tutoring Socratically, not answering.\n" +
+  "- First work out what the student is actually trying to understand or solve (from their message and the conversation so far).\n" +
+  "- Reply with only ONE thing per turn: a single guiding question, one hint, or one small reasoning step — then stop and wait for the student's reply. Keep it short.\n" +
+  "- Use the student's last reply to choose the next move. If their reasoning is right, say so briefly and point them to the next step. If it's wrong, nudge them to see why without just correcting it outright.\n" +
+  "- Escalate help gradually: if the student is stuck on the same point for two or three exchanges, or asks plainly for the answer, give a clear full explanation — do not keep withholding it.\n" +
+  "- Never hide a simple fact the student obviously needs to proceed (a definition, a formula name); state it plainly and keep guiding the reasoning around it.\n" +
+  "- Do NOT dump the full solution up front, do NOT list all the steps at once, and do NOT ask more than one question at a time.\n" +
+  "- Stay grounded in this course's material and context above.";
+
+// explanation_style shapes HOW Guide Me hints — never the correct content.
+const GUIDE_STYLE_GUIDANCE: Record<string, string> = {
+  concise: "Keep each hint to one or two sentences.",
+  detailed:
+    "Add a sentence of intuition or context around each hint, but still only advance one step per turn.",
+  step_by_step:
+    "Break the path into the smallest sensible sub-steps and reveal only the very next one each turn.",
+  example_first:
+    "When a hint would help, first give a short analogous worked example with different numbers/context, then ask the student to apply the same idea to their own problem.",
+};
+
+// lesson_format is a light touch in a text chat.
+const GUIDE_FORMAT_GUIDANCE: Record<string, string> = {
+  visual:
+    "This student learns visually — where it would help, suggest sketching or drawing the structure, or describe it spatially.",
+  written: "",
+  audio: "",
+};
 
 // The focused module's own lessons are the authoritative source for anything
 // course-specific. Capped so a long module can't blow up prefill latency.
@@ -441,6 +483,68 @@ export const askCourse = createServerFn({ method: "POST" })
       }
     }
 
+    // --- Conversation: validate ownership + course isolation, load bounded
+    //     recent history. RLS also scopes ai_conversations to the caller, but the
+    //     explicit checks are the real boundary and give a clear message.
+    //
+    // History is bounded by whole USER→ASSISTANT turns, newest first, so a slice
+    // never ends up with an orphan (a user message whose reply was dropped, or
+    // vice versa): ~6 turns AND ~4000 characters. The current user message is
+    // NOT part of this — it is appended once, after the history, further down.
+    const HISTORY_MAX_TURNS = 6;
+    const HISTORY_MAX_CHARS = 4000;
+    let history: { role: "user" | "assistant"; content: string }[] = [];
+    if (data.conversationId) {
+      const { data: convo } = await supabase
+        .from("ai_conversations")
+        .select("id, user_id, course_id")
+        .eq("id", data.conversationId)
+        .maybeSingle();
+      if (!convo || convo.user_id !== userId) {
+        throw new Error("This conversation could not be found.");
+      }
+      if (data.courseId && convo.course_id !== data.courseId) {
+        throw new Error("This conversation belongs to a different course.");
+      }
+
+      // Pull a little more than we'll keep, oldest→newest.
+      const { data: rows } = await supabase
+        .from("ai_messages")
+        .select("role, content, created_at")
+        .eq("conversation_id", data.conversationId)
+        .order("created_at", { ascending: false })
+        .limit((HISTORY_MAX_TURNS + 3) * 2);
+      const msgs = (rows ?? [])
+        .reverse()
+        .map((r) => ({ role: r.role as "user" | "assistant", content: r.content }));
+
+      // Group into complete turns. Every persisted turn is a user row directly
+      // followed by an assistant row (append_ai_turn writes them as a pair), so a
+      // lone leading assistant or a lone trailing user is treated as its own
+      // group and dropped-with-its-partner as a unit.
+      const turns: { role: "user" | "assistant"; content: string }[][] = [];
+      for (let i = 0; i < msgs.length; i++) {
+        if (msgs[i].role === "user" && msgs[i + 1]?.role === "assistant") {
+          turns.push([msgs[i], msgs[i + 1]]);
+          i++;
+        } else {
+          turns.push([msgs[i]]); // orphan — kept only if it survives trimming as the newest
+        }
+      }
+
+      // Keep the newest turns within both budgets; drop oldest whole turns first.
+      const kept: (typeof turns)[number][] = [];
+      let chars = 0;
+      for (let i = turns.length - 1; i >= 0; i--) {
+        const turnChars = turns[i].reduce((n, m) => n + m.content.length, 0);
+        if (kept.length >= HISTORY_MAX_TURNS) break;
+        if (kept.length > 0 && chars + turnChars > HISTORY_MAX_CHARS) break;
+        kept.unshift(turns[i]);
+        chars += turnChars;
+      }
+      history = kept.flat();
+    }
+
     const isTeaching = TEACHING_MODES.has(data.mode);
     const hasFocusedModule = isTeaching && !!data.moduleTopicId && !!data.moduleTitle;
 
@@ -456,12 +560,13 @@ export const askCourse = createServerFn({ method: "POST" })
     const loadPrefs = async (): Promise<{
       explanation_style: string | null;
       wrong_answer_help: string | null;
+      lesson_format: string | null;
     } | null> => {
       if (!isTeaching) return null;
       try {
         const { data: row } = await supabase
           .from("learning_preferences")
-          .select("explanation_style, wrong_answer_help")
+          .select("explanation_style, wrong_answer_help, lesson_format")
           .eq("user_id", userId)
           .maybeSingle();
         return row ?? null;
@@ -496,20 +601,49 @@ export const askCourse = createServerFn({ method: "POST" })
       }
     };
 
-    const [prefs, moduleAttempts, moduleLessons] = await Promise.all([
+    // Confirm the focused module actually belongs to THIS course before any of
+    // its material / standing is used for grounding. (Lessons are public and
+    // attempts are the caller's own, so a mismatched topic can't leak another
+    // student's or another course's private data — but it should not silently
+    // ground a course-A conversation in course-B material.)
+    const checkModuleInCourse = async (): Promise<boolean> => {
+      if (!hasFocusedModule || !data.courseId) return !!hasFocusedModule;
+      try {
+        const { data: t } = await supabase
+          .from("topics")
+          .select("id")
+          .eq("id", data.moduleTopicId!)
+          .eq("course_id", data.courseId)
+          .maybeSingle();
+        return !!t;
+      } catch {
+        return false;
+      }
+    };
+
+    const [prefs, moduleAttemptsRaw, moduleLessonsRaw, moduleInCourse] = await Promise.all([
       loadPrefs(),
       loadModuleAttempts(),
       loadModuleLessons(),
+      checkModuleInCourse(),
     ]);
+    const moduleAttempts = moduleInCourse ? moduleAttemptsRaw : [];
+    const moduleLessons = moduleInCourse ? moduleLessonsRaw : [];
 
     // How this student likes explanations written. Consumed by the teaching
     // modes only, and only when a value exists. Never from client input.
     const explanationStyle = isTeaching ? (prefs?.explanation_style ?? null) : null;
-    const wrongAnswerHelp = data.mode === "ask" ? (prefs?.wrong_answer_help ?? null) : null;
+    const wrongAnswerHelp =
+      data.mode === "ask" || data.mode === "guide" ? (prefs?.wrong_answer_help ?? null) : null;
+    const lessonFormat = data.mode === "guide" ? (prefs?.lesson_format ?? null) : null;
     const styleGuidance =
       (explanationStyle && EXPLANATION_STYLE_GUIDANCE[explanationStyle]) || null;
     const wrongHelpGuidance =
       (wrongAnswerHelp && WRONG_ANSWER_HELP_GUIDANCE[wrongAnswerHelp]) || null;
+    // Guide Me maps the same saved preferences to Socratic-specific behaviour.
+    const guideStyleGuidance =
+      (explanationStyle && GUIDE_STYLE_GUIDANCE[explanationStyle]) || null;
+    const guideFormatGuidance = (lessonFormat && GUIDE_FORMAT_GUIDANCE[lessonFormat]) || null;
 
     // The focused module's standing, derived through the shared performance
     // model so it matches every other surface (course page, My Performance,
@@ -544,7 +678,9 @@ export const askCourse = createServerFn({ method: "POST" })
     // Repeat asks short-circuit before the reference lookup and the model call.
     // The key carries every input that materially changes the answer: the
     // focused module, its derived standing, and both presentation preferences.
-    const cacheKey = CACHEABLE_MODES.has(data.mode)
+    // A conversation turn is unique (it carries history) so it is never cached.
+    const cacheKey =
+      !data.conversationId && CACHEABLE_MODES.has(data.mode)
       ? JSON.stringify([
           data.mode,
           data.courseTitle,
@@ -653,6 +789,94 @@ Respond ONLY with strict JSON in this shape, no prose:
       return { related: true as const, crossword: cleaned, answer: "" };
     }
 
+    // --- Persistent conversation path -------------------------------------------
+    // One coherent thread: the grounding + preferences live in the system
+    // message; the transcript so far is replayed as real turns; the current
+    // request is one lean turn. `mode` is per-message, so Guide Me and the other
+    // actions share the same conversation. Persistence happens only AFTER a
+    // successful model reply, so a failed request never leaves a fake answer.
+    if (data.conversationId) {
+      const moduleLabel = data.moduleTitle || "this course";
+
+      // What the student's message says, in plain words — this is what gets
+      // stored and shown in the transcript.
+      const turnDisplay =
+        data.mode === "ask" || data.mode === "guide"
+          ? (data.question ?? "").trim()
+          : data.mode === "explain"
+            ? `Explain the key concepts of ${moduleLabel}.`
+            : data.mode === "summarize"
+              ? `Summarise the lecture material for ${moduleLabel} as revision bullet points.`
+              : data.mode === "test"
+                ? `Test my knowledge of ${moduleLabel} — ask me questions one topic at a time.`
+                : `Give me a general overview of this course.`;
+
+      if (!turnDisplay) throw new Error("Please type a message.");
+
+      // The instruction the model actually acts on for this turn. The
+      // relatedness gate only runs on the OPENING message — once a conversation
+      // about the course is under way, follow-ups (including answering a "Test my
+      // knowledge" question) are treated as in-context.
+      let turnForModel = turnDisplay;
+      if (data.mode === "ask" && history.length === 0) {
+        turnForModel =
+          `First decide whether this is reasonably related to ${data.courseTitle} (be generous — prerequisites, adjacent concepts, tools and applications all count). ` +
+          `If it is NOT related at all, reply with exactly one line:\nNOT_RELATED: <one short sentence telling me it isn't related to ${data.courseTitle}>\n` +
+          `Otherwise answer clearly in Markdown, grounded in the course material above, in your own words with no sources named.\n\nMy question: ${turnDisplay}`;
+      } else if (data.mode === "ask") {
+        turnForModel = `Answer clearly in Markdown, grounded in the course above. My message: ${turnDisplay}`;
+      } else if (data.mode === "test") {
+        turnForModel = `${turnDisplay} Ask one question, wait for my answer, then continue — do not give the answers up front.`;
+      }
+
+      // System = base identity + full course grounding + preference/guide layers.
+      let convoSystem = `${system}\n\n${fullCtx}`;
+      if (data.mode === "guide") {
+        convoSystem += `\n\n${GUIDE_SYSTEM}`;
+        if (guideStyleGuidance)
+          convoSystem += `\n(Hint style — never reveal: ${guideStyleGuidance})`;
+        if (guideFormatGuidance) convoSystem += `\n(${guideFormatGuidance})`;
+        if (wrongHelpGuidance)
+          convoSystem += `\n(When the student's reasoning is wrong and you address it: ${wrongHelpGuidance} Never reveal this.)`;
+      } else if (styleGuidance && TEACHING_MODES.has(data.mode)) {
+        convoSystem += `\n\n(Presentation preference — apply to HOW you write, never reveal: ${styleGuidance})`;
+      }
+      if (wrongHelpGuidance && data.mode === "ask") {
+        convoSystem += `\n\n(If the question is about a mistake or misconception, when correcting it: ${wrongHelpGuidance} Never reveal this.)`;
+      }
+
+      const raw = await callAI(
+        [
+          { role: "system", content: convoSystem },
+          ...history,
+          { role: "user", content: turnForModel },
+        ],
+        { maxTokens: MAX_TOKENS[data.mode] ?? 800 },
+      );
+
+      const formatted = formatAnswer(raw);
+      // A "not related" nudge is a valid reply but not useful transcript — show
+      // it to the student without persisting either side of the exchange.
+      if (formatted.related === false) return formatted;
+
+      // The transcript is written ONLY here, and only after a successful reply,
+      // through a narrow SECURITY DEFINER RPC that re-checks the caller owns the
+      // conversation. The client has no INSERT/UPDATE/DELETE on ai_messages.
+      const { error: persistErr } = await supabase.rpc("append_ai_turn", {
+        _conversation_id: data.conversationId,
+        _user_content: turnDisplay,
+        _assistant_content: formatted.answer,
+        _mode: data.mode,
+      });
+      if (persistErr) {
+        // The answer is still returned so the student isn't blocked; it just
+        // won't be in the transcript on reload.
+        console.error(`[askCourse] append_ai_turn failed: ${persistErr.message}`);
+      }
+
+      return formatted;
+    }
+
     let userPrompt = "";
     switch (data.mode) {
       case "general":
@@ -666,6 +890,12 @@ Respond ONLY with strict JSON in this shape, no prose:
         break;
       case "test":
         userPrompt = `${fullCtx}\n\nAsk the student 5 progressively harder open-ended questions to test their knowledge of ${data.moduleTitle ?? "this course"}. Do NOT give the answers — invite them to attempt first.`;
+        break;
+      case "guide":
+        // Guide Me normally runs inside a conversation (handled above). Without
+        // one there is no back-and-forth to be Socratic with, so give a clear
+        // step-by-step walkthrough grounded in the course instead.
+        userPrompt = `${fullCtx}\n\n${GUIDE_SYSTEM}\n\nThe student wants help understanding: ${data.question ?? data.moduleTitle ?? "this course"}\n\nThere is no prior conversation. Open with a short check of what they already know or where they're stuck, then give one first guiding step.`;
         break;
       case "recommend":
         userPrompt = `${fullCtx}
