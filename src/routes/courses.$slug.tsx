@@ -612,7 +612,14 @@ function CourseDetail() {
                 ) : (
                   <Accordion type="multiple" className="w-full">
                     {topics.map((t, idx) => {
-                      const stat = perf.perTopic.find((p) => p.topic.id === t.id);
+                      // Single source of truth for "how well does the student
+                      // know this module": the same Mastery value shown on the
+                      // dashboard, My Performance and the lecturer Students page
+                      // (src/lib/mastery.ts). Shown here too — collapsed AND
+                      // expanded — so the two can never disagree, and an
+                      // insufficient-evidence module reads "Not assessed"
+                      // instead of silently showing no badge at all.
+                      const mm = mastery.modules.find((m) => m.topic.id === t.id) ?? null;
                       return (
                         <AccordionItem key={t.id} value={t.id}>
                           <AccordionTrigger className="hover:no-underline">
@@ -623,30 +630,20 @@ function CourseDetail() {
                                 </p>
                                 <p className="font-medium">{t.title}</p>
                               </div>
-                              {stat?.accuracy !== null && stat?.accuracy !== undefined && (
-                                <Badge variant={stat.accuracy >= 70 ? "default" : "secondary"}>
-                                  {stat.accuracy}%
-                                </Badge>
-                              )}
+                              {mm && <MasteryBadge level={mm.level} score={mm.score} />}
                             </div>
                           </AccordionTrigger>
                           <AccordionContent>
                             {t.summary && (
                               <p className="text-sm text-muted-foreground">{t.summary}</p>
                             )}
-                            {(() => {
-                              const mm = mastery.modules.find((m) => m.topic.id === t.id);
-                              if (!mm) return null;
-                              return (
-                                <div className="mt-3 flex flex-wrap items-center gap-2">
-                                  <span className="text-xs text-muted-foreground">
-                                    Your mastery
-                                  </span>
-                                  <MasteryBadge level={mm.level} score={mm.score} />
-                                  <MasteryTrend mastery={mm} />
-                                </div>
-                              );
-                            })()}
+                            {mm && (
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Your mastery</span>
+                                <MasteryBadge level={mm.level} score={mm.score} />
+                                <MasteryTrend mastery={mm} />
+                              </div>
+                            )}
                             <div className="mt-4 flex flex-wrap gap-2">
                               <Button
                                 size="sm"

@@ -1,4 +1,4 @@
-import { isUsableAttempt, type PerfAttempt, type PerfTopic } from "@/lib/quiz-performance";
+import { isSufficientAttempt, type PerfAttempt, type PerfTopic } from "@/lib/quiz-performance";
 
 /**
  * Student MASTERY model — "how well does this student currently understand each
@@ -20,8 +20,16 @@ import { isUsableAttempt, type PerfAttempt, type PerfTopic } from "@/lib/quiz-pe
  *     added later is out of scope here unless it, too, records an attempt against
  *     an official module `topic_id` — no assumption is made about how such
  *     surfaces store their results.
- *   - is finished with at least one answered question (`isUsableAttempt`), so a
- *     blank or instantly-timed-out submission cannot overwrite a real result.
+ *   - is SUFFICIENT evidence (`isSufficientAttempt` from quiz-performance.ts —
+ *     the exact same bar Study Path and the result page use): finished, with at
+ *     least MIN_ANSWERED_FOR_PERFORMANCE (3) answered questions covering at
+ *     least MIN_ANSWER_COVERAGE (50%) of the quiz. A quiz with fewer than 3
+ *     questions total can therefore never produce evidence, and a 1/1 = 100%
+ *     attempt can never read as "Mastered" — it stays "Not assessed" until the
+ *     student has answered enough of a substantial quiz. One eligibility rule,
+ *     shared by every Mastery surface (course page, dashboard, My Performance,
+ *     lecturer Students) AND by Study Path / the result page's "Not enough
+ *     evidence yet" panel — they can never disagree.
  *
  * Course Mastery = the mean of the ASSESSED modules' mastery scores. Modules
  * with no completed module-quiz attempt are excluded from the mean — never
@@ -114,7 +122,7 @@ export type ModuleMastery = {
 
 export function computeModuleMastery(topic: PerfTopic, attempts: PerfAttempt[]): ModuleMastery {
   const completed = attempts
-    .filter((a) => a.topic_id === topic.id && isUsableAttempt(a))
+    .filter((a) => a.topic_id === topic.id && isSufficientAttempt(a))
     .sort(byAttemptOrder);
 
   const latest = completed[completed.length - 1] ?? null;

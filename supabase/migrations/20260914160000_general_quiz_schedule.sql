@@ -392,7 +392,7 @@ begin
 
   insert into public.attempt_answers (attempt_id, question_id, selected_index, is_correct)
   values (_attempt_id, _question_id, _selected_index, _selected_index = v_correct)
-  on conflict (attempt_id, question_id)
+  on conflict on constraint attempt_answers_attempt_question_key
   do update set selected_index = excluded.selected_index,
                 is_correct     = excluded.is_correct;
 end;

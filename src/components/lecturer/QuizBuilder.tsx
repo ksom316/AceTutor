@@ -79,6 +79,8 @@ import {
   toDatetimeLocalValue,
 } from "@/lib/course-quiz";
 import { DEFAULT_DIFFICULTY_MODE, type DifficultyMode } from "@/lib/quiz-difficulty";
+import { checkQuestionRelevance } from "@/lib/quiz-relevance";
+import { type RelevanceVerdict, validateModuleQuizQuestions } from "@/lib/quiz-relevance.functions";
 import { DifficultyModeField } from "@/components/lecturer/DifficultyModeField";
 import {
   DEFAULT_MODULE_QUIZ_DURATION,
@@ -124,6 +126,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const runGenerate = useServerFn(generateModuleQuiz);
+  const runValidateRelevance = useServerFn(validateModuleQuizQuestions);
   const isNew = scope.kind === "course-new";
   const isCourse = scope.kind === "course" || isNew;
 
@@ -145,6 +148,28 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     | null
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<QuizQuestionRow | null>(null);
+  // Module quizzes only: the server's relevance verdict for a question about to
+  // be saved. "unrelated" blocks the save outright (no override — the lecturer
+  // must edit or delete it); "questionable" warns but allows an explicit
+  // override. Never auto-saved, never rewritten.
+  const [pendingRelevance, setPendingRelevance] = useState<{
+    id?: string;
+    draft: QuizDraft;
+    verdict: "unrelated" | "questionable";
+    reason: string;
+  } | null>(null);
+  // True while the server-side relevance check for a single question save is
+  // in flight (Add-question dialog only — the bulk AI-review check below has
+  // its own pending flag, reviewChecking).
+  const [checkingRelevance, setCheckingRelevance] = useState(false);
+  // Server relevance verdicts for the AI-review list (module quizzes only),
+  // same order as review.items. Reset whenever the review list itself changes
+  // (regenerate / edit / delete / discard) so a verdict never survives past the
+  // question it was computed for.
+  const [reviewVerdicts, setReviewVerdicts] = useState<
+    { verdict: RelevanceVerdict; reason: string | null }[] | null
+  >(null);
+  const [reviewChecking, setReviewChecking] = useState(false);
   // Local question list while creating a new general quiz (scope "course-new").
   const [draftQuestions, setDraftQuestions] = useState<QuizQuestionRow[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
@@ -335,6 +360,13 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     if ("hasAttempts" in a) return a.hasAttempts;
     return scope.kind === "topic" && (a.rows ?? []).some((r) => r.topic_id === scope.topicId);
   }, [attemptsQuery.data, scope]);
+
+  // Relevance verdicts are only valid for the exact review list they were
+  // computed against — drop them the moment that list changes underneath them
+  // (regenerate / edit / delete / discard).
+  useEffect(() => {
+    setReviewVerdicts(null);
+  }, [review]);
 
   // Keep the basic-info form in step with the loaded quiz.
   useEffect(() => {
@@ -719,6 +751,43 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     },
   });
 
+  // Official module quizzes only — the server-authoritative relevance gate.
+  // Runs at save-finalization points only (question Save, AI review Add /
+  // Replace), never per keystroke. Falls back to the same deterministic
+  // structural heuristic used client-side (checkQuestionRelevance) if the
+  // server call itself cannot be reached at all, so a network hiccup can never
+  // silently let an obviously unrelated question through — but it also never
+  // fabricates an "unrelated" verdict beyond what that heuristic can prove.
+  const checkModuleRelevance = async (
+    topicId: string,
+    prompts: string[],
+  ): Promise<{ verdict: RelevanceVerdict; reason: string | null }[]> => {
+    try {
+      const res = await runValidateRelevance({ data: { topicId, prompts } });
+      return res.results;
+    } catch (e) {
+      console.error(
+        "[quiz-builder] server relevance check unreachable — using local structural fallback:",
+        e,
+      );
+      const moduleCtx = {
+        title: data?.headerTitle ?? "",
+        summary: data?.headerSubtitle,
+        lessonTitles: (data?.lessons ?? []).map((l) => l.title),
+      };
+      return prompts.map((prompt) => {
+        const rel = checkQuestionRelevance({ prompt }, moduleCtx);
+        return rel.relevant
+          ? {
+              verdict: "questionable" as const,
+              reason:
+                "Relevance verification could not be completed — only basic checks were run. Please review this question yourself.",
+            }
+          : { verdict: "unrelated" as const, reason: rel.reason };
+      });
+    }
+  };
+
   const generate = async () => {
     if (scope.kind === "course-new") return; // AI generation is offered after creation
     const n = Number(aiCount);
@@ -752,6 +821,49 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     } finally {
       setGenerating(false);
     }
+  };
+
+  // AI-review Add / Replace — module quizzes only: run the same
+  // server-authoritative relevance gate across the whole reviewed batch before
+  // any of it is persisted. An "unrelated" verdict blocks the action entirely
+  // (the offending questions stay visible, marked, in the review list — the
+  // lecturer edits or deletes them there, nothing is auto-dropped or
+  // rewritten). "questionable" only warns; the action still proceeds.
+  const runReviewRelevanceGate = async (): Promise<boolean> => {
+    if (scope.kind !== "topic") return true;
+    setReviewChecking(true);
+    const results = await checkModuleRelevance(
+      scope.topicId,
+      review!.items.map((it) => it.prompt),
+    );
+    setReviewChecking(false);
+    setReviewVerdicts(results);
+    const unrelated = results.filter((r) => r.verdict === "unrelated").length;
+    if (unrelated > 0) {
+      toast.error(
+        `${unrelated} question${unrelated === 1 ? "" : "s"} ${unrelated === 1 ? "doesn't" : "don't"} look related to this module — edit or delete ${unrelated === 1 ? "it" : "them"} (marked below) first.`,
+      );
+      return false;
+    }
+    const questionable = results.filter((r) => r.verdict === "questionable").length;
+    if (questionable > 0) {
+      toast.warning(
+        `${questionable} question${questionable === 1 ? "" : "s"} may not be a strong fit — review ${questionable === 1 ? "it" : "them"} below.`,
+      );
+    }
+    return true;
+  };
+
+  const handleAddGenerated = async () => {
+    if (!review) return;
+    if (!(await runReviewRelevanceGate())) return;
+    addGenerated.mutate(review.items);
+  };
+
+  const handleReplaceClick = async () => {
+    if (!review) return;
+    if (!(await runReviewRelevanceGate())) return;
+    setConfirmReplace(true);
   };
 
   /* ---- render ---- */
@@ -1077,7 +1189,17 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
           review={review}
           existingCount={questions.length}
           room={room}
-          busy={addGenerated.isPending || replaceGenerated.isPending}
+          moduleContext={
+            scope.kind === "topic" && data
+              ? {
+                  title: data.headerTitle,
+                  summary: data.headerSubtitle,
+                  lessonTitles: data.lessons.map((l) => l.title),
+                }
+              : null
+          }
+          verdicts={reviewVerdicts}
+          busy={addGenerated.isPending || replaceGenerated.isPending || reviewChecking}
           onEditDraft={(index) => setDialog({ kind: "draft", index })}
           onDeleteDraft={(index) =>
             setReview((r) => (r ? { ...r, items: r.items.filter((_, i) => i !== index) } : r))
@@ -1087,8 +1209,8 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             setReview(null);
             setAiOpen(true);
           }}
-          onAdd={() => addGenerated.mutate(review.items)}
-          onReplace={questions.length > 0 ? () => setConfirmReplace(true) : undefined}
+          onAdd={handleAddGenerated}
+          onReplace={questions.length > 0 ? handleReplaceClick : undefined}
         />
       ) : (
         <>
@@ -1255,9 +1377,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         open={!!dialog}
         title={dialog?.kind === "new" ? "Add question" : "Edit question"}
         initial={initialForm}
-        saving={saveQuestion.isPending}
+        saving={saveQuestion.isPending || checkingRelevance}
         onClose={() => setDialog(null)}
-        onSubmit={(draft) => {
+        onSubmit={async (draft) => {
           if (dialog?.kind === "draft") {
             setReview((r) =>
               r ? { ...r, items: r.items.map((it, i) => (i === dialog.index ? draft : it)) } : r,
@@ -1281,12 +1403,62 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             setDialog(null);
             return;
           }
-          saveQuestion.mutate({
-            id: dialog?.kind === "edit" ? dialog.question.id : undefined,
-            draft,
-          });
+          const id = dialog?.kind === "edit" ? dialog.question.id : undefined;
+          // Official module quizzes only — the server-authoritative relevance
+          // gate. "unrelated" blocks the save outright (no override); the
+          // lecturer must edit or delete the question. Never rewrites text.
+          if (scope.kind === "topic") {
+            setCheckingRelevance(true);
+            const [verdict] = await checkModuleRelevance(scope.topicId, [draft.prompt]);
+            setCheckingRelevance(false);
+            if (verdict.verdict !== "relevant") {
+              setPendingRelevance({
+                id,
+                draft,
+                verdict: verdict.verdict,
+                reason: verdict.reason ?? "This question may not belong in this module.",
+              });
+              return;
+            }
+          }
+          saveQuestion.mutate({ id, draft });
         }}
       />
+
+      {/* Relevance verdict for a module-quiz question about to be saved.
+          "unrelated" (server- or heuristic-confirmed): no override — Cancel is
+          the only action, the question dialog stays open underneath so editing
+          picks up right where the lecturer left off. "questionable": reviewable
+          — the lecturer may still save it deliberately. */}
+      <AlertDialog open={!!pendingRelevance} onOpenChange={(o) => !o && setPendingRelevance(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingRelevance?.verdict === "unrelated"
+                ? "This question doesn't belong in this module"
+                : "Possibly unrelated question"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{pendingRelevance?.reason}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingRelevance(null)}>
+              Edit question
+            </AlertDialogCancel>
+            {pendingRelevance?.verdict === "questionable" && (
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!pendingRelevance) return;
+                  saveQuestion.mutate({ id: pendingRelevance.id, draft: pendingRelevance.draft });
+                  setPendingRelevance(null);
+                }}
+              >
+                Save anyway
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* AI generation */}
       <Dialog open={aiOpen} onOpenChange={(o) => !generating && setAiOpen(o)}>
@@ -1518,6 +1690,8 @@ function ReviewPanel({
   review,
   existingCount,
   room,
+  moduleContext,
+  verdicts,
   busy,
   onEditDraft,
   onDeleteDraft,
@@ -1529,6 +1703,21 @@ function ReviewPanel({
   review: { items: QuizDraft[]; result: QuizGenResult };
   existingCount: number;
   room: number;
+  /** Module quizzes only — when set, each item gets an immediate LOCAL
+   *  early-warning badge (fast heuristic, no network) unless a stronger
+   *  `verdicts` entry is already known for it. AI-generated questions are
+   *  already grounded in the module's own material, so this is a backstop. */
+  moduleContext: {
+    title: string;
+    summary?: string | null;
+    lessonTitles: (string | null | undefined)[];
+  } | null;
+  /** Server-authoritative verdicts from the last Add/Replace attempt, same
+   *  order as `review.items` — null until the lecturer has clicked Add or
+   *  Replace at least once for the CURRENT list (see the parent's effect that
+   *  resets this whenever the list itself changes). Takes priority over the
+   *  local heuristic once present. */
+  verdicts: { verdict: RelevanceVerdict; reason: string | null }[] | null;
   busy: boolean;
   onEditDraft: (index: number) => void;
   onDeleteDraft: (index: number) => void;
@@ -1573,50 +1762,77 @@ function ReviewPanel({
         </p>
       ) : (
         <ol className="mt-4 space-y-3">
-          {items.map((q, i) => (
-            <li key={i} className="rounded-2xl border border-border bg-card p-5">
-              <p className="text-sm font-medium">
-                {i + 1}. {q.prompt}
-              </p>
-              <ul className="mt-3 space-y-1.5">
-                {q.choices.map((c, ci) => (
-                  <li
-                    key={ci}
-                    className={cn(
-                      "rounded-lg border px-3 py-1.5 text-sm",
-                      ci === q.correctIndex
-                        ? "border-success/60 bg-success/10 text-foreground"
-                        : "border-border text-muted-foreground",
-                    )}
-                  >
-                    <span className="mr-2 font-medium">{String.fromCharCode(65 + ci)}.</span>
-                    {c}
-                  </li>
-                ))}
-              </ul>
-              {q.explanation && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">Why:</span> {q.explanation}
+          {items.map((q, i) => {
+            const serverVerdict = verdicts?.[i] ?? null;
+            const localFlag =
+              !serverVerdict && moduleContext
+                ? !checkQuestionRelevance({ prompt: q.prompt }, moduleContext).relevant
+                : false;
+            return (
+              <li key={i} className="rounded-2xl border border-border bg-card p-5">
+                <p className="text-sm font-medium">
+                  {i + 1}. {q.prompt}
                 </p>
-              )}
-              <div className="mt-3 flex items-center gap-2">
-                <Badge variant="secondary" className="text-xs">
-                  Difficulty {q.difficulty}
-                </Badge>
-                <Button size="sm" variant="ghost" onClick={() => onEditDraft(i)}>
-                  Edit
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => onDeleteDraft(i)}
-                >
-                  Delete
-                </Button>
-              </div>
-            </li>
-          ))}
+                {serverVerdict?.verdict === "unrelated" && (
+                  <p className="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-destructive">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    Unrelated to this module — edit or delete before adding.
+                    {serverVerdict.reason ? ` ${serverVerdict.reason}` : ""}
+                  </p>
+                )}
+                {serverVerdict?.verdict === "questionable" && (
+                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    Possibly unrelated to this module.
+                    {serverVerdict.reason ? ` ${serverVerdict.reason}` : ""}
+                  </p>
+                )}
+                {!serverVerdict && localFlag && (
+                  <p className="mt-1.5 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    Possibly unrelated to this module — review before adding.
+                  </p>
+                )}
+                <ul className="mt-3 space-y-1.5">
+                  {q.choices.map((c, ci) => (
+                    <li
+                      key={ci}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-sm",
+                        ci === q.correctIndex
+                          ? "border-success/60 bg-success/10 text-foreground"
+                          : "border-border text-muted-foreground",
+                      )}
+                    >
+                      <span className="mr-2 font-medium">{String.fromCharCode(65 + ci)}.</span>
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+                {q.explanation && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Why:</span> {q.explanation}
+                  </p>
+                )}
+                <div className="mt-3 flex items-center gap-2">
+                  <Badge variant="secondary" className="text-xs">
+                    Difficulty {q.difficulty}
+                  </Badge>
+                  <Button size="sm" variant="ghost" onClick={() => onEditDraft(i)}>
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => onDeleteDraft(i)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
         </ol>
       )}
 
