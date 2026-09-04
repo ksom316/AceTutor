@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,22 @@ export function GoogleAuthButton({
 }) {
   const [loading, setLoading] = useState(false);
 
+  // If the user hits Back before completing Google auth, the browser can
+  // restore this page from the bfcache instead of reloading it — the whole JS
+  // heap (including this component's "loading" state) comes back exactly as
+  // it was at the moment `window.location.assign` navigated away, leaving the
+  // button stuck on "Opening Google…" forever. `pageshow` fires on both a
+  // fresh load and a bfcache restore; `event.persisted` is true only for the
+  // restore, which is the one case that needs the reset (a fresh mount already
+  // starts with loading=false).
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setLoading(false);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   const start = async () => {
     if (loading) return; // guard against double-clicks during navigation
     setLoading(true);
@@ -38,31 +54,38 @@ export function GoogleAuthButton({
     if (target) sessionStorage.setItem("oauth_redirect", target);
     else sessionStorage.removeItem("oauth_redirect");
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        // No query params in redirectTo — just the clean callback path.
-        redirectTo: `${window.location.origin}/auth/callback`,
-        // Always show Google's own account chooser so the user can pick any
-        // Google account signed in on this device (instead of Google silently
-        // reusing the last one).
-        queryParams: { prompt: "select_account" },
-        skipBrowserRedirect: true,
-      },
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          // No query params in redirectTo — just the clean callback path.
+          redirectTo: `${window.location.origin}/auth/callback`,
+          // Always show Google's own account chooser so the user can pick any
+          // Google account signed in on this device (instead of Google silently
+          // reusing the last one).
+          queryParams: { prompt: "select_account" },
+          skipBrowserRedirect: true,
+        },
+      });
 
-    if (error || !data?.url) {
+      if (error || !data?.url) {
+        setLoading(false);
+        toast.error(error?.message || "Google sign-in failed");
+        return;
+      }
+
+      // NOTE: we do NOT fetch-probe the URL. A fetch with `redirect: "manual"`
+      // still hits Supabase's /auth/v1/authorize endpoint, which creates and
+      // stores the PKCE state on the server. By the time the browser actually
+      // navigates to the URL, the state has been consumed — causing a
+      // "bad_oauth_state" error on the real redirect. Just assign directly.
+      window.location.assign(data.url);
+    } catch (err) {
+      // A thrown rejection (network failure, etc.) before the redirect could
+      // ever happen — same reset as the handled-error path above.
       setLoading(false);
-      toast.error(error?.message || "Google sign-in failed");
-      return;
+      toast.error(err instanceof Error ? err.message : "Google sign-in failed");
     }
-
-    // NOTE: we do NOT fetch-probe the URL. A fetch with `redirect: "manual"`
-    // still hits Supabase's /auth/v1/authorize endpoint, which creates and
-    // stores the PKCE state on the server. By the time the browser actually
-    // navigates to the URL, the state has been consumed — causing a
-    // "bad_oauth_state" error on the real redirect. Just assign directly.
-    window.location.assign(data.url);
   };
 
   return (
