@@ -28,7 +28,6 @@ import { Route as LecturerPerformanceRouteImport } from './routes/lecturer.perfo
 import { Route as LecturerNotificationsRouteImport } from './routes/lecturer.notifications'
 import { Route as LecturerMaterialsRouteImport } from './routes/lecturer.materials'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
-import { Route as AuthGoogleRouteImport } from './routes/auth.google'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedSecurityRouteImport } from './routes/_authenticated/security'
@@ -145,11 +144,6 @@ const LecturerMaterialsRoute = LecturerMaterialsRouteImport.update({
 const CoursesSlugRoute = CoursesSlugRouteImport.update({
   id: '/courses/$slug',
   path: '/courses/$slug',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthGoogleRoute = AuthGoogleRouteImport.update({
-  id: '/auth/google',
-  path: '/auth/google',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
@@ -301,7 +295,6 @@ export interface FileRoutesByFullPath {
   '/security': typeof AuthenticatedSecurityRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/auth/callback': typeof AuthCallbackRoute
-  '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
@@ -344,7 +337,6 @@ export interface FileRoutesByTo {
   '/security': typeof AuthenticatedSecurityRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/auth/callback': typeof AuthCallbackRoute
-  '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
@@ -390,7 +382,6 @@ export interface FileRoutesById {
   '/_authenticated/security': typeof AuthenticatedSecurityRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/auth/callback': typeof AuthCallbackRoute
-  '/auth/google': typeof AuthGoogleRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
@@ -436,7 +427,6 @@ export interface FileRouteTypes {
     | '/security'
     | '/settings'
     | '/auth/callback'
-    | '/auth/google'
     | '/courses/$slug'
     | '/lecturer/materials'
     | '/lecturer/notifications'
@@ -479,7 +469,6 @@ export interface FileRouteTypes {
     | '/security'
     | '/settings'
     | '/auth/callback'
-    | '/auth/google'
     | '/courses/$slug'
     | '/lecturer/materials'
     | '/lecturer/notifications'
@@ -524,7 +513,6 @@ export interface FileRouteTypes {
     | '/_authenticated/security'
     | '/_authenticated/settings'
     | '/auth/callback'
-    | '/auth/google'
     | '/courses/$slug'
     | '/lecturer/materials'
     | '/lecturer/notifications'
@@ -561,7 +549,6 @@ export interface RootRouteChildren {
   TeachersRoute: typeof TeachersRouteWithChildren
   TermsRoute: typeof TermsRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
-  AuthGoogleRoute: typeof AuthGoogleRoute
   CoursesSlugRoute: typeof CoursesSlugRoute
   CoursesIndexRoute: typeof CoursesIndexRoute
 }
@@ -699,13 +686,6 @@ declare module '@tanstack/react-router' {
       path: '/courses/$slug'
       fullPath: '/courses/$slug'
       preLoaderRoute: typeof CoursesSlugRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/google': {
-      id: '/auth/google'
-      path: '/auth/google'
-      fullPath: '/auth/google'
-      preLoaderRoute: typeof AuthGoogleRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/callback': {
@@ -972,7 +952,6 @@ const rootRouteChildren: RootRouteChildren = {
   TeachersRoute: TeachersRouteWithChildren,
   TermsRoute: TermsRoute,
   AuthCallbackRoute: AuthCallbackRoute,
-  AuthGoogleRoute: AuthGoogleRoute,
   CoursesSlugRoute: CoursesSlugRoute,
   CoursesIndexRoute: CoursesIndexRoute,
 }

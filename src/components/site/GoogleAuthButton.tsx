@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GoogleIcon } from "@/components/site/GoogleIcon";
+import { supabase } from "@/integrations/supabase/client";
 
 /**
- * "Continue with Google" button shared by the sign-in and sign-up pages.
- * Opens the in-app Google account chooser (/auth/google), which mirrors
- * Google's OAuth picker: demo accounts sign in/up directly, and "Use another
- * account" runs the real Google OAuth flow. Either way /auth/callback then runs
- * the shared post-auth router. An explicit `redirect` (a deep link) is carried
- * through; with none, the callback decides the destination by role/preferences.
+ * "Continue with Google" button shared by the sign-in and sign-up pages. Goes
+ * straight to Supabase's real Google OAuth flow — no in-app intermediate
+ * screen — so the very next thing the browser shows is Google's own account
+ * chooser. `/auth/callback` then runs the shared post-auth router. An
+ * explicit `redirect` (a deep link) is carried through via sessionStorage
+ * (read back by /auth/callback after the redirect completes); with none, the
+ * callback decides the destination by role/preferences.
  */
 export function GoogleAuthButton({
   label = "Continue with Google",
@@ -21,13 +23,46 @@ export function GoogleAuthButton({
   /** Optional in-app deep-link path to land on after the Google round-trip. */
   redirect?: string;
 }) {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  const start = () => {
+  const start = async () => {
     if (loading) return; // guard against double-clicks during navigation
     setLoading(true);
-    navigate({ to: "/auth/google", search: redirect ? { redirect } : {} });
+
+    const target = redirect?.startsWith("/") ? redirect : undefined;
+    // Store the redirect target in sessionStorage before starting the OAuth
+    // round-trip so the callback page can read it after the redirect completes.
+    // This avoids putting query params in redirectTo, which can cause issues
+    // with Supabase's URL validation and fallback to the configured Site URL
+    // in production.
+    if (target) sessionStorage.setItem("oauth_redirect", target);
+    else sessionStorage.removeItem("oauth_redirect");
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        // No query params in redirectTo — just the clean callback path.
+        redirectTo: `${window.location.origin}/auth/callback`,
+        // Always show Google's own account chooser so the user can pick any
+        // Google account signed in on this device (instead of Google silently
+        // reusing the last one).
+        queryParams: { prompt: "select_account" },
+        skipBrowserRedirect: true,
+      },
+    });
+
+    if (error || !data?.url) {
+      setLoading(false);
+      toast.error(error?.message || "Google sign-in failed");
+      return;
+    }
+
+    // NOTE: we do NOT fetch-probe the URL. A fetch with `redirect: "manual"`
+    // still hits Supabase's /auth/v1/authorize endpoint, which creates and
+    // stores the PKCE state on the server. By the time the browser actually
+    // navigates to the URL, the state has been consumed — causing a
+    // "bad_oauth_state" error on the real redirect. Just assign directly.
+    window.location.assign(data.url);
   };
 
   return (

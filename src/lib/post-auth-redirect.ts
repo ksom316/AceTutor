@@ -51,14 +51,7 @@ export const PREFERENCES_ONBOARDING = "/onboarding/preferences";
  * Everything else (e.g. `/courses/dsa`, `/quiz/…`, `/result/…`) is a real
  * destination and is preserved.
  */
-const NON_DEEPLINK_PATHS = new Set([
-  "/login",
-  "/signup",
-  "/auth/callback",
-  "/auth/google",
-  "/",
-  "/dashboard",
-]);
+const NON_DEEPLINK_PATHS = new Set(["/login", "/signup", "/auth/callback", "/", "/dashboard"]);
 
 /** An in-app `redirect` is honoured only when it is a same-origin path pointing
  *  at a specific page (not an auth screen or a generic landing surface). */

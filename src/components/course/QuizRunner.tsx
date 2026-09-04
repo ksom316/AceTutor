@@ -126,16 +126,26 @@ export function QuizRunner({
 
   return (
     <main className="container mx-auto max-w-3xl px-4 py-12">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">{eyebrow}</p>
-          <h1 className="mt-2 font-display text-4xl">{title}</h1>
-        </div>
-        {remainingMs != null && (
-          <div
-            aria-live="polite"
+      {/* Persistent timer — sticky, not fixed: it reserves its own space in
+          normal flow (so it never overlaps the question list below it) and
+          then pins at top-16, directly under the h-16 sticky navbar (AppShell's
+          TopBar), on mobile, tablet, and desktop alike. z-10 keeps it under the
+          navbar's z-20 at the seam. This is the ONLY timer UI in the runner —
+          module quizzes and General Course Quizzes share this one component,
+          so both get it from this single change. */}
+      {remainingMs != null && (
+        <div
+          aria-live="polite"
+          className={cn(
+            "sticky top-16 z-10 -mx-4 mb-4 flex justify-end border-b px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/85",
+            tone === "normal" && "border-border bg-background/95",
+            tone === "warning" && "border-amber-500/40 bg-amber-500/10",
+            (tone === "critical" || tone === "up") && "border-destructive/40 bg-destructive/10",
+          )}
+        >
+          <span
             className={cn(
-              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold tabular-nums",
+              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold tabular-nums shadow-sm",
               tone === "normal" && "border-border bg-card text-foreground",
               tone === "warning" && "border-amber-500/50 bg-amber-500/10 text-amber-600",
               (tone === "critical" || tone === "up") &&
@@ -144,8 +154,15 @@ export function QuizRunner({
           >
             <AlarmClock className="h-4 w-4" />
             {tone === "up" ? "Time's up" : `${formatRemaining(remainingMs)} left`}
-          </div>
-        )}
+          </span>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">{eyebrow}</p>
+          <h1 className="mt-2 font-display text-4xl">{title}</h1>
+        </div>
       </div>
 
       <p className="mt-2 text-sm text-muted-foreground">
