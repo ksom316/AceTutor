@@ -17,8 +17,19 @@ import { useRole } from "@/hooks/use-role";
  * `auth.uid() = user_id`; the audience filter is a second, explicit narrowing.
  *
  * There is no Supabase realtime channel anywhere in the app, so this polls
- * (60s + refetch on window focus) and invalidates immediately after the user's
- * own read / mark-all-read / delete / clear-all actions.
+ * (60s + refetch on window focus). Every write (read / mark-all-read / delete
+ * / clear-all) updates the shared cache entry DIRECTLY (`setQueryData`) the
+ * instant the Supabase write succeeds, then also invalidates it as a
+ * background reconciliation with the server. The direct write is what makes
+ * every surface (Notifications page, bell badge, sidebar/offcanvas indicator)
+ * reflect the change immediately and consistently: it does not require a
+ * second network round-trip, and it does not depend on the component that
+ * triggered the action still being mounted/"active" — a plain
+ * `invalidateQueries()` only refetches currently-active observers, so a
+ * notification click that BOTH marks-read AND navigates away (the common
+ * path) could otherwise leave the bell/sidebar showing the old count until
+ * their next 60s poll or window-focus refetch. `setQueryData` reaches every
+ * subscriber of the cache key immediately, regardless of navigation.
  */
 
 export type NotificationAudience = "student" | "lecturer";
@@ -53,9 +64,10 @@ export function useNotifications() {
   const qc = useQueryClient();
   const audience: NotificationAudience = isLecturer ? "lecturer" : "student";
   const enabled = !!user && !roleLoading;
+  const queryKey = [NOTIFICATIONS_KEY, user?.id, audience] as const;
 
   const query = useQuery({
-    queryKey: [NOTIFICATIONS_KEY, user?.id, audience],
+    queryKey,
     enabled,
     refetchInterval: REFETCH_MS,
     refetchOnWindowFocus: true,
@@ -94,8 +106,16 @@ export function useNotifications() {
     [notifications],
   );
 
-  const invalidate = () =>
-    qc.invalidateQueries({ queryKey: [NOTIFICATIONS_KEY, user?.id, audience] });
+  const invalidate = () => qc.invalidateQueries({ queryKey });
+
+  /** Writes straight into the shared cache entry so every mounted surface
+   *  (this hook may have several simultaneous instances — bell, sidebar,
+   *  offcanvas, the Notifications page) re-renders with the new value on the
+   *  next tick, with no network round-trip and no dependency on any one of
+   *  them still being mounted. A no-op if the query has no cached data yet
+   *  (nothing to update — the next real fetch will already be correct). */
+  const patch = (updater: (rows: AppNotification[]) => AppNotification[]) =>
+    qc.setQueryData<AppNotification[]>(queryKey, (old) => (old ? updater(old) : old));
 
   const markRead = useMutation({
     mutationFn: async (id: string) => {
@@ -105,8 +125,14 @@ export function useNotifications() {
         .eq("id", id)
         .is("read_at", null);
       if (error) throw error;
+      return id;
     },
-    onSuccess: invalidate,
+    onSuccess: (id) => {
+      const nowIso = new Date().toISOString();
+      patch((rows) => rows.map((n) => (n.id === id ? { ...n, read_at: n.read_at ?? nowIso } : n)));
+      invalidate();
+    },
+    onError: () => toast.error("Couldn't mark this notification as read. Please try again."),
   });
 
   const markAllRead = useMutation({
@@ -118,20 +144,27 @@ export function useNotifications() {
         .is("read_at", null);
       if (error) throw error;
     },
-    onSuccess: invalidate,
+    onSuccess: () => {
+      const nowIso = new Date().toISOString();
+      patch((rows) => rows.map((n) => (n.read_at ? n : { ...n, read_at: nowIso })));
+      invalidate();
+    },
+    onError: () => toast.error("Couldn't mark your notifications as read. Please try again."),
   });
 
   // Deletion relies entirely on RLS (notifications_delete_own: auth.uid() =
   // user_id) for ownership — the query below never filters by user_id itself,
-  // so there is nothing client-supplied for a caller to spoof. A failed delete
-  // leaves the cache untouched (no optimistic removal), so the row/list stays
-  // visible exactly as it was until a successful delete invalidates the query.
+  // so there is nothing client-supplied for a caller to spoof.
   const deleteOne = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("notifications").delete().eq("id", id);
       if (error) throw error;
+      return id;
     },
-    onSuccess: invalidate,
+    onSuccess: (id) => {
+      patch((rows) => rows.filter((n) => n.id !== id));
+      invalidate();
+    },
     onError: () => toast.error("Couldn't delete this notification. Please try again."),
   });
 
@@ -140,7 +173,10 @@ export function useNotifications() {
       const { error } = await supabase.from("notifications").delete().eq("audience", audience);
       if (error) throw error;
     },
-    onSuccess: invalidate,
+    onSuccess: () => {
+      patch(() => []);
+      invalidate();
+    },
     onError: () => toast.error("Couldn't clear your notifications. Please try again."),
   });
 
