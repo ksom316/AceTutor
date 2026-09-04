@@ -62,7 +62,14 @@ export function ActiveQuizBanner() {
     <div
       role="status"
       className={cn(
-        "flex flex-col gap-2 border-b px-4 py-2.5 shadow-sm sm:flex-row sm:items-center sm:gap-4",
+        // Sticky, not fixed: it reserves its own space in normal flow (so
+        // page content below is never covered — no manual padding needed
+        // anywhere) and pins at top-16, directly under AppShell's h-16 sticky
+        // TopBar, on mobile, tablet and desktop alike. z-10 keeps it under the
+        // navbar's z-20 at the seam. Hidden on the runner routes themselves
+        // (onRunnerPage above) so only QuizRunner's own sticky timer shows
+        // there — never both at once.
+        "sticky top-16 z-10 flex flex-col gap-2 border-b px-4 py-2.5 shadow-sm sm:flex-row sm:items-center sm:gap-4",
         surface,
       )}
     >
