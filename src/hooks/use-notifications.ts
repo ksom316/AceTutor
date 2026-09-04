@@ -168,6 +168,7 @@ export type NotificationTarget =
   | { kind: "course"; slug: string }
   | { kind: "lecturer-students" }
   | { kind: "lecturer-performance" }
+  | { kind: "lecturer-quiz"; quizId: string }
   | null;
 
 /**
@@ -182,6 +183,9 @@ export function notificationTarget(n: AppNotification): NotificationTarget {
     if (n.kind === "enrollment") return { kind: "lecturer-students" };
     if (n.kind === "quiz_completed" || n.kind === "module_completed") {
       return { kind: "lecturer-performance" };
+    }
+    if ((n.kind === "general_quiz_active" || n.kind === "general_quiz_deadline") && n.quiz_id) {
+      return { kind: "lecturer-quiz", quizId: n.quiz_id };
     }
     return null;
   }

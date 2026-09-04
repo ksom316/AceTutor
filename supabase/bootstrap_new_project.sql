@@ -107,11 +107,15 @@ create table if not exists public.lessons (
 );
 
 -- 2.6 course_quizzes  (course-wide "General Course Quiz"; many per course)
+--     available_from / deadline are the (nullable) schedule bounds. deadline is
+--     the canonical DUE instant, enforced by enforce_course_quiz_attempt and
+--     used as the absolute cap on a general-quiz attempt's expires_at.
 create table if not exists public.course_quizzes (
   id               uuid primary key default gen_random_uuid(),
   course_id        uuid not null references public.courses(id) on delete cascade,
   title            text not null default 'General Course Quiz',
   description      text,
+  available_from   timestamptz,
   deadline         timestamptz,
   max_attempts     int,
   duration_minutes int not null default 30,
@@ -229,13 +233,19 @@ create table if not exists public.notifications (
   kind       text not null,
   title      text not null,
   message    text not null,
+  -- Deterministic key for scheduler-generated rows (NULL for every other row).
+  -- Shared across recipients of one event; deduped per user by the unique index.
+  event_key  text,
   created_at timestamptz not null default now(),
   read_at    timestamptz,
   constraint notifications_kind_check check (kind in (
     'note', 'quiz',
     'material', 'module_quiz', 'general_quiz',
     'material_updated', 'module_updated', 'quiz_updated',
-    'enrollment', 'quiz_completed', 'module_completed'
+    'enrollment', 'quiz_completed', 'module_completed',
+    -- General Course Quiz schedule
+    'general_quiz_available', 'general_quiz_due_soon', 'general_quiz_closed', -- student
+    'general_quiz_active', 'general_quiz_deadline'                            -- lecturer
   )),
   constraint notifications_audience_check check (audience in ('student', 'lecturer'))
 );
@@ -245,6 +255,8 @@ create index if not exists notifications_unread_idx
   on public.notifications (user_id) where read_at is null;
 create index if not exists notifications_quiz_id_idx
   on public.notifications (quiz_id) where quiz_id is not null;
+create unique index if not exists notifications_event_key_uq
+  on public.notifications (user_id, event_key);
 
 -- 2.15 study_paths  (one AI remedial study path per finished quiz attempt)
 create table if not exists public.study_paths (
@@ -549,6 +561,7 @@ declare
   v_cq_id uuid;
   v_finished timestamptz;
   v_expires timestamptz;
+  v_cq_deadline timestamptz;
   v_lesson_id uuid;
   v_total int := 0;
   v_answered int := 0;
@@ -583,6 +596,7 @@ begin
     if v_total = 0 then
       raise exception 'This course does not have a general quiz yet.';
     end if;
+    select deadline into v_cq_deadline from public.course_quizzes where id = v_cq_id;
   else
     raise exception 'This quiz attempt is not linked to a quiz.';
   end if;
@@ -617,7 +631,9 @@ begin
         total = v_total,
         answered_count = v_answered,
         finished_at = now(),
-        timed_out = _timed_out or (v_expires is not null and now() >= v_expires)
+        timed_out = _timed_out
+          or (v_expires is not null and now() >= v_expires)
+          or (v_cq_deadline is not null and now() >= v_cq_deadline)
     where id = _attempt_id;
 
   if v_topic_id is not null then
@@ -653,6 +669,7 @@ as $$
 declare
   v_user uuid; v_topic uuid; v_cq uuid;
   v_finished timestamptz; v_expires timestamptz; v_correct int;
+  v_cq_deadline timestamptz;
 begin
   select user_id, topic_id, course_quiz_id, finished_at, expires_at
     into v_user, v_topic, v_cq, v_finished, v_expires
@@ -666,6 +683,14 @@ begin
   end if;
   if v_expires is not null and now() >= v_expires then
     raise exception 'This attempt has run out of time.';
+  end if;
+  -- General Course Quiz: the quiz deadline is an absolute upper bound, applied
+  -- live even if a lecturer shortened it after this attempt started.
+  if v_cq is not null then
+    select deadline into v_cq_deadline from public.course_quizzes where id = v_cq;
+    if v_cq_deadline is not null and now() >= v_cq_deadline then
+      raise exception 'This attempt has run out of time.';
+    end if;
   end if;
   if _selected_index is null or _selected_index < 0 then
     raise exception 'Invalid answer.';
@@ -705,6 +730,8 @@ as $$
 $$;
 
 -- Grade the caller's own timed-out attempts (module or general) never submitted.
+-- A General Course Quiz attempt is also finalised once its quiz deadline passes,
+-- not only when its own normal timer runs out.
 create or replace function public.finalize_expired_quiz_attempts()
 returns int
 language plpgsql security definer set search_path = public
@@ -720,7 +747,15 @@ begin
       and (a.topic_id is not null or a.course_quiz_id is not null)
       and a.finished_at is null
       and a.expires_at is not null
-      and now() >= a.expires_at
+      and (
+        now() >= a.expires_at
+        or exists (
+          select 1 from public.course_quizzes cq
+          where cq.id = a.course_quiz_id
+            and cq.deadline is not null
+            and now() >= cq.deadline
+        )
+      )
   loop
     perform public.grade_quiz(v_id, '{}'::jsonb, true);
     v_count := v_count + 1;
@@ -868,9 +903,13 @@ $$;
 
 -- 3.8 lecturer: general course quiz management ---------------------------
 
+-- A due date, when set together with an available-from date, must be strictly
+-- later. Enforced in every general-quiz writer below.
+
 create or replace function public.create_course_quiz(
   _title text, _description text default null, _deadline timestamptz default null,
-  _max_attempts int default null, _duration_minutes int default 30
+  _max_attempts int default null, _duration_minutes int default 30,
+  _available_from timestamptz default null
 )
 returns uuid
 language plpgsql security definer set search_path = public
@@ -887,15 +926,19 @@ begin
   if _max_attempts is not null and _max_attempts < 1 then
     raise exception 'Maximum attempts must be at least 1, or unlimited.';
   end if;
+  if _deadline is not null and _available_from is not null and _deadline <= _available_from then
+    raise exception 'The due date must be after the available-from date.';
+  end if;
 
   v_title := nullif(btrim(coalesce(_title, '')), '');
   if v_title is null then v_title := 'General Course Quiz'; end if;
 
   insert into public.course_quizzes
-    (course_id, title, description, deadline, max_attempts, duration_minutes)
+    (course_id, title, description, deadline, max_attempts, duration_minutes, available_from)
   values (
     v_course, v_title, nullif(btrim(coalesce(_description, '')), ''),
-    _deadline, _max_attempts, least(greatest(coalesce(_duration_minutes, 30), 1), 240)
+    _deadline, _max_attempts, least(greatest(coalesce(_duration_minutes, 30), 1), 240),
+    _available_from
   )
   returning id into v_id;
   return v_id;
@@ -905,7 +948,7 @@ $$;
 create or replace function public.create_course_quiz_with_questions(
   _title text, _questions jsonb, _description text default null,
   _deadline timestamptz default null, _max_attempts int default null,
-  _duration_minutes int default 30
+  _duration_minutes int default 30, _available_from timestamptz default null
 )
 returns uuid
 language plpgsql security definer set search_path = public
@@ -924,6 +967,9 @@ begin
   if _max_attempts is not null and _max_attempts < 1 then
     raise exception 'Maximum attempts must be at least 1, or unlimited.';
   end if;
+  if _deadline is not null and _available_from is not null and _deadline <= _available_from then
+    raise exception 'The due date must be after the available-from date.';
+  end if;
   if _questions is null or jsonb_typeof(_questions) <> 'array' or jsonb_array_length(_questions) < 1 then
     raise exception 'A general course quiz needs at least one question before it can be created.';
   end if;
@@ -935,10 +981,11 @@ begin
   if v_title is null then v_title := 'General Course Quiz'; end if;
 
   insert into public.course_quizzes
-    (course_id, title, description, deadline, max_attempts, duration_minutes)
+    (course_id, title, description, deadline, max_attempts, duration_minutes, available_from)
   values (
     v_course, v_title, nullif(btrim(coalesce(_description, '')), ''),
-    _deadline, _max_attempts, least(greatest(coalesce(_duration_minutes, 30), 1), 240)
+    _deadline, _max_attempts, least(greatest(coalesce(_duration_minutes, 30), 1), 240),
+    _available_from
   )
   returning id into v_id;
 
@@ -960,7 +1007,7 @@ $$;
 create or replace function public.update_course_quiz(
   _quiz_id uuid, _title text, _description text default null,
   _deadline timestamptz default null, _max_attempts int default null,
-  _duration_minutes int default 30
+  _duration_minutes int default 30, _available_from timestamptz default null
 )
 returns void
 language plpgsql security definer set search_path = public
@@ -979,6 +1026,9 @@ begin
   if _max_attempts is not null and _max_attempts < 1 then
     raise exception 'Maximum attempts must be at least 1, or unlimited.';
   end if;
+  if _deadline is not null and _available_from is not null and _deadline <= _available_from then
+    raise exception 'The due date must be after the available-from date.';
+  end if;
 
   v_title := nullif(btrim(coalesce(_title, '')), '');
   if v_title is null then v_title := 'General Course Quiz'; end if;
@@ -988,7 +1038,8 @@ begin
          description = nullif(btrim(coalesce(_description, '')), ''),
          deadline = _deadline,
          max_attempts = _max_attempts,
-         duration_minutes = least(greatest(coalesce(_duration_minutes, 30), 1), 240)
+         duration_minutes = least(greatest(coalesce(_duration_minutes, 30), 1), 240),
+         available_from = _available_from
    where id = _quiz_id and course_id = v_course;
 end;
 $$;
@@ -1068,17 +1119,35 @@ $$;
 create or replace function public.list_course_quizzes(_course_id uuid)
 returns table (
   id uuid, title text, description text, deadline timestamptz,
-  created_at timestamptz, question_count bigint, max_attempts int, duration_minutes int
+  created_at timestamptz, question_count bigint, max_attempts int, duration_minutes int,
+  available_from timestamptz
 )
 language sql stable security definer set search_path = public
 as $$
   select
     cq.id, cq.title, cq.description, cq.deadline, cq.created_at,
     (select count(*) from public.questions q where q.course_quiz_id = cq.id),
-    cq.max_attempts, cq.duration_minutes
+    cq.max_attempts, cq.duration_minutes, cq.available_from
   from public.course_quizzes cq
   where cq.course_id = _course_id
   order by cq.created_at;
+$$;
+
+-- Per general quiz in the caller's managed course: enrolled student count and
+-- the number with a finished attempt. Lecturer-scoped; empty for anyone else.
+create or replace function public.get_course_quiz_submission_stats()
+returns table (course_quiz_id uuid, enrolled int, submitted int)
+language sql stable security definer set search_path = public
+as $$
+  with lc as (select public.current_lecturer_course() as course_id)
+  select
+    cq.id,
+    (select count(*)::int from public.enrollments e where e.course_id = cq.course_id),
+    (select count(distinct a.user_id)::int
+       from public.quiz_attempts a
+       where a.course_quiz_id = cq.id and a.finished_at is not null)
+  from lc
+  join public.course_quizzes cq on cq.course_id = lc.course_id;
 $$;
 
 
@@ -1308,6 +1377,11 @@ $$;
 -- 3.11 trigger functions: quiz-attempt guards --------------------------
 
 -- BEFORE INSERT: stamp expires_at from the topic's / course quiz's duration.
+-- This is the student's NORMAL, immutable timer. A General Course Quiz deadline
+-- is NOT applied here — it is enforced dynamically as least(expires_at, deadline)
+-- by save_quiz_answer / finalize_expired_quiz_attempts / grade_quiz (and mirrored
+-- client-side by effectiveQuizDeadline()), so moving the deadline earlier reduces
+-- effective time immediately and moving it later never extends past this stamp.
 create or replace function public.stamp_quiz_attempt_expiry()
 returns trigger
 language plpgsql security definer set search_path = public
@@ -1328,13 +1402,15 @@ begin
 end;
 $$;
 
--- BEFORE INSERT: enrolment + deadline + attempt-cap for general-quiz attempts.
+-- BEFORE INSERT: enrolment + availability + deadline + attempt-cap for
+-- general-quiz attempts.
 create or replace function public.enforce_course_quiz_attempt()
 returns trigger
 language plpgsql security definer set search_path = public
 as $$
 declare
   v_deadline timestamptz;
+  v_available_from timestamptz;
   v_course uuid;
   v_max int;
   v_used int;
@@ -1343,8 +1419,8 @@ begin
     return new;
   end if;
 
-  select deadline, course_id, max_attempts
-    into v_deadline, v_course, v_max
+  select deadline, available_from, course_id, max_attempts
+    into v_deadline, v_available_from, v_course, v_max
     from public.course_quizzes
     where id = new.course_quiz_id;
 
@@ -1358,6 +1434,10 @@ begin
        where e.course_id = v_course and e.user_id = auth.uid()
      ) then
     raise exception 'You must be enrolled in this course to take this assessment.';
+  end if;
+
+  if v_available_from is not null and now() < v_available_from then
+    raise exception 'This assessment is not available yet.';
   end if;
 
   if v_deadline is not null and now() >= v_deadline then
@@ -1818,6 +1898,134 @@ end;
 $$;
 
 
+-- 3.15 scheduled: General Course Quiz availability / deadline notifications ----
+-- Idempotent sweep run by pg_cron every 15 minutes (scheduled in section 9).
+-- Emits "available" / "due soon" / "closed" rows for students + the lecturer
+-- into public.notifications. Every row carries a deterministic event_key; the
+-- unique index (user_id, event_key) + ON CONFLICT DO NOTHING makes repeat runs
+-- no-ops. Recipients come only from enrollments + lecturer_slots.
+create or replace function public.sweep_general_quiz_schedule()
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_total int := 0;
+  v_n int;
+begin
+  -- STUDENT: quiz now available (only for a quiz whose available_from was set in
+  -- the future and has now arrived; a quiz with no available_from is announced
+  -- by notify_new_general_quiz on publish).
+  insert into public.notifications
+    (user_id, course_id, quiz_id, audience, kind, title, message, event_key)
+  select
+    e.user_id, cq.course_id, cq.id, 'student', 'general_quiz_available',
+    'General Course Quiz available',
+    'The General Course Quiz "' || cq.title || '" for ' || c.title
+      || ' is now available'
+      || case when cq.deadline is null then '.'
+              else '. It is due '
+                   || to_char(cq.deadline at time zone 'UTC',
+                              'FMMon FMDD, YYYY "at" HH12:MI AM') || ' UTC.' end,
+    'gcq_avail:' || cq.id::text || ':' || extract(epoch from cq.available_from)::bigint::text
+  from public.course_quizzes cq
+  join public.courses c on c.id = cq.course_id
+  join public.enrollments e on e.course_id = cq.course_id
+  where cq.available_from is not null and now() >= cq.available_from
+    and exists (select 1 from public.questions q where q.course_quiz_id = cq.id)
+  on conflict (user_id, event_key) do nothing;
+  get diagnostics v_n = row_count; v_total := v_total + v_n;
+
+  -- LECTURER: quiz now active.
+  insert into public.notifications
+    (user_id, course_id, quiz_id, audience, kind, title, message, event_key)
+  select
+    ls.claimed_by, cq.course_id, cq.id, 'lecturer', 'general_quiz_active',
+    'General Course Quiz is now active',
+    'The General Course Quiz "' || cq.title || '" for ' || c.title
+      || ' is now available to students.',
+    'gcq_active:' || cq.id::text || ':' || extract(epoch from cq.available_from)::bigint::text
+  from public.course_quizzes cq
+  join public.courses c on c.id = cq.course_id
+  join public.lecturer_slots ls on ls.course_id = cq.course_id and ls.claimed_by is not null
+  where cq.available_from is not null and now() >= cq.available_from
+    and exists (select 1 from public.questions q where q.course_quiz_id = cq.id)
+  on conflict (user_id, event_key) do nothing;
+  get diagnostics v_n = row_count; v_total := v_total + v_n;
+
+  -- STUDENT: deadline within 24h, not yet submitted.
+  insert into public.notifications
+    (user_id, course_id, quiz_id, audience, kind, title, message, event_key)
+  select
+    e.user_id, cq.course_id, cq.id, 'student', 'general_quiz_due_soon',
+    'General Course Quiz due soon',
+    'Your General Course Quiz "' || cq.title || '" for ' || c.title
+      || ' is due ' || to_char(cq.deadline at time zone 'UTC',
+                               'FMMon FMDD, YYYY "at" HH12:MI AM') || ' UTC.',
+    'gcq_soon:' || cq.id::text || ':' || extract(epoch from cq.deadline)::bigint::text
+  from public.course_quizzes cq
+  join public.courses c on c.id = cq.course_id
+  join public.enrollments e on e.course_id = cq.course_id
+  where cq.deadline is not null
+    and now() >= cq.deadline - interval '24 hours' and now() < cq.deadline
+    and (cq.available_from is null or now() >= cq.available_from)
+    and exists (select 1 from public.questions q where q.course_quiz_id = cq.id)
+    and not exists (
+      select 1 from public.quiz_attempts a
+      where a.course_quiz_id = cq.id and a.user_id = e.user_id and a.finished_at is not null
+    )
+  on conflict (user_id, event_key) do nothing;
+  get diagnostics v_n = row_count; v_total := v_total + v_n;
+
+  -- STUDENT: deadline passed, never submitted.
+  insert into public.notifications
+    (user_id, course_id, quiz_id, audience, kind, title, message, event_key)
+  select
+    e.user_id, cq.course_id, cq.id, 'student', 'general_quiz_closed',
+    'General Course Quiz closed',
+    'The General Course Quiz "' || cq.title || '" for ' || c.title
+      || ' closed on ' || to_char(cq.deadline at time zone 'UTC',
+                                  'FMMon FMDD, YYYY "at" HH12:MI AM') || ' UTC.',
+    'gcq_closed:' || cq.id::text || ':' || extract(epoch from cq.deadline)::bigint::text
+  from public.course_quizzes cq
+  join public.courses c on c.id = cq.course_id
+  join public.enrollments e on e.course_id = cq.course_id
+  where cq.deadline is not null and now() >= cq.deadline
+    and exists (select 1 from public.questions q where q.course_quiz_id = cq.id)
+    and not exists (
+      select 1 from public.quiz_attempts a
+      where a.course_quiz_id = cq.id and a.user_id = e.user_id and a.finished_at is not null
+    )
+  on conflict (user_id, event_key) do nothing;
+  get diagnostics v_n = row_count; v_total := v_total + v_n;
+
+  -- LECTURER: deadline reached, with the real submission summary.
+  insert into public.notifications
+    (user_id, course_id, quiz_id, audience, kind, title, message, event_key)
+  select
+    ls.claimed_by, cq.course_id, cq.id, 'lecturer', 'general_quiz_deadline',
+    'General Course Quiz deadline reached',
+    'The General Course Quiz "' || cq.title || '" for ' || c.title || ' has closed. '
+      || (select count(distinct a.user_id) from public.quiz_attempts a
+            where a.course_quiz_id = cq.id and a.finished_at is not null)::text
+      || ' of '
+      || (select count(*) from public.enrollments e2 where e2.course_id = cq.course_id)::text
+      || ' enrolled students submitted.',
+    'gcq_dl:' || cq.id::text || ':' || extract(epoch from cq.deadline)::bigint::text
+  from public.course_quizzes cq
+  join public.courses c on c.id = cq.course_id
+  join public.lecturer_slots ls on ls.course_id = cq.course_id and ls.claimed_by is not null
+  where cq.deadline is not null and now() >= cq.deadline
+    and exists (select 1 from public.questions q where q.course_quiz_id = cq.id)
+  on conflict (user_id, event_key) do nothing;
+  get diagnostics v_n = row_count; v_total := v_total + v_n;
+
+  return v_total;
+end;
+$$;
+
+
 -- ============================================================================
 -- 4. TRIGGERS
 -- ============================================================================
@@ -2137,14 +2345,14 @@ grant  execute on function public.create_module_with_quiz(text, text, jsonb, jso
 revoke execute on function public.replace_topic_quiz(uuid, jsonb)                                  from public, anon;
 grant  execute on function public.replace_topic_quiz(uuid, jsonb)                                  to authenticated;
 
-revoke execute on function public.create_course_quiz(text, text, timestamptz, int, int)            from public, anon;
-grant  execute on function public.create_course_quiz(text, text, timestamptz, int, int)            to authenticated;
+revoke execute on function public.create_course_quiz(text, text, timestamptz, int, int, timestamptz)            from public, anon;
+grant  execute on function public.create_course_quiz(text, text, timestamptz, int, int, timestamptz)            to authenticated;
 
-revoke execute on function public.create_course_quiz_with_questions(text, jsonb, text, timestamptz, int, int) from public, anon;
-grant  execute on function public.create_course_quiz_with_questions(text, jsonb, text, timestamptz, int, int) to authenticated;
+revoke execute on function public.create_course_quiz_with_questions(text, jsonb, text, timestamptz, int, int, timestamptz) from public, anon;
+grant  execute on function public.create_course_quiz_with_questions(text, jsonb, text, timestamptz, int, int, timestamptz) to authenticated;
 
-revoke execute on function public.update_course_quiz(uuid, text, text, timestamptz, int, int)      from public, anon;
-grant  execute on function public.update_course_quiz(uuid, text, text, timestamptz, int, int)      to authenticated;
+revoke execute on function public.update_course_quiz(uuid, text, text, timestamptz, int, int, timestamptz)      from public, anon;
+grant  execute on function public.update_course_quiz(uuid, text, text, timestamptz, int, int, timestamptz)      to authenticated;
 
 revoke execute on function public.delete_course_quiz(uuid)                                         from public, anon;
 grant  execute on function public.delete_course_quiz(uuid)                                         to authenticated;
@@ -2163,6 +2371,12 @@ grant  execute on function public.get_course_students()                         
 
 revoke execute on function public.get_course_quiz_performance()                                    from public, anon;
 grant  execute on function public.get_course_quiz_performance()                                    to authenticated;
+
+revoke execute on function public.get_course_quiz_submission_stats()                               from public, anon;
+grant  execute on function public.get_course_quiz_submission_stats()                               to authenticated;
+
+-- Scheduler-only: no client (student, lecturer or anon) may run the sweep.
+revoke execute on function public.sweep_general_quiz_schedule()                                     from public, anon, authenticated;
 
 revoke execute on function public.get_course_student_mastery()                                     from public, anon;
 grant  execute on function public.get_course_student_mastery()                                     to authenticated;
@@ -2286,6 +2500,32 @@ from (values
 ) as v(lecturer_id, slug)
 join public.courses c on c.slug = v.slug
 on conflict (lecturer_id) do nothing;
+
+
+-- ============================================================================
+-- 9. SCHEDULED JOBS  (pg_cron)
+--    Runs public.sweep_general_quiz_schedule() every 15 minutes to emit the
+--    General Course Quiz availability / due-soon / closed notifications. The
+--    sweep is idempotent, so the cadence only bounds delivery latency.
+--    Best-effort: if the migration role cannot enable pg_cron, this only raises
+--    a NOTICE — enable pg_cron (Dashboard -> Database -> Extensions) and run the
+--    cron.schedule() call below by hand, once.
+-- ============================================================================
+do $$
+begin
+  execute 'create extension if not exists pg_cron';
+  begin
+    perform cron.unschedule('gcq-schedule-sweep');
+  exception when others then null;
+  end;
+  perform cron.schedule(
+    'gcq-schedule-sweep', '*/15 * * * *',
+    'select public.sweep_general_quiz_schedule();'
+  );
+  raise notice 'pg_cron: scheduled gcq-schedule-sweep (every 15 minutes).';
+exception when others then
+  raise notice 'pg_cron not scheduled automatically (%). Enable pg_cron, then run: select cron.schedule(''gcq-schedule-sweep'', ''*/15 * * * *'', ''select public.sweep_general_quiz_schedule();'');', sqlerrm;
+end $$;
 
 
 -- ============================================================================

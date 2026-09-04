@@ -68,8 +68,9 @@ import {
   type QuizSourceInfo,
 } from "@/lib/quiz-capability";
 import {
-  deadlineStatus,
   fromDatetimeLocalValue,
+  generalQuizStatus,
+  generalQuizStatusLabel,
   localTimezoneLabel,
   MAX_ATTEMPTS_OPTIONS,
   maxAttemptsFromSelectValue,
@@ -112,6 +113,7 @@ const NEW_QUIZ_DATA = {
   quizTitle: "",
   quizDescription: "",
   quizDeadline: null as string | null,
+  quizAvailableFrom: null as string | null,
   quizMaxAttempts: null as number | null,
   quizDurationMinutes: DEFAULT_MODULE_QUIZ_DURATION,
 };
@@ -156,6 +158,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const [infoTitle, setInfoTitle] = useState("");
   const [infoDescription, setInfoDescription] = useState("");
   const [infoDeadline, setInfoDeadline] = useState("");
+  const [infoAvailableFrom, setInfoAvailableFrom] = useState("");
   const [infoMaxAttempts, setInfoMaxAttempts] = useState("unlimited");
   // Module quiz time limit (topic scope only).
   const [infoDuration, setInfoDuration] = useState(String(DEFAULT_MODULE_QUIZ_DURATION));
@@ -172,6 +175,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       let quizTitle = "";
       let quizDescription = "";
       let quizDeadline: string | null = null;
+      let quizAvailableFrom: string | null = null;
       let quizMaxAttempts: number | null = null;
       let quizDurationMinutes = DEFAULT_MODULE_QUIZ_DURATION;
 
@@ -190,7 +194,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       } else {
         const { data: cq, error } = await supabase
           .from("course_quizzes")
-          .select("id, title, description, deadline, max_attempts, duration_minutes, course_id")
+          .select(
+            "id, title, description, deadline, available_from, max_attempts, duration_minutes, course_id",
+          )
           .eq("id", scope.courseQuizId)
           .maybeSingle();
         if (error) throw error;
@@ -200,6 +206,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         quizTitle = cq?.title ?? "General Course Quiz";
         quizDescription = cq?.description ?? "";
         quizDeadline = cq?.deadline ?? null;
+        quizAvailableFrom = cq?.available_from ?? null;
         quizMaxAttempts = cq?.max_attempts ?? null;
         headerTitle = quizTitle;
         headerSubtitle = "General Course Quiz · covers the whole course";
@@ -267,6 +274,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         quizTitle,
         quizDescription,
         quizDeadline,
+        quizAvailableFrom,
         quizMaxAttempts,
         quizDurationMinutes,
       };
@@ -336,6 +344,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       setInfoTitle(data.quizTitle);
       setInfoDescription(data.quizDescription);
       setInfoDeadline(toDatetimeLocalValue(data.quizDeadline));
+      setInfoAvailableFrom(toDatetimeLocalValue(data.quizAvailableFrom));
       setInfoMaxAttempts(maxAttemptsToSelectValue(data.quizMaxAttempts));
     }
   }, [isCourse, data]);
@@ -344,6 +353,18 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   const durationInputError =
     parsedDuration === null
       ? `Enter a whole number of minutes between ${MIN_QUIZ_DURATION} and ${MAX_QUIZ_DURATION}.`
+      : null;
+
+  // Schedule validation (course quiz only): a due date, when set with an
+  // available-from date, must be strictly later. The RPCs re-check this.
+  const deadlineIso = fromDatetimeLocalValue(infoDeadline);
+  const availableFromIso = fromDatetimeLocalValue(infoAvailableFrom);
+  const scheduleError =
+    isCourse &&
+    deadlineIso &&
+    availableFromIso &&
+    Date.parse(deadlineIso) <= Date.parse(availableFromIso)
+      ? "The due date must be after the available-from date."
       : null;
 
   const durationDirty =
@@ -357,6 +378,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     infoTitle.trim().length > 0 &&
     infoTitle.trim().length <= 200 &&
     !durationInputError &&
+    !scheduleError &&
     validDraftCount >= 1;
 
   const updateDuration = useMutation({
@@ -402,6 +424,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     (infoTitle.trim() !== (data.quizTitle ?? "").trim() ||
       infoDescription.trim() !== (data.quizDescription ?? "").trim() ||
       fromDatetimeLocalValue(infoDeadline) !== (data.quizDeadline ?? null) ||
+      fromDatetimeLocalValue(infoAvailableFrom) !== (data.quizAvailableFrom ?? null) ||
       maxAttemptsFromSelectValue(infoMaxAttempts) !== (data.quizMaxAttempts ?? null) ||
       parsedDuration !== data.quizDurationMinutes);
 
@@ -413,6 +436,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     mutationFn: async () => {
       if (scope.kind !== "course") return;
       if (!infoTitle.trim()) throw new Error("title");
+      if (scheduleError) throw new Error("schedule");
       const minutes = parseQuizDuration(infoDuration);
       if (minutes === null) throw new Error("duration");
       const { error } = await supabase.rpc("update_course_quiz", {
@@ -420,6 +444,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         _title: infoTitle.trim(),
         _description: infoDescription.trim() || undefined,
         _deadline: fromDatetimeLocalValue(infoDeadline) ?? undefined,
+        _available_from: fromDatetimeLocalValue(infoAvailableFrom) ?? undefined,
         _max_attempts: maxAttemptsFromSelectValue(infoMaxAttempts) ?? undefined,
         _duration_minutes: minutes,
       });
@@ -432,6 +457,10 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     onError: (e) => {
       if (e instanceof Error && e.message === "title") {
         toast.error("Give the quiz a title.");
+        return;
+      }
+      if (e instanceof Error && e.message === "schedule") {
+        toast.error("The due date must be after the available-from date.");
         return;
       }
       if (e instanceof Error && e.message === "duration") {
@@ -455,6 +484,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       const cleanQ = draftQuestions.map(cleanDraft).filter((d): d is QuizDraft => d !== null);
       if (!infoTitle.trim()) throw new Error("title");
       if (cleanQ.length < 1) throw new Error("no-questions");
+      if (scheduleError) throw new Error("schedule");
       const minutes = parseQuizDuration(infoDuration);
       if (minutes === null) throw new Error("duration");
       const { data: quizId, error } = await supabase.rpc("create_course_quiz_with_questions", {
@@ -462,6 +492,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
         _questions: cleanQ.slice(0, MAX_QUESTIONS).map((d, i) => draftToRow(d, i)),
         _description: infoDescription.trim() || undefined,
         _deadline: fromDatetimeLocalValue(infoDeadline) ?? undefined,
+        _available_from: fromDatetimeLocalValue(infoAvailableFrom) ?? undefined,
         _max_attempts: maxAttemptsFromSelectValue(infoMaxAttempts) ?? undefined,
         _duration_minutes: minutes,
       });
@@ -478,6 +509,10 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
       const msg = e instanceof Error ? e.message : "";
       if (msg === "title") {
         toast.error("Give the quiz a title.");
+        return;
+      }
+      if (msg === "schedule") {
+        toast.error("The due date must be after the available-from date.");
         return;
       }
       if (msg === "no-questions") {
@@ -764,6 +799,10 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const unit = isCourse ? "general course quiz" : "module";
   const requiredLabel = isCourse ? "No questions yet" : "Quiz required";
+  const headerStatus = generalQuizStatus({
+    availableFrom: data?.quizAvailableFrom,
+    deadline: data?.quizDeadline,
+  });
 
   return (
     <motion.main
@@ -794,17 +833,19 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             <AlertTriangle className="h-3 w-3" /> {requiredLabel}
           </Badge>
         )}
-        {isCourse && !isNew && data.quizDeadline && (
+        {isCourse && !isNew && data && (
           <Badge
             variant="outline"
             className={cn(
               "gap-1",
-              deadlineStatus(data.quizDeadline) === "passed" &&
-                "border-destructive/50 text-destructive",
+              headerStatus === "closed" && "border-destructive/50 text-destructive",
+              headerStatus === "due_soon" &&
+                "border-amber-500/50 text-amber-600 dark:text-amber-400",
+              headerStatus === "available" && "border-success/50 text-success",
             )}
           >
             <CalendarClock className="h-3 w-3" />
-            {deadlineStatus(data.quizDeadline) === "passed" ? "Deadline passed" : "Has a deadline"}
+            {generalQuizStatusLabel(headerStatus)}
           </Badge>
         )}
         {isCourse && !isNew && (
@@ -889,7 +930,34 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="cq-deadline">Deadline (optional)</Label>
+              <Label htmlFor="cq-available-from">Available from (optional)</Label>
+              <Input
+                id="cq-available-from"
+                type="datetime-local"
+                value={infoAvailableFrom}
+                onChange={(e) => setInfoAvailableFrom(e.target.value)}
+                className="w-full sm:w-72"
+              />
+              <p className="text-xs text-muted-foreground">
+                Times are in your local timezone ({localTimezoneLabel()}). Before this, students see
+                the quiz as &ldquo;Not available yet&rdquo; and cannot start it. Leave empty to open
+                it as soon as it has questions.
+                {infoAvailableFrom && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="underline hover:text-foreground"
+                      onClick={() => setInfoAvailableFrom("")}
+                    >
+                      Clear
+                    </button>
+                  </>
+                )}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cq-deadline">Due date (optional)</Label>
               <Input
                 id="cq-deadline"
                 type="datetime-local"
@@ -898,8 +966,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                 className="w-full sm:w-72"
               />
               <p className="text-xs text-muted-foreground">
-                Times are in your local timezone ({localTimezoneLabel()}). Leave empty for no
-                deadline. After the deadline, students can no longer start this assessment.
+                Leave empty for no deadline. After this time, students can no longer start or resume
+                the assessment — an in-progress attempt is finalized at the deadline. You can extend
+                it later.
                 {infoDeadline && (
                   <>
                     {" "}
@@ -913,6 +982,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                   </>
                 )}
               </p>
+              {scheduleError && <p className="text-xs text-destructive">{scheduleError}</p>}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="cq-max-attempts">Maximum attempts</Label>

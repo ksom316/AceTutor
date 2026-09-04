@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,13 @@ import { QuizRunner, type RunnerQuestion } from "@/components/course/QuizRunner"
 import { QuizRecoveryGate } from "@/components/course/QuizRecoveryGate";
 import { loadSavedAnswers, orderQuestionsForAttempt } from "@/lib/quiz-recovery";
 import { useAnswerSync } from "@/hooks/use-answer-sync";
-import { canAttemptCourseQuiz, deadlineStatus, formatDeadline } from "@/lib/course-quiz";
+import {
+  canAttemptCourseQuiz,
+  deadlineStatus,
+  effectiveQuizDeadline,
+  formatDateTime,
+  formatDeadline,
+} from "@/lib/course-quiz";
 
 export const Route = createFileRoute("/_authenticated/course-quiz/$quizId")({
   component: GeneralCourseQuizRoute,
@@ -19,7 +25,8 @@ export const Route = createFileRoute("/_authenticated/course-quiz/$quizId")({
   // (browser Back, a bookmarked URL) redirects to that result instead of
   // starting a fresh attempt + timer.
   validateSearch: (search: Record<string, unknown>): { retake?: boolean } => ({
-    retake: search.retake === true || search.retake === "1" || search.retake === 1 ? true : undefined,
+    retake:
+      search.retake === true || search.retake === "1" || search.retake === 1 ? true : undefined,
   }),
 });
 
@@ -28,6 +35,7 @@ type Status =
   | "not-found"
   | "not-enrolled"
   | "not-published"
+  | "upcoming"
   | "deadline-passed"
   | "limit-reached"
   | "ready"
@@ -49,11 +57,15 @@ function GeneralCourseQuizRoute() {
   const [quiz, setQuiz] = useState<{
     title: string;
     deadline: string | null;
+    availableFrom: string | null;
     maxAttempts: number | null;
   } | null>(null);
   const [course, setCourse] = useState<{ id: string; title: string; slug: string } | null>(null);
   const [questions, setQuestions] = useState<RunnerQuestion[]>([]);
   const [attemptId, setAttemptId] = useState<string | null>(null);
+  // The attempt's stored NORMAL timer (never mutated) and the timer actually
+  // shown, which is min(that, the CURRENT course-quiz deadline).
+  const [attemptExpiresAt, setAttemptExpiresAt] = useState<string | null>(null);
   const [deadlineIso, setDeadlineIso] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Quiz Recovery — identical to the module quiz: pick up a pre-existing
@@ -66,6 +78,34 @@ function GeneralCourseQuizRoute() {
   const sync = useAnswerSync(attemptId);
 
   useStudyCourse(course?.id ?? null);
+
+  // While an attempt is live, keep an eye on the course quiz's CURRENT deadline
+  // (a lecturer can shorten it after this page loaded). Lightweight: one row by
+  // primary key, polled a minute at a time and on window focus / reconnect. The
+  // shown timer stays min(stored expires_at, this deadline); the stored attempt
+  // timer is never touched. The DB trigger + save_quiz_answer remain the real
+  // enforcement.
+  const liveDeadline = useQuery({
+    queryKey: ["course-quiz-live-deadline", quizId],
+    enabled: !!attemptId && status === "ready",
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
+    queryFn: async (): Promise<string | null> => {
+      const { data } = await supabase
+        .from("course_quizzes")
+        .select("deadline")
+        .eq("id", quizId)
+        .maybeSingle();
+      return data?.deadline ?? null;
+    },
+  });
+
+  useEffect(() => {
+    if (!attemptExpiresAt || !liveDeadline.isSuccess) return;
+    setDeadlineIso(effectiveQuizDeadline(attemptExpiresAt, liveDeadline.data));
+  }, [attemptExpiresAt, liveDeadline.isSuccess, liveDeadline.data]);
 
   useEffect(() => {
     if (!user) return;
@@ -80,7 +120,7 @@ function GeneralCourseQuizRoute() {
 
       const { data: cq } = await supabase
         .from("course_quizzes")
-        .select("id, title, deadline, max_attempts, course_id")
+        .select("id, title, deadline, available_from, max_attempts, course_id")
         .eq("id", quizId)
         .maybeSingle();
       if (!active) return;
@@ -88,7 +128,12 @@ function GeneralCourseQuizRoute() {
         setStatus("not-found");
         return;
       }
-      setQuiz({ title: cq.title, deadline: cq.deadline, maxAttempts: cq.max_attempts });
+      setQuiz({
+        title: cq.title,
+        deadline: cq.deadline,
+        availableFrom: cq.available_from,
+        maxAttempts: cq.max_attempts,
+      });
 
       const { data: courseRow } = await supabase
         .from("courses")
@@ -110,8 +155,13 @@ function GeneralCourseQuizRoute() {
         return;
       }
 
-      // Client-side deadline gate for a clear message; the DB trigger is the
-      // real enforcement and rejects a late attempt insert regardless.
+      // Client-side availability / deadline gates for a clear message; the DB
+      // trigger (enforce_course_quiz_attempt) is the real enforcement and
+      // rejects an early or late attempt insert regardless.
+      if (cq.available_from && Date.now() < Date.parse(cq.available_from)) {
+        setStatus("upcoming");
+        return;
+      }
       if (deadlineStatus(cq.deadline) === "passed") {
         setStatus("deadline-passed");
         return;
@@ -158,7 +208,8 @@ function GeneralCourseQuizRoute() {
         setQuestions(orderQuestionsForAttempt(loaded, existing.id));
         setRestoredAnswers(saved);
         setAttemptId(existing.id);
-        setDeadlineIso(existing.expires_at);
+        setAttemptExpiresAt(existing.expires_at);
+        setDeadlineIso(effectiveQuizDeadline(existing.expires_at, cq.deadline));
         setResumed(true);
         setStatus("ready");
         if (retakeRef.current) {
@@ -232,7 +283,8 @@ function GeneralCourseQuizRoute() {
             setQuestions(orderQuestionsForAttempt(loaded, raced.id));
             setRestoredAnswers(saved);
             setAttemptId(raced.id);
-            setDeadlineIso(raced.expires_at);
+            setAttemptExpiresAt(raced.expires_at);
+            setDeadlineIso(effectiveQuizDeadline(raced.expires_at, cq.deadline));
             setResumed(true);
             setStatus("ready");
             return;
@@ -240,6 +292,10 @@ function GeneralCourseQuizRoute() {
         }
         // The BEFORE INSERT trigger surfaces deadline / enrolment / attempt-cap
         // errors here — map them to the matching screen.
+        if (/not available yet/i.test(aErr.message)) {
+          setStatus("upcoming");
+          return;
+        }
         if (/deadline/i.test(aErr.message)) {
           setStatus("deadline-passed");
           return;
@@ -254,7 +310,8 @@ function GeneralCourseQuizRoute() {
       }
       setQuestions(orderQuestionsForAttempt(loaded, attempt.id));
       setAttemptId(attempt.id);
-      setDeadlineIso(attempt.expires_at);
+      setAttemptExpiresAt(attempt.expires_at);
+      setDeadlineIso(effectiveQuizDeadline(attempt.expires_at, cq.deadline));
       setStatus("ready");
       qc.invalidateQueries({ queryKey: ["active-quiz-attempt"] });
 
@@ -303,29 +360,35 @@ function GeneralCourseQuizRoute() {
         ? "Assessment not found"
         : status === "not-enrolled"
           ? "Enroll to take this assessment"
-          : status === "deadline-passed"
-            ? "Deadline passed"
-            : status === "limit-reached"
-              ? "Attempt limit reached"
-              : status === "not-published"
-                ? `${quiz?.title ?? "This assessment"} isn't ready yet`
-                : "Something went wrong";
+          : status === "upcoming"
+            ? "Not available yet"
+            : status === "deadline-passed"
+              ? "Deadline passed"
+              : status === "limit-reached"
+                ? "Attempt limit reached"
+                : status === "not-published"
+                  ? `${quiz?.title ?? "This assessment"} isn't ready yet`
+                  : "Something went wrong";
     const body =
       status === "not-found"
         ? "This general course assessment no longer exists."
         : status === "not-enrolled"
           ? `Enroll in ${course?.title ?? "this course"} to take its general course assessments.`
-          : status === "deadline-passed"
-            ? `This assessment is no longer available because the deadline has passed${
-                quiz?.deadline ? ` (${formatDeadline(quiz.deadline)})` : ""
-              }.`
-            : status === "limit-reached"
-              ? `You have used all ${
-                  quiz?.maxAttempts ?? ""
-                } attempt(s) allowed for this assessment. Your previous results are still on your dashboard.`
-              : status === "not-published"
-                ? "Your lecturer hasn't added any questions to this assessment yet — check back soon."
-                : "The assessment couldn't be loaded. Please try again.";
+          : status === "upcoming"
+            ? `This assessment opens ${
+                quiz?.availableFrom ? formatDateTime(quiz.availableFrom) : "soon"
+              }. Come back then to take it.`
+            : status === "deadline-passed"
+              ? `This assessment is no longer available because the deadline has passed${
+                  quiz?.deadline ? ` (${formatDeadline(quiz.deadline)})` : ""
+                }.`
+              : status === "limit-reached"
+                ? `You have used all ${
+                    quiz?.maxAttempts ?? ""
+                  } attempt(s) allowed for this assessment. Your previous results are still on your dashboard.`
+                : status === "not-published"
+                  ? "Your lecturer hasn't added any questions to this assessment yet — check back soon."
+                  : "The assessment couldn't be loaded. Please try again.";
     return (
       <main className="container mx-auto flex min-h-[60vh] max-w-2xl items-center justify-center px-4 py-12">
         <div className="rounded-2xl border border-dashed border-border bg-card/60 p-10 text-center">

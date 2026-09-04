@@ -16,7 +16,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
 import { fadeUp } from "@/lib/motion";
-import { deadlineStatus, formatDeadline, maxAttemptsLabel } from "@/lib/course-quiz";
+import {
+  formatDateTime,
+  generalQuizStatus,
+  generalQuizStatusLabel,
+  maxAttemptsLabel,
+  relativeTime,
+} from "@/lib/course-quiz";
 
 export const Route = createFileRoute("/lecturer/quizzes/")({
   component: LecturerQuizzes,
@@ -28,10 +34,13 @@ type GeneralQuizRow = {
   title: string;
   description: string | null;
   deadline: string | null;
+  available_from: string | null;
   created_at: string;
   question_count: number;
   max_attempts: number | null;
 };
+
+type GeneralQuizWithStats = GeneralQuizRow & { enrolled: number; submitted: number };
 
 function LecturerQuizzes() {
   const { lecturerCourseId } = useRole();
@@ -77,15 +86,31 @@ function LecturerQuizzes() {
       }
 
       // General Course Quizzes — many per course, each with its own questions
-      // and optional deadline. Read-only here (creation is an explicit action).
+      // and schedule. Read-only here (creation is an explicit action).
       const { data: gq, error: gErr } = await supabase.rpc("list_course_quizzes", {
         _course_id: lecturerCourseId!,
       });
       if (gErr) throw gErr;
 
+      // Submission summary per general quiz — lecturer-scoped, real counts.
+      const { data: stats, error: sErr } = await supabase.rpc("get_course_quiz_submission_stats");
+      if (sErr) throw sErr;
+      const statsById = new Map(
+        (stats ?? []).map((s) => [
+          s.course_quiz_id,
+          { enrolled: s.enrolled, submitted: s.submitted },
+        ]),
+      );
+
       return {
         modules: list.map((t) => ({ ...t, questionCount: counts.get(t.id) ?? 0 })),
-        generalQuizzes: (gq ?? []) as GeneralQuizRow[],
+        generalQuizzes: ((gq ?? []) as GeneralQuizRow[]).map(
+          (q): GeneralQuizWithStats => ({
+            ...q,
+            enrolled: statsById.get(q.id)?.enrolled ?? 0,
+            submitted: statsById.get(q.id)?.submitted ?? 0,
+          }),
+        ),
       };
     },
   });
@@ -166,25 +191,23 @@ function LecturerQuizzes() {
               {generalQuizzes.length > 0 && (
                 <div className="mt-3 space-y-2">
                   {generalQuizzes.map((q) => {
-                    const dl = deadlineStatus(q.deadline);
-                    const status: {
-                      label: string;
-                      cls: string;
-                      variant: "secondary" | "outline";
-                    } =
-                      q.question_count === 0
-                        ? {
-                            label: "Not published",
-                            cls: "text-destructive",
-                            variant: "secondary",
-                          }
-                        : dl === "passed"
-                          ? {
-                              label: "Deadline passed",
-                              cls: "text-destructive",
-                              variant: "outline",
-                            }
-                          : { label: "Available", cls: "text-success", variant: "secondary" };
+                    const published = q.question_count > 0;
+                    const st = generalQuizStatus({
+                      availableFrom: q.available_from,
+                      deadline: q.deadline,
+                    });
+                    const badgeCls = !published
+                      ? "text-destructive"
+                      : st === "closed"
+                        ? "text-destructive"
+                        : st === "due_soon"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : st === "available"
+                            ? "text-success"
+                            : "text-muted-foreground";
+                    const notSubmitted = Math.max(0, q.enrolled - q.submitted);
+                    const showCounts =
+                      published && (st === "available" || st === "due_soon" || st === "closed");
                     return (
                       <div
                         key={q.id}
@@ -201,20 +224,40 @@ function LecturerQuizzes() {
                             <span>
                               {q.question_count} {q.question_count === 1 ? "question" : "questions"}
                             </span>
+                            {q.available_from && st === "upcoming" && (
+                              <span className="inline-flex items-center gap-1">
+                                <CalendarClock className="h-3 w-3" />
+                                Opens {formatDateTime(q.available_from)}
+                              </span>
+                            )}
                             <span className="inline-flex items-center gap-1">
                               <CalendarClock className="h-3 w-3" />
-                              {q.deadline ? formatDeadline(q.deadline) : "No deadline"}
+                              {q.deadline
+                                ? `${st === "closed" ? "Closed" : "Due"} ${formatDateTime(q.deadline)}`
+                                : "No deadline"}
                             </span>
                             <span>{maxAttemptsLabel(q.max_attempts)}</span>
                           </p>
+                          {showCounts && (
+                            <p className="mt-1 text-xs font-medium text-foreground">
+                              {q.submitted} of {q.enrolled}{" "}
+                              {q.enrolled === 1 ? "student" : "students"} submitted
+                              {st === "closed"
+                                ? ` · ${notSubmitted} did not submit`
+                                : ` · ${notSubmitted} remaining`}
+                              {q.deadline && st !== "closed"
+                                ? ` · due ${relativeTime(q.deadline)}`
+                                : ""}
+                            </p>
+                          )}
                         </div>
-                        <Badge variant={status.variant} className={`shrink-0 gap-1 ${status.cls}`}>
-                          {q.question_count === 0 ? (
+                        <Badge variant="outline" className={`shrink-0 gap-1 ${badgeCls}`}>
+                          {!published ? (
                             <AlertTriangle className="h-3 w-3" />
                           ) : (
                             <CheckCircle2 className="h-3 w-3" />
                           )}
-                          {status.label}
+                          {published ? generalQuizStatusLabel(st) : "Not published"}
                         </Badge>
                         <Button
                           asChild

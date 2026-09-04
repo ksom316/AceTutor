@@ -150,19 +150,6 @@ function LoginPage() {
     else toast.success("Confirmation email sent — check your inbox.");
   };
 
-  const forgotPassword = async () => {
-    const parsed = z.string().trim().email().safeParse(email);
-    if (!parsed.success) {
-      toast.error("Enter your email above first, then tap Forgot Password");
-      return;
-    }
-    const { error } = await supabase.auth.resetPasswordForEmail(parsed.data, {
-      redirectTo: window.location.origin + "/login",
-    });
-    if (error) toast.error(error.message);
-    else toast.success("Password reset link sent — check your inbox");
-  };
-
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
       {/* Ambient gradient glow */}
@@ -319,13 +306,9 @@ function LoginPage() {
             )}
 
             <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={forgotPassword}
-                className="text-sm font-medium hover:underline"
-              >
-                Forgot Password
-              </button>
+              <Link to="/forgot-password" className="text-sm font-medium hover:underline">
+                Forgot password?
+              </Link>
             </div>
             <Button
               type="submit"
@@ -345,7 +328,8 @@ function LoginPage() {
           {accountType === "student" && (
             <>
               <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
-                <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+                <span className="h-px flex-1 bg-border" /> or{" "}
+                <span className="h-px flex-1 bg-border" />
               </div>
               <GoogleAuthButton label="Sign in with Google" redirect={redirect} />
             </>

@@ -276,6 +276,7 @@ export type Database = {
           audience: string;
           topic_id: string | null;
           quiz_id: string | null;
+          event_key: string | null;
         };
         Insert: {
           id?: string;
@@ -289,6 +290,7 @@ export type Database = {
           audience?: string;
           topic_id?: string | null;
           quiz_id?: string | null;
+          event_key?: string | null;
         };
         Update: { read_at?: string | null };
         Relationships: [
@@ -359,6 +361,7 @@ export type Database = {
       };
       course_quizzes: {
         Row: {
+          available_from: string | null;
           course_id: string;
           created_at: string;
           deadline: string | null;
@@ -369,6 +372,7 @@ export type Database = {
           title: string;
         };
         Insert: {
+          available_from?: string | null;
           course_id: string;
           created_at?: string;
           deadline?: string | null;
@@ -379,6 +383,7 @@ export type Database = {
           title?: string;
         };
         Update: {
+          available_from?: string | null;
           course_id?: string;
           created_at?: string;
           deadline?: string | null;
@@ -703,6 +708,7 @@ export type Database = {
       };
       create_course_quiz: {
         Args: {
+          _available_from?: string | null;
           _deadline?: string | null;
           _description?: string | null;
           _duration_minutes?: number;
@@ -713,6 +719,7 @@ export type Database = {
       };
       create_course_quiz_with_questions: {
         Args: {
+          _available_from?: string | null;
           _deadline?: string | null;
           _description?: string | null;
           _duration_minutes?: number;
@@ -724,6 +731,7 @@ export type Database = {
       };
       update_course_quiz: {
         Args: {
+          _available_from?: string | null;
           _deadline?: string | null;
           _description?: string | null;
           _duration_minutes?: number;
@@ -741,9 +749,22 @@ export type Database = {
         Args: { _quiz_id: string };
         Returns: boolean;
       };
+      get_course_quiz_submission_stats: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          course_quiz_id: string;
+          enrolled: number;
+          submitted: number;
+        }[];
+      };
+      sweep_general_quiz_schedule: {
+        Args: Record<PropertyKey, never>;
+        Returns: number;
+      };
       list_course_quizzes: {
         Args: { _course_id: string };
         Returns: {
+          available_from: string | null;
           created_at: string;
           deadline: string | null;
           description: string | null;

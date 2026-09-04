@@ -3,7 +3,9 @@ import { Link } from "@tanstack/react-router";
 import {
   Bell,
   BookOpen,
+  CalendarClock,
   CheckCircle2,
+  CircleAlert,
   ClipboardList,
   GraduationCap,
   Loader2,
@@ -27,6 +29,11 @@ const KIND_ICON: Record<string, typeof Bell> = {
   enrollment: UserPlus,
   quiz_completed: CheckCircle2,
   module_completed: Trophy,
+  general_quiz_available: GraduationCap,
+  general_quiz_due_soon: CalendarClock,
+  general_quiz_closed: CircleAlert,
+  general_quiz_active: GraduationCap,
+  general_quiz_deadline: CalendarClock,
 };
 
 function relativeTime(iso: string): string {
@@ -126,6 +133,17 @@ function RowContent({ n, onOpen }: { n: AppNotification; onOpen: (id: string) =>
     case "lecturer-performance":
       return (
         <Link to="/lecturer/performance" onClick={handle} className={cls}>
+          {inner}
+        </Link>
+      );
+    case "lecturer-quiz":
+      return (
+        <Link
+          to="/lecturer/quizzes/general/$quizId"
+          params={{ quizId: target.quizId }}
+          onClick={handle}
+          className={cls}
+        >
           {inner}
         </Link>
       );

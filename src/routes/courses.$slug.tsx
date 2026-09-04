@@ -7,6 +7,7 @@ import {
   BookOpen,
   Brain,
   Check,
+  CheckCircle2,
   ClipboardList,
   FileText,
   GraduationCap,
@@ -42,8 +43,9 @@ import { MasteryBadge, MasteryTrend } from "@/components/course/MasteryBadge";
 import {
   attemptsUsageLabel,
   canAttemptCourseQuiz,
-  deadlineStatus,
-  formatDeadline,
+  formatDateTime,
+  generalQuizStatus,
+  relativeTime,
 } from "@/lib/course-quiz";
 import { useAuth } from "@/hooks/use-auth";
 import { useRole } from "@/hooks/use-role";
@@ -155,6 +157,7 @@ function CourseDetail() {
         title: string;
         description: string | null;
         deadline: string | null;
+        available_from: string | null;
         question_count: number;
         max_attempts: number | null;
       }[];
@@ -173,10 +176,12 @@ function CourseDetail() {
         );
       const bestById = new Map<string, number>();
       const usedById = new Map<string, number>();
+      const completedIds = new Set<string>();
       for (const a of att ?? []) {
         if (!a.course_quiz_id) continue;
         usedById.set(a.course_quiz_id, (usedById.get(a.course_quiz_id) ?? 0) + 1);
         if (a.finished_at) {
+          completedIds.add(a.course_quiz_id);
           const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
           if (pct > (bestById.get(a.course_quiz_id) ?? -1)) bestById.set(a.course_quiz_id, pct);
         }
@@ -185,6 +190,7 @@ function CourseDetail() {
         ...q,
         best: bestById.get(q.id) ?? null,
         used: usedById.get(q.id) ?? 0,
+        completed: completedIds.has(q.id),
       }));
     },
   });
@@ -392,14 +398,42 @@ function CourseDetail() {
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {generalQuizzes.map((q) => {
-                const dl = deadlineStatus(q.deadline);
+                const status = generalQuizStatus({
+                  availableFrom: q.available_from,
+                  deadline: q.deadline,
+                  completed: q.completed,
+                });
                 const attemptsLeft = canAttemptCourseQuiz(q.used, q.max_attempts);
+                const stillOpen =
+                  (!q.available_from || Date.now() >= Date.parse(q.available_from)) &&
+                  (!q.deadline || Date.now() < Date.parse(q.deadline));
+                // Available / due-soon → start. Completed but the window is still
+                // open and attempts remain → allow another practice run.
+                const canStart =
+                  attemptsLeft &&
+                  stillOpen &&
+                  (status === "available" || status === "due_soon" || status === "completed");
                 return (
                   <div
                     key={q.id}
                     className="flex flex-col rounded-xl border border-border bg-card p-4"
                   >
-                    <p className="font-medium">{q.title}</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-medium">{q.title}</p>
+                      {status === "due_soon" && (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 border-amber-500/50 text-amber-600 dark:text-amber-400"
+                        >
+                          Due soon
+                        </Badge>
+                      )}
+                      {status === "completed" && (
+                        <Badge variant="secondary" className="shrink-0 gap-1 text-success">
+                          <CheckCircle2 className="h-3 w-3" /> Completed
+                        </Badge>
+                      )}
+                    </div>
                     <p className="mt-0.5 text-xs font-medium uppercase tracking-wide text-primary">
                       Created by your lecturer
                     </p>
@@ -410,28 +444,50 @@ function CourseDetail() {
                       <p>
                         {q.question_count} {q.question_count === 1 ? "question" : "questions"}
                       </p>
-                      <p className={dl === "passed" ? "text-destructive" : undefined}>
-                        {dl === "none"
-                          ? "Deadline: No deadline"
-                          : dl === "passed"
-                            ? "Deadline passed"
-                            : `Deadline: ${formatDeadline(q.deadline)}`}
-                      </p>
+                      {status === "completed" && !canStart ? (
+                        <p className="text-success">You&apos;ve completed this assessment.</p>
+                      ) : status === "upcoming" ? (
+                        <p>
+                          Opens {formatDateTime(q.available_from)}{" "}
+                          <span className="text-muted-foreground/70">
+                            ({relativeTime(q.available_from)})
+                          </span>
+                        </p>
+                      ) : status === "closed" ? (
+                        <p className="text-destructive">Closed {formatDateTime(q.deadline)}</p>
+                      ) : q.deadline ? (
+                        <p
+                          className={
+                            status === "due_soon" ? "text-amber-600 dark:text-amber-400" : undefined
+                          }
+                        >
+                          Due {formatDateTime(q.deadline)}{" "}
+                          <span className="text-muted-foreground/70">
+                            ({relativeTime(q.deadline)})
+                          </span>
+                        </p>
+                      ) : (
+                        <p>No deadline</p>
+                      )}
                       <p className={!attemptsLeft ? "text-destructive" : undefined}>
                         Attempts: {attemptsUsageLabel(q.used, q.max_attempts)}
                       </p>
                       {q.best != null && <p>Best score: {q.best}%</p>}
                     </div>
                     <div className="mt-3">
-                      {dl === "passed" ? (
+                      {status === "upcoming" ? (
+                        <Button size="sm" className="rounded-full" disabled>
+                          Not available yet
+                        </Button>
+                      ) : status === "closed" ? (
                         <Badge variant="outline" className="text-destructive">
-                          Closed
+                          Quiz closed
                         </Badge>
                       ) : !attemptsLeft ? (
                         <Badge variant="outline" className="text-destructive">
                           Attempt limit reached
                         </Badge>
-                      ) : (
+                      ) : canStart ? (
                         <Button asChild size="sm" className="rounded-full">
                           <Link
                             to="/course-quiz/$quizId"
@@ -442,7 +498,7 @@ function CourseDetail() {
                             {q.used > 0 ? "Retry Quiz" : "Start Quiz"}
                           </Link>
                         </Button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -600,10 +656,12 @@ function CourseDetail() {
                                   if (!isEnrolled) {
                                     toast.error("Enroll to view module", {
                                       description: "You need to be enrolled to view this module.",
-                                      action: user ? {
-                                        label: "Enroll",
-                                        onClick: () => enroll.mutate(),
-                                      } : undefined,
+                                      action: user
+                                        ? {
+                                            label: "Enroll",
+                                            onClick: () => enroll.mutate(),
+                                          }
+                                        : undefined,
                                     });
                                     return;
                                   }
@@ -620,10 +678,12 @@ function CourseDetail() {
                                   if (!isEnrolled) {
                                     toast.error("Enroll to ask AI tutor", {
                                       description: "You need to be enrolled to use AI features.",
-                                      action: user ? {
-                                        label: "Enroll",
-                                        onClick: () => enroll.mutate(),
-                                      } : undefined,
+                                      action: user
+                                        ? {
+                                            label: "Enroll",
+                                            onClick: () => enroll.mutate(),
+                                          }
+                                        : undefined,
                                     });
                                     return;
                                   }
@@ -677,7 +737,6 @@ function CourseDetail() {
                 </CardContent>
               </Card>
             )}
-
           </div>
 
           {/* QUICK ACTIONS SIDEBAR */}
