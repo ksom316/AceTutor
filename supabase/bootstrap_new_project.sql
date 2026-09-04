@@ -323,6 +323,35 @@ create table if not exists public.ai_messages (
 create index if not exists ai_messages_conversation_idx
   on public.ai_messages (conversation_id, created_at);
 
+-- 2.18 vark_profiles  (current VARK learner profile; 1 row / user — see
+--      learning_preferences above for the other, separate half of the learner
+--      profile: explicit self-reported preferences)
+create table if not exists public.vark_profiles (
+  user_id                 uuid primary key references auth.users(id) on delete cascade,
+  responses                jsonb,
+  visual_score             integer not null default 0,
+  auditory_score           integer not null default 0,
+  read_write_score         integer not null default 0,
+  kinesthetic_score        integer not null default 0,
+  predicted_category       text,
+  prediction_source        text not null default 'assessment',
+  prediction_confidence    numeric(4,3),
+  model_version            text,
+  assessment_completed_at  timestamptz,
+  updated_at               timestamptz not null default now(),
+  constraint vark_profiles_predicted_category_check
+    check (predicted_category is null or predicted_category in
+      ('visual', 'auditory', 'read_write', 'kinesthetic')),
+  constraint vark_profiles_prediction_source_check
+    check (prediction_source in ('assessment', 'ml_model')),
+  constraint vark_profiles_prediction_confidence_check
+    check (prediction_confidence is null
+      or (prediction_confidence >= 0 and prediction_confidence <= 1)),
+  constraint vark_profiles_scores_nonnegative_check
+    check (visual_score >= 0 and auditory_score >= 0
+      and read_write_score >= 0 and kinesthetic_score >= 0)
+);
+
 
 -- ============================================================================
 -- 3. FUNCTIONS  (all SECURITY DEFINER unless noted; search_path pinned)
@@ -2143,6 +2172,7 @@ alter table public.study_paths           enable row level security;
 alter table public.learning_preferences  enable row level security;
 alter table public.ai_conversations      enable row level security;
 alter table public.ai_messages           enable row level security;
+alter table public.vark_profiles         enable row level security;
 
 -- profiles: read / write only your own row
 create policy "profiles_select_own" on public.profiles for select to authenticated using (auth.uid() = id);
@@ -2268,6 +2298,17 @@ create policy "ai_messages_select_own" on public.ai_messages for select to authe
   using (exists (select 1 from public.ai_conversations c
                  where c.id = conversation_id and c.user_id = auth.uid()));
 revoke insert, update, delete on public.ai_messages from anon, authenticated;
+
+-- vark_profiles: own row only. No lecturer policy — never lecturer-visible,
+-- same as learning_preferences.
+create policy "vark_profiles_select_own" on public.vark_profiles
+  for select to authenticated using (auth.uid() = user_id);
+create policy "vark_profiles_insert_own" on public.vark_profiles
+  for insert to authenticated with check (auth.uid() = user_id);
+create policy "vark_profiles_update_own" on public.vark_profiles
+  for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "vark_profiles_delete_own" on public.vark_profiles
+  for delete to authenticated using (auth.uid() = user_id);
 
 
 -- ============================================================================

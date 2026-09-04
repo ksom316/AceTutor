@@ -666,6 +666,51 @@ export type Database = {
         };
         Relationships: [];
       };
+      vark_profiles: {
+        Row: {
+          assessment_completed_at: string | null;
+          auditory_score: number;
+          kinesthetic_score: number;
+          model_version: string | null;
+          prediction_confidence: number | null;
+          prediction_source: string;
+          predicted_category: string | null;
+          read_write_score: number;
+          responses: Json | null;
+          updated_at: string;
+          user_id: string;
+          visual_score: number;
+        };
+        Insert: {
+          assessment_completed_at?: string | null;
+          auditory_score?: number;
+          kinesthetic_score?: number;
+          model_version?: string | null;
+          prediction_confidence?: number | null;
+          prediction_source?: string;
+          predicted_category?: string | null;
+          read_write_score?: number;
+          responses?: Json | null;
+          updated_at?: string;
+          user_id: string;
+          visual_score?: number;
+        };
+        Update: {
+          assessment_completed_at?: string | null;
+          auditory_score?: number;
+          kinesthetic_score?: number;
+          model_version?: string | null;
+          prediction_confidence?: number | null;
+          prediction_source?: string;
+          predicted_category?: string | null;
+          read_write_score?: number;
+          responses?: Json | null;
+          updated_at?: string;
+          user_id?: string;
+          visual_score?: number;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

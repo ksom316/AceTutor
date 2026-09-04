@@ -29,6 +29,7 @@ import { Route as LecturerNotificationsRouteImport } from './routes/lecturer.not
 import { Route as LecturerMaterialsRouteImport } from './routes/lecturer.materials'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
+import { Route as AuthenticatedVarkAssessmentRouteImport } from './routes/_authenticated/vark-assessment'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedSecurityRouteImport } from './routes/_authenticated/security'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
@@ -151,6 +152,12 @@ const AuthCallbackRoute = AuthCallbackRouteImport.update({
   path: '/auth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedVarkAssessmentRoute =
+  AuthenticatedVarkAssessmentRouteImport.update({
+    id: '/vark-assessment',
+    path: '/vark-assessment',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -294,6 +301,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof AuthenticatedProfileRoute
   '/security': typeof AuthenticatedSecurityRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/vark-assessment': typeof AuthenticatedVarkAssessmentRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
@@ -336,6 +344,7 @@ export interface FileRoutesByTo {
   '/profile': typeof AuthenticatedProfileRoute
   '/security': typeof AuthenticatedSecurityRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/vark-assessment': typeof AuthenticatedVarkAssessmentRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
@@ -381,6 +390,7 @@ export interface FileRoutesById {
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/security': typeof AuthenticatedSecurityRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/_authenticated/vark-assessment': typeof AuthenticatedVarkAssessmentRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
@@ -426,6 +436,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/security'
     | '/settings'
+    | '/vark-assessment'
     | '/auth/callback'
     | '/courses/$slug'
     | '/lecturer/materials'
@@ -468,6 +479,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/security'
     | '/settings'
+    | '/vark-assessment'
     | '/auth/callback'
     | '/courses/$slug'
     | '/lecturer/materials'
@@ -512,6 +524,7 @@ export interface FileRouteTypes {
     | '/_authenticated/profile'
     | '/_authenticated/security'
     | '/_authenticated/settings'
+    | '/_authenticated/vark-assessment'
     | '/auth/callback'
     | '/courses/$slug'
     | '/lecturer/materials'
@@ -695,6 +708,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/vark-assessment': {
+      id: '/_authenticated/vark-assessment'
+      path: '/vark-assessment'
+      fullPath: '/vark-assessment'
+      preLoaderRoute: typeof AuthenticatedVarkAssessmentRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -862,6 +882,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedSecurityRoute: typeof AuthenticatedSecurityRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedVarkAssessmentRoute: typeof AuthenticatedVarkAssessmentRoute
   AuthenticatedCourseQuizQuizIdRoute: typeof AuthenticatedCourseQuizQuizIdRoute
   AuthenticatedLearningStudyPathIdRoute: typeof AuthenticatedLearningStudyPathIdRoute
   AuthenticatedOnboardingPreferencesRoute: typeof AuthenticatedOnboardingPreferencesRoute
@@ -883,6 +904,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedSecurityRoute: AuthenticatedSecurityRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedVarkAssessmentRoute: AuthenticatedVarkAssessmentRoute,
   AuthenticatedCourseQuizQuizIdRoute: AuthenticatedCourseQuizQuizIdRoute,
   AuthenticatedLearningStudyPathIdRoute: AuthenticatedLearningStudyPathIdRoute,
   AuthenticatedOnboardingPreferencesRoute:

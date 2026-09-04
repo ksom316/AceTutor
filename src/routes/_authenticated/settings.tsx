@@ -265,6 +265,8 @@ function ResetAccountButton() {
       if (enrollDel.error) throw enrollDel.error;
       const prefsDel = await supabase.from("learning_preferences").delete().eq("user_id", uid);
       if (prefsDel.error) throw prefsDel.error;
+      const varkDel = await supabase.from("vark_profiles").delete().eq("user_id", uid);
+      if (varkDel.error) throw varkDel.error;
 
       await queryClient.invalidateQueries();
       toast.success("Your account data has been reset");

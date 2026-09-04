@@ -6,8 +6,17 @@ import { Camera, Loader2, LogOut, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useRole } from "@/hooks/use-role";
+import { useVarkProfile } from "@/hooks/use-vark-profile";
+import {
+  derivePrimaryVarkCategory,
+  scoresFromProfile,
+  VARK_CATEGORIES,
+  VARK_CATEGORY_LABEL,
+  varkScorePercentages,
+} from "@/lib/vark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,6 +89,12 @@ function ProfilePage() {
       return data;
     },
   });
+
+  const { profile: varkProfile, status: varkStatus } = useVarkProfile({ enabled: !isLecturer });
+  const varkPrimary = varkProfile
+    ? derivePrimaryVarkCategory(scoresFromProfile(varkProfile))
+    : null;
+  const varkPct = varkProfile ? varkScorePercentages(scoresFromProfile(varkProfile)) : null;
 
   const { data: enrolled } = useQuery({
     queryKey: ["enrolled-courses", user?.id],
@@ -357,6 +372,47 @@ function ProfilePage() {
                   : "Set your preferences →"}
               </Link>
             </div>
+          </section>
+
+          {/* VARK learning tendency — the other half of the learner profile,
+              alongside Learning Preferences above. Optional, never gates
+              anything; see src/lib/vark.ts. */}
+          <section className="mt-6 rounded-2xl border border-border bg-card p-6">
+            <h2 className="font-display text-xl">VARK learning tendency</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              A short, optional check-in on how new ideas tend to click fastest for you.
+            </p>
+            {varkStatus === "completed" && varkPrimary ? (
+              <div className="mt-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                    {varkPrimary.category
+                      ? VARK_CATEGORY_LABEL[varkPrimary.category]
+                      : "Not enough signal yet"}
+                    {varkPrimary.tied ? " (close mix)" : ""}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {VARK_CATEGORIES.map((c) => (
+                    <div key={c}>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">{VARK_CATEGORY_LABEL[c]}</span>
+                        <span className="text-muted-foreground">{varkPct?.[c] ?? 0}%</span>
+                      </div>
+                      <Progress value={varkPct?.[c] ?? 0} className="mt-1 h-1.5" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 font-display text-2xl">Not taken yet</p>
+            )}
+            <Link
+              to="/vark-assessment"
+              className="mt-3 inline-block text-xs underline-offset-4 hover:underline"
+            >
+              {varkStatus === "completed" ? "Retake assessment →" : "Take the VARK assessment →"}
+            </Link>
           </section>
 
           {/* Enrolled courses list */}
