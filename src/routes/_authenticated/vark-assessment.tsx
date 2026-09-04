@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import { ArrowLeft, Check, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useVarkProfile } from "@/hooks/use-vark-profile";
@@ -36,9 +36,15 @@ export const Route = createFileRoute("/_authenticated/vark-assessment")({
  * Doubles as viewer + editor, same pattern as the preferences page: a student
  * with a completed profile lands on a read-only "your VARK profile" summary
  * with a "Retake assessment" action; a student with none goes straight to the
- * question form. Every question allows selecting more than one option — nothing
- * forces an exclusive category — and the result is always shown as a
- * four-way score breakdown, never just a single label.
+ * question form. The form shows ONE question at a time (same fixed-position,
+ * animated-swap pattern as onboarding.preferences.tsx) — "Next" only requires
+ * the CURRENT question to have a selection, which transitively guarantees
+ * every question up to wherever the student currently is has one, so by the
+ * time "Submit assessment" is reachable the whole set is already complete.
+ * Every question allows selecting more than one option — nothing forces an
+ * exclusive category — and the result is always shown as a four-way score
+ * breakdown, never just a single label. Nothing is saved until that final
+ * Submit is pressed.
  */
 function VarkAssessmentPage() {
   const { profile, isLoading, submit, submitting } = useVarkProfile();
@@ -49,6 +55,8 @@ function VarkAssessmentPage() {
   const [view, setView] = useState<"summary" | "form" | null>(null);
   const [responses, setResponses] = useState<VarkResponses>({});
   const [justSubmitted, setJustSubmitted] = useState<VarkScores | null>(null);
+  const [step, setStep] = useState(0);
+  const questionRef = useRef<HTMLHeadingElement>(null);
 
   const hasCompletedProfile = !!profile?.assessment_completed_at;
   useEffect(() => {
@@ -56,12 +64,22 @@ function VarkAssessmentPage() {
     setView(hasCompletedProfile ? "summary" : "form");
   }, [view, isLoading, hasCompletedProfile]);
 
-  const answeredCount = useMemo(
-    () => VARK_QUESTIONS.filter((q) => (responses[q.id]?.length ?? 0) > 0).length,
-    [responses],
-  );
+  // Move focus to the new question on every step change so keyboard/screen
+  // reader users get a clear signal the content advanced, without stealing
+  // focus on the initial mount of the page itself.
+  useEffect(() => {
+    if (view !== "form") return;
+    questionRef.current?.focus();
+  }, [step, view]);
+
+  const total = VARK_QUESTIONS.length;
+  const question = VARK_QUESTIONS[step];
+  const isFirst = step === 0;
+  const isLast = step === total - 1;
+  const selectedForStep = responses[question.id] ?? [];
+  const canAdvance = selectedForStep.length > 0;
   const complete = isVarkAssessmentComplete(responses);
-  const progress = Math.round((answeredCount / VARK_QUESTIONS.length) * 100);
+  const progress = Math.round(((step + 1) / total) * 100);
 
   const toggle = (questionId: string, dimension: VarkCategory) => {
     setResponses((prev) => {
@@ -73,9 +91,16 @@ function VarkAssessmentPage() {
     });
   };
 
+  const goNext = () => {
+    if (!canAdvance) return;
+    if (!isLast) setStep((s) => Math.min(total - 1, s + 1));
+  };
+  const goBack = () => setStep((s) => Math.max(0, s - 1));
+
   const startRetake = () => {
     setResponses({});
     setJustSubmitted(null);
+    setStep(0);
     setView("form");
   };
 
@@ -176,9 +201,10 @@ function VarkAssessmentPage() {
 
       {view === "form" && (
         <>
+          {/* Progress */}
           <div className="mt-8">
             <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              {answeredCount} of {VARK_QUESTIONS.length} answered
+              Question {step + 1} of {total}
             </p>
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
               <motion.div
@@ -190,22 +216,37 @@ function VarkAssessmentPage() {
             </div>
           </div>
 
-          <ol className="mt-6 space-y-5">
-            {VARK_QUESTIONS.map((q, idx) => (
-              <li key={q.id} className="rounded-2xl border border-border bg-card p-5">
-                <p className="text-xs text-muted-foreground">Question {idx + 1}</p>
-                <p className="mt-1 text-base font-medium">{q.prompt}</p>
-                <div className="mt-3 grid gap-2">
-                  {q.options.map((opt) => {
-                    const isSelected = responses[q.id]?.includes(opt.dimension) ?? false;
+          {/* Question card — fixed position, only its content swaps. Multi-select:
+              every option is an independent toggle, so more than one can stay
+              selected at once. */}
+          <div className="relative mt-6 min-h-[24rem]">
+            <AnimatePresence mode="wait">
+              <motion.section
+                key={question.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3, ease: EASE }}
+                className="rounded-2xl border border-border bg-card p-6"
+                aria-live="polite"
+              >
+                <h2 ref={questionRef} tabIndex={-1} className="font-display text-xl outline-none">
+                  {question.prompt}
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Pick every option that genuinely applies — more than one is fine.
+                </p>
+                <div className="mt-4 grid gap-3">
+                  {question.options.map((opt) => {
+                    const isSelected = selectedForStep.includes(opt.dimension);
                     return (
                       <button
                         key={opt.dimension}
                         type="button"
-                        onClick={() => toggle(q.id, opt.dimension)}
+                        onClick={() => toggle(question.id, opt.dimension)}
                         aria-pressed={isSelected}
                         disabled={submitting}
-                        className={`group flex items-start gap-3 rounded-xl border p-3 text-left text-sm transition-colors disabled:opacity-60 ${
+                        className={`group flex items-start gap-3 rounded-xl border p-4 text-left text-sm transition-colors disabled:opacity-60 ${
                           isSelected
                             ? "border-primary bg-primary/5"
                             : "border-border hover:border-accent/60 hover:bg-accent/5"
@@ -225,20 +266,32 @@ function VarkAssessmentPage() {
                     );
                   })}
                 </div>
-              </li>
-            ))}
-          </ol>
+              </motion.section>
+            </AnimatePresence>
+          </div>
 
+          {/* Controls */}
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <Button onClick={onSubmit} disabled={!complete || submitting}>
-              {submitting ? (
-                <>
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Saving…
-                </>
-              ) : (
-                "Save my VARK profile"
-              )}
-            </Button>
+            {!isFirst && (
+              <Button variant="ghost" onClick={goBack} disabled={submitting}>
+                <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
+              </Button>
+            )}
+            {isLast ? (
+              <Button onClick={onSubmit} disabled={!canAdvance || !complete || submitting}>
+                {submitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Saving…
+                  </>
+                ) : (
+                  "Submit assessment"
+                )}
+              </Button>
+            ) : (
+              <Button onClick={goNext} disabled={!canAdvance || submitting}>
+                Next <ArrowRight className="ml-1.5 h-4 w-4" />
+              </Button>
+            )}
             {hasCompletedProfile && (
               <Button
                 variant="ghost"
@@ -249,12 +302,12 @@ function VarkAssessmentPage() {
                 Cancel
               </Button>
             )}
-            {!complete && (
-              <p className="text-xs text-muted-foreground">
-                Select at least one option for every question to save.
-              </p>
-            )}
           </div>
+          {!canAdvance && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Select at least one option to continue.
+            </p>
+          )}
         </>
       )}
     </main>
