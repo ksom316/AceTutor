@@ -4,7 +4,7 @@ import { AlertTriangle, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { RemedialContent } from "@/lib/remedial-content";
+import { remedialContentToScript, type RemedialContent } from "@/lib/remedial-content";
 import {
   REMEDIAL_MODALITIES,
   REMEDIAL_MODALITY_IMPLEMENTED,
@@ -13,6 +13,7 @@ import {
 } from "@/lib/remedial-modality";
 import { useRemedialLesson } from "@/hooks/use-remedial-lesson";
 import type { ParsedStudyPath } from "@/hooks/use-study-path";
+import { RemedialAudioPlayer } from "@/components/course/RemedialAudioPlayer";
 
 /* ------------------------------------------------------------------ *
  * RemedialContentView — the format-agnostic remedial lesson, rendered as
@@ -102,11 +103,36 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
   const recommendedLabel = REMEDIAL_MODALITY_LABEL[recommended];
   const hasContent = !!content;
 
+  // The narration script is the SAME RemedialContent, format-independent — no
+  // audio-specific lesson or prompt. Changes only when the content regenerates.
+  const script = useMemo(() => (content ? remedialContentToScript(content) : ""), [content]);
+  // Remounts <RemedialAudioPlayer> (→ stops any narration) when the content changes.
+  const audioKey =
+    remedial.generateResult?.generatedAt ?? studyPath.remedial?.generatedAt ?? "audio";
+
   const generateLabel = useMemo(() => {
     if (remedial.generating) return "Generating explanation…";
     if (remedial.generateFailed) return "Try again";
     return hasContent ? "Regenerate explanation" : "Generate explanation";
   }, [remedial.generating, remedial.generateFailed, hasContent]);
+
+  const regenerateButton = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={remedial.generating}
+        onClick={() => remedial.generate(true)}
+      >
+        {remedial.generating ? (
+          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+        )}
+        Regenerate explanation
+      </Button>
+    </div>
+  );
 
   return (
     <section
@@ -152,6 +178,7 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
           {/* Format body */}
           <div className="mt-4">
             {!REMEDIAL_MODALITY_IMPLEMENTED[activeFormat] ? (
+              // Visual is still R3.
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-300">
                 <p className="font-medium">
                   {REMEDIAL_MODALITY_LABEL[activeFormat]} version coming in the next step.
@@ -167,27 +194,14 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
                   </button>
                 </p>
               </div>
-            ) : hasContent && content ? (
-              <div className="space-y-4">
-                <RemedialContentView content={content} />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={remedial.generating}
-                    onClick={() => remedial.generate(true)}
-                  >
-                    {remedial.generating ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    Regenerate explanation
-                  </Button>
-                </div>
-              </div>
-            ) : (
+            ) : !hasContent || !content || !script ? (
+              // Nothing generated yet — the SAME content serves every format.
               <div className="space-y-3">
+                {activeFormat === "audio" && (
+                  <p className="text-sm text-muted-foreground">
+                    Generate the personalized explanation first, then you can listen to it here.
+                  </p>
+                )}
                 {remedial.generateFailed && (
                   <p className="flex items-start gap-2 text-sm text-destructive">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -197,14 +211,35 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
                     </span>
                   </p>
                 )}
-                <Button disabled={remedial.generating} onClick={() => remedial.generate(false)}>
-                  {remedial.generating ? (
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-1.5 h-4 w-4" />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button disabled={remedial.generating} onClick={() => remedial.generate(false)}>
+                    {remedial.generating ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1.5 h-4 w-4" />
+                    )}
+                    {generateLabel}
+                  </Button>
+                  {activeFormat === "audio" && (
+                    <button
+                      type="button"
+                      onClick={() => setFormat("text")}
+                      className="text-sm font-semibold text-primary underline underline-offset-2"
+                    >
+                      Switch to text
+                    </button>
                   )}
-                  {generateLabel}
-                </Button>
+                </div>
+              </div>
+            ) : activeFormat === "audio" ? (
+              <div className="space-y-4">
+                <RemedialAudioPlayer key={audioKey} script={script} />
+                {regenerateButton}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <RemedialContentView content={content} />
+                {regenerateButton}
               </div>
             )}
           </div>
