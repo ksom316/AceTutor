@@ -8,7 +8,14 @@ import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { QuizRunner, type RunnerQuestion } from "@/components/course/QuizRunner";
 import { QuizRecoveryGate } from "@/components/course/QuizRecoveryGate";
+import { ActiveQuizElsewherePanel } from "@/components/course/ActiveQuizElsewherePanel";
 import { loadSavedAnswers, orderQuestionsForAttempt } from "@/lib/quiz-recovery";
+import {
+  isBlockingActiveAttempt,
+  isOneActiveOfficialQuizError,
+  loadActiveOfficialAttempt,
+  type ActiveQuizAttempt,
+} from "@/lib/quiz-start";
 import { useAnswerSync } from "@/hooks/use-answer-sync";
 
 export const Route = createFileRoute("/_authenticated/quiz/$topicId")({
@@ -49,6 +56,9 @@ function ModuleQuizRoute() {
   const [resumed, setResumed] = useState(false);
   const [resumeAccepted, setResumeAccepted] = useState(false);
   const [restoredAnswers, setRestoredAnswers] = useState<Record<string, number>>({});
+  // Set when the student has a DIFFERENT official quiz still in progress — no
+  // new attempt is created (also enforced server-side).
+  const [activeElsewhere, setActiveElsewhere] = useState<ActiveQuizAttempt | null>(null);
 
   // Per-answer persistence + retry of any saves that didn't land.
   const sync = useAnswerSync(attemptId);
@@ -172,6 +182,17 @@ function ModuleQuizRoute() {
         return;
       }
 
+      // One active OFFICIAL quiz per student, globally: if a different module
+      // quiz or the General Course Quiz is still in progress, don't start
+      // another (also enforced by enforce_one_active_official_quiz).
+      const blocking = await loadActiveOfficialAttempt(user.id);
+      if (!active) return;
+      if (isBlockingActiveAttempt(blocking, { kind: "module", topicId })) {
+        setActiveElsewhere(blocking);
+        setLoading(false);
+        return;
+      }
+
       // A genuine first attempt, or a deliberate retake → start a new attempt
       // (the DB trigger stamps expires_at = started_at + the module's quiz
       // duration). Module retakes are unlimited by design.
@@ -182,6 +203,17 @@ function ModuleQuizRoute() {
         .single();
       if (!active) return;
       if (aErr) {
+        // The global one-active-official-quiz guard fired between our check and
+        // this insert (another tab). Show the "return to your active quiz" panel.
+        if (isOneActiveOfficialQuizError(aErr)) {
+          const other = await loadActiveOfficialAttempt(user.id);
+          if (!active) return;
+          if (other) {
+            setActiveElsewhere(other);
+            setLoading(false);
+            return;
+          }
+        }
         // A concurrent load / double-click already created the active attempt
         // (partial unique index quiz_attempts_one_active_module). Resume that
         // one instead of failing or duplicating.
@@ -296,6 +328,10 @@ function ModuleQuizRoute() {
         </div>
       </main>
     );
+  }
+
+  if (activeElsewhere) {
+    return <ActiveQuizElsewherePanel attempt={activeElsewhere} />;
   }
 
   if (resumed && !resumeAccepted && attemptId) {

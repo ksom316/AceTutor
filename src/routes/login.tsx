@@ -12,6 +12,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { useRole } from "@/hooks/use-role";
 import { verifyLecturerLogin } from "@/lib/lecturer-claim";
 import { resolvePostAuthDestination } from "@/lib/post-auth-redirect";
+import {
+  LECTURER_ACCOUNT_ON_STUDENT_SURFACE_MESSAGE,
+  STUDENT_ACCOUNT_ON_LECTURER_SURFACE_MESSAGE,
+} from "@/lib/cross-role-auth";
 import { GoogleAuthButton } from "@/components/site/GoogleAuthButton";
 import { staggerContainer, staggerItem } from "@/lib/motion";
 import logoAsset from "@/assets/ace-logo.jpg";
@@ -108,9 +112,20 @@ function LoginPage() {
       // teacher role. Never redirects a non-owner into /lecturer.
       const verified = await verifyLecturerLogin(userId, lecturerId);
       if (!verified) {
+        // Distinguish "a student account is trying the Lecturer option" (a
+        // cross-role conflict) from a genuine lecturer who mistyped their ID.
+        const { data: roleRow } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", userId)
+          .maybeSingle();
         await supabase.auth.signOut();
         setLoading(false);
-        toast.error("Lecturer ID does not match this account.");
+        toast.error(
+          roleRow?.role === "student"
+            ? STUDENT_ACCOUNT_ON_LECTURER_SURFACE_MESSAGE
+            : "Lecturer ID does not match this account.",
+        );
         return;
       }
       await qc.invalidateQueries({ queryKey: ["user-role"] });
@@ -126,9 +141,7 @@ function LoginPage() {
     if (lecturerCourse) {
       await supabase.auth.signOut();
       setLoading(false);
-      toast.error(
-        "This is a lecturer account — sign in with the Lecturer option and your Lecturer ID.",
-      );
+      toast.error(LECTURER_ACCOUNT_ON_STUDENT_SURFACE_MESSAGE);
       return;
     }
     await qc.invalidateQueries({ queryKey: ["user-role"] });

@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { friendlyClaimError } from "@/lib/cross-role-auth";
 
 /**
  * Helpers for turning a signed-in account into a lecturer by claiming a
@@ -59,7 +60,10 @@ export type ClaimResult =
 /** Claim `id` for the current session. Used by the immediate signup path. */
 export async function claimLecturerSlot(id: string): Promise<ClaimResult> {
   const { error } = await supabase.rpc("claim_lecturer_slot", { _lecturer_id: id.trim() });
-  if (error) return { status: "failed", message: error.message };
+  // The DB is the sole authority: it refuses to overwrite an established
+  // student account's role and raises `ROLE_CONFLICT_STUDENT:` — surface that
+  // as a clear, non-technical message.
+  if (error) return { status: "failed", message: friendlyClaimError(error.message) };
   return { status: "claimed" };
 }
 

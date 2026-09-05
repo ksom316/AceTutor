@@ -42,6 +42,19 @@ export function StartQuizButton({
   const start = async () => {
     if (loading) return;
 
+    // One official quiz at a time. If a DIFFERENT official quiz is already
+    // running, send the student back to it instead of onto a dead-end start
+    // (the runner route + the DB trigger enforce this regardless).
+    if (activeQuiz && !isContinue) {
+      toast.info("Finish your active quiz first.");
+      navigate(
+        activeQuiz.kind === "module"
+          ? { to: "/quiz/$topicId", params: { topicId: activeQuiz.paramId } }
+          : { to: "/course-quiz/$quizId", params: { quizId: activeQuiz.paramId } },
+      );
+      return;
+    }
+
     // Check the session directly from Supabase instead of relying on the
     // React auth context, which may not have caught up yet on fresh
     // navigations (SSR hydration / hard reloads).

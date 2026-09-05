@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { askCourse } from "@/lib/course-chat.functions";
+import { hasClearableConversation } from "@/lib/clear-conversation";
 
 export type TutorMode = "ask" | "explain" | "summarize" | "test" | "general" | "guide";
 
@@ -147,14 +148,26 @@ export function useAiConversation(courseId: string | undefined) {
       send.reset();
       setSelection("new");
       qc.removeQueries({ queryKey: ["ai-messages"] });
+      // Flip "has clearable content" to false immediately (before the refetch),
+      // so Clear Conversation disables the moment the clear lands.
+      qc.setQueryData(["ai-conversation", user?.id, courseId], null);
       await qc.invalidateQueries({ queryKey: ["ai-conversation", user?.id, courseId] });
     },
+  });
+
+  // Whether "Clear conversation" has anything to act on: real messages in the
+  // current thread, or a prior conversation still on record for this course.
+  // Derived from the SAME state the UI already reads — no separate counter.
+  const hasConversationContent = hasClearableConversation({
+    messageCount: messagesQuery.data?.length ?? 0,
+    hasLatestConversation: !!latestQuery.data,
   });
 
   return {
     conversationId,
     messages: messagesQuery.data ?? [],
     isLoading: latestQuery.isLoading || (!!conversationId && messagesQuery.isLoading),
+    hasConversationContent,
     send,
     startNewConversation,
     clearCourseConversations,

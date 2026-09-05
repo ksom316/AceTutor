@@ -117,7 +117,10 @@ function SignupPage() {
         password: parsed.data.password,
         options: {
           emailRedirectTo: window.location.origin + "/lecturer",
-          data: { full_name: parsed.data.fullName },
+          // `signup_intent` only makes handle_new_user() mark the placeholder
+          // `student` row PROVISIONAL — it grants nothing. The real teacher role
+          // comes from claim_lecturer_slot() validating this Lecturer ID.
+          data: { full_name: parsed.data.fullName, signup_intent: "lecturer" },
         },
       });
       if (error) {

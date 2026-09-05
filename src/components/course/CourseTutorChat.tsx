@@ -68,8 +68,14 @@ export function CourseTutorChat({
   onClearModule: () => void;
   enrolled: boolean;
 }) {
-  const { messages, isLoading, send, startNewConversation, clearCourseConversations } =
-    useAiConversation(courseId);
+  const {
+    messages,
+    isLoading,
+    hasConversationContent,
+    send,
+    startNewConversation,
+    clearCourseConversations,
+  } = useAiConversation(courseId);
   const [input, setInput] = useState("");
   const [guideMode, setGuideMode] = useState(false);
   const [quizMeOpen, setQuizMeOpen] = useState(false);
@@ -197,8 +203,9 @@ export function CourseTutorChat({
             <button
               type="button"
               onClick={() => setConfirmClear(true)}
-              disabled={clearCourseConversations.isPending}
-              className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
+              disabled={!hasConversationContent || clearCourseConversations.isPending}
+              aria-disabled={!hasConversationContent || clearCourseConversations.isPending}
+              className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
             >
               <Trash2 className="h-3 w-3" /> Clear conversation
             </button>

@@ -8,7 +8,14 @@ import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
 import { QuizRunner, type RunnerQuestion } from "@/components/course/QuizRunner";
 import { QuizRecoveryGate } from "@/components/course/QuizRecoveryGate";
+import { ActiveQuizElsewherePanel } from "@/components/course/ActiveQuizElsewherePanel";
 import { loadSavedAnswers, orderQuestionsForAttempt } from "@/lib/quiz-recovery";
+import {
+  isBlockingActiveAttempt,
+  isOneActiveOfficialQuizError,
+  loadActiveOfficialAttempt,
+  type ActiveQuizAttempt,
+} from "@/lib/quiz-start";
 import { useAnswerSync } from "@/hooks/use-answer-sync";
 import {
   canAttemptCourseQuiz,
@@ -38,6 +45,7 @@ type Status =
   | "upcoming"
   | "deadline-passed"
   | "limit-reached"
+  | "active-elsewhere"
   | "ready"
   | "error";
 
@@ -74,6 +82,7 @@ function GeneralCourseQuizRoute() {
   const [resumed, setResumed] = useState(false);
   const [resumeAccepted, setResumeAccepted] = useState(false);
   const [restoredAnswers, setRestoredAnswers] = useState<Record<string, number>>({});
+  const [activeElsewhere, setActiveElsewhere] = useState<ActiveQuizAttempt | null>(null);
 
   const sync = useAnswerSync(attemptId);
 
@@ -257,6 +266,17 @@ function GeneralCourseQuizRoute() {
         }
       }
 
+      // One active OFFICIAL quiz per student, globally: a different module quiz
+      // or General Course Quiz still in progress blocks a new start (also
+      // enforced by enforce_one_active_official_quiz).
+      const blocking = await loadActiveOfficialAttempt(user.id);
+      if (!active) return;
+      if (isBlockingActiveAttempt(blocking, { kind: "general", courseQuizId: quizId })) {
+        setActiveElsewhere(blocking);
+        setStatus("active-elsewhere");
+        return;
+      }
+
       const { data: attempt, error: aErr } = await supabase
         .from("quiz_attempts")
         .insert({ user_id: user.id, course_quiz_id: quizId })
@@ -264,6 +284,17 @@ function GeneralCourseQuizRoute() {
         .single();
       if (!active) return;
       if (aErr) {
+        // The global one-active-official-quiz guard fired between our check and
+        // this insert (another tab).
+        if (isOneActiveOfficialQuizError(aErr)) {
+          const other = await loadActiveOfficialAttempt(user.id);
+          if (!active) return;
+          if (other) {
+            setActiveElsewhere(other);
+            setStatus("active-elsewhere");
+            return;
+          }
+        }
         // A concurrent load / double-click already created the active attempt
         // (partial unique index quiz_attempts_one_active_general) — resume it.
         if (aErr.code === "23505") {
@@ -352,6 +383,10 @@ function GeneralCourseQuizRoute() {
     // completed-attempt guard in the loader above.
     navigate({ to: "/result/$attemptId", params: { attemptId }, replace: true });
   };
+
+  if (status === "active-elsewhere" && activeElsewhere) {
+    return <ActiveQuizElsewherePanel attempt={activeElsewhere} />;
+  }
 
   if (status !== "ready" && status !== "loading") {
     const backSlug = course?.slug;

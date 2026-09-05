@@ -63,11 +63,20 @@ create table if not exists public.profiles (
 );
 
 -- 2.2 user_roles  (separate table so a client can never escalate its own role)
+--     ONE row per user — one authenticated identity may hold exactly one
+--     AceTutor role. `status` distinguishes an ESTABLISHED role from a
+--     PROVISIONAL placeholder (a would-be lecturer between signup and claim);
+--     handle_new_user() only ever writes 'student', and marks it 'provisional'
+--     when the signup declared lecturer intent. claim_lecturer_slot() decides
+--     purely on `status` (an established student is rejected), changes the role
+--     in place, and never adds a second row or overwrites an established role.
 create table if not exists public.user_roles (
   id      uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   role    public.app_role not null,
-  unique (user_id, role)
+  status  text not null default 'established'
+          check (status in ('provisional', 'established')),
+  constraint user_roles_user_id_key unique (user_id)
 );
 
 -- 2.3 courses
@@ -473,7 +482,20 @@ as $$
 begin
   insert into public.profiles (id, full_name)
   values (new.id, coalesce(new.raw_user_meta_data->>'full_name', new.email));
-  insert into public.user_roles (user_id, role) values (new.id, 'student');
+
+  -- Role is ALWAYS 'student' here; the client-supplied `signup_intent` can only
+  -- mark the row PROVISIONAL (weaker) — it never grants a role. Becoming a
+  -- teacher still requires a valid lecturer_slots row via claim_lecturer_slot().
+  insert into public.user_roles (user_id, role, status)
+  values (
+    new.id,
+    'student',
+    case
+      when new.raw_user_meta_data->>'signup_intent' = 'lecturer' then 'provisional'
+      else 'established'
+    end
+  );
+
   return new;
 end;
 $$;
@@ -481,7 +503,11 @@ $$;
 
 -- 3.3 lecturer identity -----------------------------------------------------
 
--- Atomically claim a Lecturer ID for the current user and promote to 'teacher'.
+-- Atomically claim a Lecturer ID for the current user and establish the
+-- 'teacher' role. Decides purely on `user_roles.status`: an ESTABLISHED student
+-- is rejected outright; a PROVISIONAL / missing row converts in place. NEVER a
+-- delete-then-insert, never a second row. The student-activity probe is a
+-- DEFENSIVE BACKSTOP for provisional/legacy rows only — not the primary rule.
 create or replace function public.claim_lecturer_slot(_lecturer_id text)
 returns uuid
 language plpgsql security definer set search_path = public
@@ -489,6 +515,9 @@ as $$
 declare
   v_key text := upper(trim(_lecturer_id));
   v_slot public.lecturer_slots%rowtype;
+  v_role text;
+  v_status text;
+  v_legacy_student boolean;
 begin
   if auth.uid() is null then
     raise exception 'You must be signed in to register as a lecturer.';
@@ -505,12 +534,53 @@ begin
     raise exception 'This Lecturer ID has already been claimed.';
   end if;
 
+  select role, status into v_role, v_status
+    from public.user_roles where user_id = auth.uid();
+
+  -- PRIMARY RULE: an established student role is a hard cross-role conflict.
+  if v_role = 'student' and v_status = 'established' then
+    raise exception
+      'ROLE_CONFLICT_STUDENT: This email is already registered as a student account. Please sign in as a student or use a different email to register as a lecturer.'
+      using errcode = 'P0001';
+  end if;
+
+  -- DEFENSIVE BACKSTOP: a provisional / legacy / missing row that still carries
+  -- real student history is treated as an established student. A `teacher` row
+  -- is a retry — always fine to bind.
+  if v_role is distinct from 'teacher' then
+    select exists (
+      select 1 from public.enrollments          where user_id = auth.uid()
+      union all
+      select 1 from public.quiz_attempts         where user_id = auth.uid()
+      union all
+      select 1 from public.learning_preferences  where user_id = auth.uid()
+      union all
+      select 1 from public.vark_profiles         where user_id = auth.uid()
+      union all
+      select 1 from public.study_paths           where user_id = auth.uid()
+      union all
+      select 1 from public.learning_interactions where user_id = auth.uid()
+      union all
+      select 1 from public.ai_conversations      where user_id = auth.uid()
+    ) into v_legacy_student;
+
+    if v_legacy_student then
+      raise exception
+        'ROLE_CONFLICT_STUDENT: This email is already registered as a student account. Please sign in as a student or use a different email to register as a lecturer.'
+        using errcode = 'P0001';
+    end if;
+  end if;
+
   update public.lecturer_slots
      set claimed_by = auth.uid(), claimed_at = now()
    where lecturer_id = v_key;
 
-  delete from public.user_roles where user_id = auth.uid();
-  insert into public.user_roles (user_id, role) values (auth.uid(), 'teacher');
+  update public.user_roles set role = 'teacher', status = 'established'
+   where user_id = auth.uid();
+  if not found then
+    insert into public.user_roles (user_id, role, status)
+    values (auth.uid(), 'teacher', 'established');
+  end if;
 
   return v_slot.course_id;
 end;
@@ -1589,6 +1659,57 @@ begin
 end;
 $$;
 
+-- BEFORE INSERT: at most ONE active official quiz attempt per student, across
+-- module quizzes AND General Course Quizzes. A per-student advisory lock
+-- serialises simultaneous Starts (two tabs / devices) so two can never both
+-- succeed. Expired / finished attempts do not block; the SAME quiz is allowed
+-- through (the per-quiz unique index then makes a double-start a resume).
+-- Practice "Quiz Me" never inserts here, so it is unaffected.
+create or replace function public.enforce_one_active_official_quiz()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_existing uuid;
+begin
+  if new.topic_id is null and new.course_quiz_id is null then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(
+    hashtext('acetutor:official-quiz-start'),
+    hashtext(new.user_id::text)
+  );
+
+  select a.id
+    into v_existing
+  from public.quiz_attempts a
+  where a.user_id = new.user_id
+    and a.finished_at is null
+    and a.expires_at is not null
+    and now() < a.expires_at
+    and not (
+      (a.topic_id is not null and a.topic_id = new.topic_id)
+      or (a.course_quiz_id is not null and a.course_quiz_id = new.course_quiz_id)
+    )
+    and not exists (
+      select 1 from public.course_quizzes cq
+      where cq.id = a.course_quiz_id
+        and cq.deadline is not null
+        and now() >= cq.deadline
+    )
+  limit 1;
+
+  if v_existing is not null then
+    raise exception
+      'ONE_ACTIVE_OFFICIAL_QUIZ: You already have a quiz in progress. Finish it (or let its timer run out) before starting a new one.'
+      using errcode = 'P0001', detail = v_existing::text;
+  end if;
+
+  return new;
+end;
+$$;
+
 
 -- 3.12 trigger functions: "a quiz must keep at least one question" ------
 
@@ -2163,11 +2284,16 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- quiz_attempts: BEFORE INSERT (guard first, then stamp the expiry)
+-- quiz_attempts: BEFORE INSERT (guards first, then stamp the expiry)
 drop trigger if exists trg_enforce_course_quiz_attempt on public.quiz_attempts;
 create trigger trg_enforce_course_quiz_attempt
   before insert on public.quiz_attempts
   for each row execute function public.enforce_course_quiz_attempt();
+
+drop trigger if exists trg_enforce_one_active_official_quiz on public.quiz_attempts;
+create trigger trg_enforce_one_active_official_quiz
+  before insert on public.quiz_attempts
+  for each row execute function public.enforce_one_active_official_quiz();
 
 drop trigger if exists trg_stamp_quiz_attempt_expiry on public.quiz_attempts;
 create trigger trg_stamp_quiz_attempt_expiry
@@ -2445,6 +2571,7 @@ grant select on public.questions to authenticated;
 revoke execute on function public.has_role(uuid, public.app_role)      from public, anon, authenticated;
 revoke execute on function public.handle_new_user()                    from public, anon, authenticated;
 revoke execute on function public.enforce_course_quiz_attempt()        from public, anon;
+revoke execute on function public.enforce_one_active_official_quiz()   from public, anon;
 revoke execute on function public.stamp_quiz_attempt_expiry()          from public, anon;
 revoke execute on function public.assert_topic_has_questions()         from public, anon;
 revoke execute on function public.assert_course_quiz_has_questions()   from public, anon;

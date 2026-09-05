@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { resolvePostAuthDestination } from "@/lib/post-auth-redirect";
+import { LECTURER_ACCOUNT_ON_STUDENT_SURFACE_MESSAGE } from "@/lib/cross-role-auth";
 
 type CallbackSearch = {
   redirect?: string;
@@ -146,6 +147,18 @@ async function syncProfileAndNavigate(
   searchRedirect: string | undefined,
   navigate: ReturnType<typeof useNavigate>,
 ) {
+  // OAuth is a STUDENT-surface flow (the "Continue with Google" button is only
+  // shown on the student sign-in/up card). One identity = one role: if this
+  // account is a claimed lecturer, stop here — it must sign in with the
+  // Lecturer option, not Google.
+  const { data: lecturerCourse } = await supabase.rpc("current_lecturer_course");
+  if (lecturerCourse) {
+    await supabase.auth.signOut();
+    toast.error(LECTURER_ACCOUNT_ON_STUDENT_SURFACE_MESSAGE);
+    navigate({ to: "/login", replace: true });
+    return;
+  }
+
   const meta = user.user_metadata ?? {};
   const googleName = meta.full_name || meta.name;
   const googleAvatar = meta.avatar_url || meta.picture;
