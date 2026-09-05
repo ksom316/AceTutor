@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Sparkles, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useVarkProfile } from "@/hooks/use-vark-profile";
@@ -10,6 +10,7 @@ import {
   derivePrimaryVarkCategory,
   isVarkAssessmentComplete,
   scoresFromProfile,
+  varkMlClassificationFromProfile,
   VARK_CATEGORIES,
   VARK_CATEGORY_DESCRIPTION,
   VARK_CATEGORY_LABEL,
@@ -119,6 +120,7 @@ function VarkAssessmentPage() {
   const summaryScores = justSubmitted ?? (profile ? scoresFromProfile(profile) : null);
   const primary = summaryScores ? derivePrimaryVarkCategory(summaryScores) : null;
   const pct = summaryScores ? varkScorePercentages(summaryScores) : null;
+  const mlClassification = varkMlClassificationFromProfile(profile);
 
   return (
     <main className="container mx-auto max-w-2xl px-4 py-12">
@@ -186,6 +188,43 @@ function VarkAssessmentPage() {
               This reflects a mix, not a single box — most students score across more than one
               category, and that&apos;s expected.
             </p>
+          </div>
+
+          {/* ML classification — a SEPARATE signal from the questionnaire
+              tendency above, from the actual trained scikit-learn model
+              (ml/vark/). Never promoted to "the" tendency and never a fake
+              result: "unavailable" when inference hasn't run or last failed,
+              rather than guessing. See src/lib/vark-inference.functions.ts. */}
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <p className="flex items-center gap-2 text-sm font-medium">
+              <FlaskConical className="h-4 w-4 text-muted-foreground" />
+              ML classification
+            </p>
+            {mlClassification.available && mlClassification.category ? (
+              <>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-accent/10 px-3 py-1 text-sm font-medium text-accent-foreground">
+                    {VARK_CATEGORY_LABEL[mlClassification.category]}
+                  </span>
+                  {mlClassification.confidencePercent !== null && (
+                    <span className="text-xs text-muted-foreground">
+                      {mlClassification.confidencePercent}% confidence
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Model: Gradient Boosting
+                  {mlClassification.modelVersion ? ` · ${mlClassification.modelVersion}` : ""}
+                </p>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  This is a prototype ML classification based on your VARK assessment scores. The
+                  current model was trained on synthetic development data and should not be
+                  treated as a definitive learning-style label.
+                </p>
+              </>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">ML classification unavailable</p>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2">

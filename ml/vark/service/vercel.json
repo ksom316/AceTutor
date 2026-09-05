@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/predict.py": {
+      "excludeFiles": "{test_predict.py,README.md,.gitignore}"
+    }
+  }
+}

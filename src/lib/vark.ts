@@ -276,7 +276,16 @@ export function varkScorePercentages(scores: VarkScores): Record<VarkCategory, n
 export type VarkPredictionSource = "assessment" | "ml_model";
 
 /** Mirrors public.vark_profiles exactly (snake_case, matching the DB), the
- *  same convention this codebase uses for AppNotification / PerfAttempt. */
+ *  same convention this codebase uses for AppNotification / PerfAttempt.
+ *
+ *  predicted_category / prediction_source / prediction_confidence /
+ *  model_version are the QUESTIONNAIRE-derived tendency exclusively
+ *  (prediction_source is always "assessment" in practice — nothing has ever
+ *  written "ml_model" to it). The ml_* fields below are Phase A3's SEPARATE
+ *  result from the actual trained scikit-learn model
+ *  (ml/vark/, model_version "vark-assessment-a2.1-v1") — never overwrites the
+ *  questionnaire fields above, and null until inference has run at least once
+ *  successfully. See src/lib/vark-inference.functions.ts. */
 export type VarkProfileRow = {
   user_id: string;
   responses: VarkResponses | null;
@@ -289,8 +298,40 @@ export type VarkProfileRow = {
   prediction_confidence: number | null;
   model_version: string | null;
   assessment_completed_at: string | null;
+  ml_predicted_category: VarkCategory | null;
+  ml_prediction_confidence: number | null;
+  ml_class_probabilities: Record<string, number> | null;
+  ml_model_version: string | null;
+  ml_predicted_at: string | null;
   updated_at: string;
 };
+
+/** The subset of VarkProfileRow the "ML classification" UI needs, extracted
+ *  so callers don't have to hand-pick 5 fields themselves. `available` is
+ *  false when inference has never run or its last attempt failed — the UI
+ *  must show "ML classification unavailable" rather than guessing, never a
+ *  fabricated result. */
+export type VarkMlClassification = {
+  available: boolean;
+  category: VarkCategory | null;
+  confidencePercent: number | null;
+  modelVersion: string | null;
+  predictedAt: string | null;
+};
+
+export function varkMlClassificationFromProfile(profile: VarkProfileRow | null): VarkMlClassification {
+  if (!profile?.ml_predicted_category) {
+    return { available: false, category: null, confidencePercent: null, modelVersion: null, predictedAt: null };
+  }
+  return {
+    available: true,
+    category: profile.ml_predicted_category,
+    confidencePercent:
+      profile.ml_prediction_confidence != null ? Math.round(profile.ml_prediction_confidence * 100) : null,
+    modelVersion: profile.ml_model_version,
+    predictedAt: profile.ml_predicted_at,
+  };
+}
 
 export type VarkAssessmentStatus = "not-started" | "completed";
 

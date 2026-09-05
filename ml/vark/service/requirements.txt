@@ -1,0 +1,8 @@
+# Pinned to the exact versions that produced model/vark_model.joblib (see
+# README.md "Refreshing the deployed model") - scikit-learn's pickle format is
+# not guaranteed compatible across versions, so this must be kept in lockstep
+# with whatever environment last ran ml/vark/train.py to generate that file.
+scikit-learn==1.7.0
+joblib==1.5.1
+numpy==2.3.0
+pandas>=2.0

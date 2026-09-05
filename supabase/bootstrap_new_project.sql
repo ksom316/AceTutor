@@ -326,8 +326,15 @@ create index if not exists ai_messages_conversation_idx
 -- 2.18 vark_profiles  (current VARK learner profile; 1 row / user — see
 --      learning_preferences above for the other, separate half of the learner
 --      profile: explicit self-reported preferences)
+--
+--      predicted_category / prediction_source / prediction_confidence /
+--      model_version are the QUESTIONNAIRE result exclusively — prediction_
+--      source is always 'assessment' in practice. ml_predicted_category /
+--      ml_prediction_confidence / ml_class_probabilities / ml_model_version /
+--      ml_predicted_at (Phase A3) are the SEPARATE result of the actual
+--      trained scikit-learn model — never overwrites the fields above.
 create table if not exists public.vark_profiles (
-  user_id                 uuid primary key references auth.users(id) on delete cascade,
+  user_id                  uuid primary key references auth.users(id) on delete cascade,
   responses                jsonb,
   visual_score             integer not null default 0,
   auditory_score           integer not null default 0,
@@ -338,6 +345,11 @@ create table if not exists public.vark_profiles (
   prediction_confidence    numeric(4,3),
   model_version            text,
   assessment_completed_at  timestamptz,
+  ml_predicted_category     text,
+  ml_prediction_confidence  numeric(4,3),
+  ml_class_probabilities    jsonb,
+  ml_model_version          text,
+  ml_predicted_at           timestamptz,
   updated_at               timestamptz not null default now(),
   constraint vark_profiles_predicted_category_check
     check (predicted_category is null or predicted_category in
@@ -349,7 +361,13 @@ create table if not exists public.vark_profiles (
       or (prediction_confidence >= 0 and prediction_confidence <= 1)),
   constraint vark_profiles_scores_nonnegative_check
     check (visual_score >= 0 and auditory_score >= 0
-      and read_write_score >= 0 and kinesthetic_score >= 0)
+      and read_write_score >= 0 and kinesthetic_score >= 0),
+  constraint vark_profiles_ml_predicted_category_check
+    check (ml_predicted_category is null or ml_predicted_category in
+      ('visual', 'auditory', 'read_write', 'kinesthetic')),
+  constraint vark_profiles_ml_prediction_confidence_check
+    check (ml_prediction_confidence is null
+      or (ml_prediction_confidence >= 0 and ml_prediction_confidence <= 1))
 );
 
 

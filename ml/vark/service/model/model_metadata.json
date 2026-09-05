@@ -1,0 +1,140 @@
+{
+  "model_type": "GradientBoostingClassifier",
+  "winner": "gradient_boosting",
+  "model_version": "vark-assessment-a2.1-v1",
+  "schema_version": "2.0.0",
+  "deployment_status": "integration_candidate",
+  "feature_set": "assessment_scores_only",
+  "feature_names": [
+    "visual_score",
+    "auditory_score",
+    "read_write_score",
+    "kinesthetic_score"
+  ],
+  "class_labels": [
+    "visual",
+    "auditory",
+    "read_write",
+    "kinesthetic"
+  ],
+  "model_classes_order": [
+    "auditory",
+    "kinesthetic",
+    "read_write",
+    "visual"
+  ],
+  "training_timestamp": "2026-09-05T00:42:38.603938+00:00",
+  "random_seed": 42,
+  "dataset_type": "synthetic",
+  "dataset_path": "C:\\Users\\ksom3\\Desktop\\AceTutor-int\\-AceTutor\\ml\\vark\\data\\vark_synthetic.csv",
+  "dataset_size": 2000,
+  "train_size": 1600,
+  "test_size": 400,
+  "selection_metric": "macro_f1",
+  "selection_secondary_metric": "accuracy",
+  "final_model_trained_on": "full_dataset",
+  "reported_metrics_computed_on": "held_out_test_split",
+  "models_compared": {
+    "random_forest": {
+      "accuracy": 0.39,
+      "macro_precision": 0.3894135199573394,
+      "macro_recall": 0.38999999999999996,
+      "macro_f1": 0.3889843336021947,
+      "confusion_matrix": {
+        "labels_order": [
+          "visual",
+          "auditory",
+          "read_write",
+          "kinesthetic"
+        ],
+        "matrix": [
+          [
+            29,
+            31,
+            25,
+            15
+          ],
+          [
+            20,
+            41,
+            20,
+            19
+          ],
+          [
+            22,
+            19,
+            42,
+            17
+          ],
+          [
+            17,
+            17,
+            22,
+            44
+          ]
+        ]
+      },
+      "cross_validation": {
+        "folds": 5,
+        "accuracy_mean": 0.35562499999999997,
+        "accuracy_std": 0.030452319287699574,
+        "macro_f1_mean": 0.3540595263479112,
+        "macro_f1_std": 0.029371393782074547
+      }
+    },
+    "gradient_boosting": {
+      "accuracy": 0.395,
+      "macro_precision": 0.39540033813551856,
+      "macro_recall": 0.39499999999999996,
+      "macro_f1": 0.3942405679102198,
+      "confusion_matrix": {
+        "labels_order": [
+          "visual",
+          "auditory",
+          "read_write",
+          "kinesthetic"
+        ],
+        "matrix": [
+          [
+            37,
+            28,
+            22,
+            13
+          ],
+          [
+            15,
+            45,
+            15,
+            25
+          ],
+          [
+            26,
+            21,
+            35,
+            18
+          ],
+          [
+            18,
+            23,
+            18,
+            41
+          ]
+        ]
+      },
+      "cross_validation": {
+        "folds": 5,
+        "accuracy_mean": 0.37937499999999996,
+        "accuracy_std": 0.024811791551599016,
+        "macro_f1_mean": 0.3768429926204474,
+        "macro_f1_std": 0.024497960813959056
+      }
+    }
+  },
+  "limitations": [
+    "Trained and evaluated on a SYNTHETIC dataset (see generate_dataset.py). These metrics describe model fit to simulated data for prototype/development validation of the training pipeline ONLY. They are NOT evidence of real-world VARK classification accuracy for actual AceTutor students.",
+    "Uses only the four VARK assessment scores (visual_score, auditory_score, read_write_score, kinesthetic_score) - this is why it is an INTEGRATION CANDIDATE: all four inputs already exist in vark_profiles today, so this feature contract could be wired in without fabricating or defaulting any input. This does NOT mean the model has been validated for real-world deployment - its evaluation here is against synthetic data only (current held-out macro F1 ~0.39). Meaningful validation/retraining will require live behavioural/outcome data collected later.",
+    "Not yet integrated into AceTutor. prediction_source stays 'assessment' in vark_profiles until Phase A3 deliberately connects a real predictor."
+  ],
+  "prediction_source": "assessment",
+  "note": "prediction_source is NOT changed by this artifact. Live integration (writing prediction_source='ml_model' into vark_profiles) is Phase A3, not implemented here."
+}

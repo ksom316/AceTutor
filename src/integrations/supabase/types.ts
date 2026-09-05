@@ -671,6 +671,11 @@ export type Database = {
           assessment_completed_at: string | null;
           auditory_score: number;
           kinesthetic_score: number;
+          ml_class_probabilities: Json | null;
+          ml_model_version: string | null;
+          ml_predicted_at: string | null;
+          ml_predicted_category: string | null;
+          ml_prediction_confidence: number | null;
           model_version: string | null;
           prediction_confidence: number | null;
           prediction_source: string;
@@ -685,6 +690,11 @@ export type Database = {
           assessment_completed_at?: string | null;
           auditory_score?: number;
           kinesthetic_score?: number;
+          ml_class_probabilities?: Json | null;
+          ml_model_version?: string | null;
+          ml_predicted_at?: string | null;
+          ml_predicted_category?: string | null;
+          ml_prediction_confidence?: number | null;
           model_version?: string | null;
           prediction_confidence?: number | null;
           prediction_source?: string;
@@ -699,6 +709,11 @@ export type Database = {
           assessment_completed_at?: string | null;
           auditory_score?: number;
           kinesthetic_score?: number;
+          ml_class_probabilities?: Json | null;
+          ml_model_version?: string | null;
+          ml_predicted_at?: string | null;
+          ml_predicted_category?: string | null;
+          ml_prediction_confidence?: number | null;
           model_version?: string | null;
           prediction_confidence?: number | null;
           prediction_source?: string;
