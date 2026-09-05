@@ -27,6 +27,7 @@ import { Route as LecturerStudentsRouteImport } from './routes/lecturer.students
 import { Route as LecturerPerformanceRouteImport } from './routes/lecturer.performance'
 import { Route as LecturerNotificationsRouteImport } from './routes/lecturer.notifications'
 import { Route as LecturerMaterialsRouteImport } from './routes/lecturer.materials'
+import { Route as LecturerEvaluationRouteImport } from './routes/lecturer.evaluation'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthenticatedVarkAssessmentRouteImport } from './routes/_authenticated/vark-assessment'
@@ -140,6 +141,11 @@ const LecturerNotificationsRoute = LecturerNotificationsRouteImport.update({
 const LecturerMaterialsRoute = LecturerMaterialsRouteImport.update({
   id: '/materials',
   path: '/materials',
+  getParentRoute: () => LecturerRoute,
+} as any)
+const LecturerEvaluationRoute = LecturerEvaluationRouteImport.update({
+  id: '/evaluation',
+  path: '/evaluation',
   getParentRoute: () => LecturerRoute,
 } as any)
 const CoursesSlugRoute = CoursesSlugRouteImport.update({
@@ -304,6 +310,7 @@ export interface FileRoutesByFullPath {
   '/vark-assessment': typeof AuthenticatedVarkAssessmentRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/lecturer/evaluation': typeof LecturerEvaluationRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
@@ -347,6 +354,7 @@ export interface FileRoutesByTo {
   '/vark-assessment': typeof AuthenticatedVarkAssessmentRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/lecturer/evaluation': typeof LecturerEvaluationRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
@@ -393,6 +401,7 @@ export interface FileRoutesById {
   '/_authenticated/vark-assessment': typeof AuthenticatedVarkAssessmentRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/lecturer/evaluation': typeof LecturerEvaluationRoute
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
@@ -439,6 +448,7 @@ export interface FileRouteTypes {
     | '/vark-assessment'
     | '/auth/callback'
     | '/courses/$slug'
+    | '/lecturer/evaluation'
     | '/lecturer/materials'
     | '/lecturer/notifications'
     | '/lecturer/performance'
@@ -482,6 +492,7 @@ export interface FileRouteTypes {
     | '/vark-assessment'
     | '/auth/callback'
     | '/courses/$slug'
+    | '/lecturer/evaluation'
     | '/lecturer/materials'
     | '/lecturer/notifications'
     | '/lecturer/performance'
@@ -527,6 +538,7 @@ export interface FileRouteTypes {
     | '/_authenticated/vark-assessment'
     | '/auth/callback'
     | '/courses/$slug'
+    | '/lecturer/evaluation'
     | '/lecturer/materials'
     | '/lecturer/notifications'
     | '/lecturer/performance'
@@ -692,6 +704,13 @@ declare module '@tanstack/react-router' {
       path: '/materials'
       fullPath: '/lecturer/materials'
       preLoaderRoute: typeof LecturerMaterialsRouteImport
+      parentRoute: typeof LecturerRoute
+    }
+    '/lecturer/evaluation': {
+      id: '/lecturer/evaluation'
+      path: '/evaluation'
+      fullPath: '/lecturer/evaluation'
+      preLoaderRoute: typeof LecturerEvaluationRouteImport
       parentRoute: typeof LecturerRoute
     }
     '/courses/$slug': {
@@ -922,6 +941,7 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 )
 
 interface LecturerRouteChildren {
+  LecturerEvaluationRoute: typeof LecturerEvaluationRoute
   LecturerMaterialsRoute: typeof LecturerMaterialsRoute
   LecturerNotificationsRoute: typeof LecturerNotificationsRoute
   LecturerPerformanceRoute: typeof LecturerPerformanceRoute
@@ -934,6 +954,7 @@ interface LecturerRouteChildren {
 }
 
 const LecturerRouteChildren: LecturerRouteChildren = {
+  LecturerEvaluationRoute: LecturerEvaluationRoute,
   LecturerMaterialsRoute: LecturerMaterialsRoute,
   LecturerNotificationsRoute: LecturerNotificationsRoute,
   LecturerPerformanceRoute: LecturerPerformanceRoute,

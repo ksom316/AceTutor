@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "gen:eval-offline": "node scripts/generate-model-evaluation-offline.mjs"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",

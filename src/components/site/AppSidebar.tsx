@@ -6,6 +6,7 @@ import {
   BookOpen,
   ClipboardList,
   Gamepad2,
+  Gauge,
   GraduationCap,
   Home,
   LayoutDashboard,
@@ -73,6 +74,7 @@ const lecturerItems: NavItem[] = [
   { label: "Materials", icon: BookOpen, to: "/lecturer/materials" },
   { label: "Quizzes", icon: ClipboardList, to: "/lecturer/quizzes" },
   { label: "Performance", icon: BarChart3, to: "/lecturer/performance" },
+  { label: "Evaluation", icon: Gauge, to: "/lecturer/evaluation" },
   { label: "Notifications", icon: Bell, to: "/lecturer/notifications" },
 ];
 

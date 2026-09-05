@@ -1,0 +1,62 @@
+{
+  "_label": {
+    "dataset": "synthetic",
+    "deployment_status": "experimental_not_deployable",
+    "is_deployed_model": false,
+    "experiment": "behavioral 8-feature experiment",
+    "authoritative_deployed_model_source": "ml/vark/service/model/model_metadata.json (4-feature GradientBoosting)"
+  },
+  "_provenance": "Metrics transcribed verbatim from ml/vark/artifacts/model_metadata_experimental_behavioral.json, produced by ml/vark/train.py with random_seed 42 on ml/vark/data/vark_synthetic.csv. NOT regenerated, re-estimated, or improved. The large .joblib model artifact is intentionally NOT committed; this tiny summary is the committed, reproducible source for the evaluation page's historical comparison.",
+  "modelType": "RandomForestClassifier",
+  "modelVersion": "vark-behavioral-experimental-a2.1-v1",
+  "schemaVersion": "2.0.0",
+  "winner": "random_forest",
+  "deploymentStatus": "experimental_not_deployable",
+  "featureSet": "assessment_scores_plus_simulated_behavioral_engagement",
+  "featureNames": [
+    "visual_score",
+    "auditory_score",
+    "read_write_score",
+    "kinesthetic_score",
+    "video_engagement",
+    "audio_engagement",
+    "text_engagement",
+    "practice_engagement"
+  ],
+  "datasetType": "synthetic",
+  "datasetSize": 2000,
+  "trainSize": 1600,
+  "testSize": 400,
+  "selectionMetric": "macro_f1",
+  "selectionSecondaryMetric": "accuracy",
+  "reportedMetricsComputedOn": "held_out_test_split",
+  "trainingTimestamp": "2026-09-05T00:42:38.892152+00:00",
+  "randomSeed": 42,
+  "models": {
+    "randomForest": {
+      "accuracy": 0.7225,
+      "macroPrecision": 0.7230206850993368,
+      "macroRecall": 0.7224999999999999,
+      "macroF1": 0.7218290120669666,
+      "cvAccuracyMean": 0.71125,
+      "cvAccuracyStd": 0.02685318882367607,
+      "cvMacroF1Mean": 0.7104939005432496,
+      "cvMacroF1Std": 0.027166412527264962
+    },
+    "gradientBoosting": {
+      "accuracy": 0.72,
+      "macroPrecision": 0.7206122722433189,
+      "macroRecall": 0.72,
+      "macroF1": 0.7198106141893637,
+      "cvAccuracyMean": 0.69125,
+      "cvAccuracyStd": 0.01999999999999999,
+      "cvMacroF1Mean": 0.6910289585947036,
+      "cvMacroF1Std": 0.02038801353957978
+    }
+  },
+  "limitations": [
+    "Trained and evaluated on a SYNTHETIC dataset (see generate_dataset.py). These metrics describe model fit to simulated data for prototype/development validation of the training pipeline ONLY. They are NOT evidence of real-world VARK classification accuracy for actual AceTutor students.",
+    "Uses four SIMULATED behavioural engagement features (video_engagement, audio_engagement, text_engagement, practice_engagement) that AceTutor does not currently compute or store anywhere. EXPERIMENTAL ONLY - this model must NOT be connected to the live app, because doing so would require fabricating or defaulting those four inputs.",
+    "Kept only to keep exploring whether behavioural signals are worth collecting. A genuine data source for them is expected from a later phase (A6) before this feature set could be retrained on real data and reconsidered for deployment."
+  ]
+}
