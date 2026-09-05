@@ -7,13 +7,14 @@ import { cn } from "@/lib/utils";
 import { remedialContentToScript, type RemedialContent } from "@/lib/remedial-content";
 import {
   REMEDIAL_MODALITIES,
-  REMEDIAL_MODALITY_IMPLEMENTED,
   REMEDIAL_MODALITY_LABEL,
   type RemedialModality,
 } from "@/lib/remedial-modality";
 import { useRemedialLesson } from "@/hooks/use-remedial-lesson";
 import type { ParsedStudyPath } from "@/hooks/use-study-path";
 import { RemedialAudioPlayer } from "@/components/course/RemedialAudioPlayer";
+import { RemedialVisual } from "@/components/course/RemedialVisual";
+import { remedialContentToVisualModel } from "@/lib/remedial-visual";
 
 /* ------------------------------------------------------------------ *
  * RemedialContentView — the format-agnostic remedial lesson, rendered as
@@ -103,9 +104,14 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
   const recommendedLabel = REMEDIAL_MODALITY_LABEL[recommended];
   const hasContent = !!content;
 
-  // The narration script is the SAME RemedialContent, format-independent — no
-  // audio-specific lesson or prompt. Changes only when the content regenerates.
+  // Every format renders the SAME RemedialContent — no format-specific lesson,
+  // no extra AI. Both derivations are deterministic + memoised, and change only
+  // when the content is regenerated.
   const script = useMemo(() => (content ? remedialContentToScript(content) : ""), [content]);
+  const visualModel = useMemo(
+    () => (content ? remedialContentToVisualModel(content) : null),
+    [content],
+  );
   // Remounts <RemedialAudioPlayer> (→ stops any narration) when the content changes.
   const audioKey =
     remedial.generateResult?.generatedAt ?? studyPath.remedial?.generatedAt ?? "audio";
@@ -177,29 +183,18 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
 
           {/* Format body */}
           <div className="mt-4">
-            {!REMEDIAL_MODALITY_IMPLEMENTED[activeFormat] ? (
-              // Visual is still R3.
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-300">
-                <p className="font-medium">
-                  {REMEDIAL_MODALITY_LABEL[activeFormat]} version coming in the next step.
-                </p>
-                <p className="mt-1">
-                  You can study the text explanation now.{" "}
-                  <button
-                    type="button"
-                    onClick={() => setFormat("text")}
-                    className="font-semibold underline underline-offset-2"
-                  >
-                    Switch to text
-                  </button>
-                </p>
-              </div>
-            ) : !hasContent || !content || !script ? (
+            {!hasContent || !content ? (
               // Nothing generated yet — the SAME content serves every format.
               <div className="space-y-3">
                 {activeFormat === "audio" && (
                   <p className="text-sm text-muted-foreground">
                     Generate the personalized explanation first, then you can listen to it here.
+                  </p>
+                )}
+                {activeFormat === "visual" && (
+                  <p className="text-sm text-muted-foreground">
+                    Generate the personalized explanation first, then you can view the visual
+                    learning map.
                   </p>
                 )}
                 {remedial.generateFailed && (
@@ -220,7 +215,7 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
                     )}
                     {generateLabel}
                   </Button>
-                  {activeFormat === "audio" && (
+                  {activeFormat !== "text" && (
                     <button
                       type="button"
                       onClick={() => setFormat("text")}
@@ -234,6 +229,11 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
             ) : activeFormat === "audio" ? (
               <div className="space-y-4">
                 <RemedialAudioPlayer key={audioKey} script={script} />
+                {regenerateButton}
+              </div>
+            ) : activeFormat === "visual" && visualModel ? (
+              <div className="space-y-4">
+                <RemedialVisual model={visualModel} />
                 {regenerateButton}
               </div>
             ) : (

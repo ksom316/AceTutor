@@ -96,7 +96,7 @@ test("1. the spoken text is remedialContentToScript(content) — no separate aud
 test("2. Audio before content exists -> 'generate first', no player mounted", () => {
   assert.match(
     panelSrc,
-    /!hasContent \|\| !content \|\| !script[\s\S]{0,400}Generate the personalized explanation first/,
+    /!hasContent \|\| !content[\s\S]{0,400}Generate the personalized explanation first, then you can listen to it here/,
   );
   // the player is only rendered in the audio+content branch
   assert.match(panelSrc, /activeFormat === "audio" \? \(\s*<div[\s\S]{0,120}<RemedialAudioPlayer/);
@@ -153,10 +153,9 @@ test("10. SSR-safe support detection + honest fallback text", () => {
 });
 
 test("12. R2 mutates nothing in R1 / VARK / A7 / preferences / Mastery", () => {
-  // audio is now an implemented renderer; visual is still deferred
+  // audio is an implemented renderer (text always was; visual since R3)
   assert.equal(REMEDIAL_MODALITY_IMPLEMENTED.audio, true);
   assert.equal(REMEDIAL_MODALITY_IMPLEMENTED.text, true);
-  assert.equal(REMEDIAL_MODALITY_IMPLEMENTED.visual, false);
   for (const src of [hookSrc, playerSrc]) {
     assert.doesNotMatch(
       src,

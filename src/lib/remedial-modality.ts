@@ -95,12 +95,12 @@ export const REMEDIAL_MODALITY_LABEL: Record<RemedialModality, string> = {
   visual: "Visual",
 };
 
-/** Which remedial renderers exist. R1: text. R2: audio (browser
- *  SpeechSynthesis narration of the same RemedialContent — no separate lesson,
- *  no files, no paid TTS). Visual is still R3; the UI shows an honest "coming
- *  next" note and the text version for it. */
+/** Which remedial renderers exist. All three render the SAME persisted
+ *  `RemedialContent`: R1 text, R2 audio (browser SpeechSynthesis narration),
+ *  R3 visual (a deterministic concept map — no AI, no images). No paid
+ *  services, no files. */
 export const REMEDIAL_MODALITY_IMPLEMENTED: Record<RemedialModality, boolean> = {
   text: true,
   audio: true,
-  visual: false,
+  visual: true,
 };
