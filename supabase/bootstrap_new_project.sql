@@ -370,6 +370,54 @@ create table if not exists public.vark_profiles (
       or (ml_prediction_confidence >= 0 and ml_prediction_confidence <= 1))
 );
 
+-- 2.19 learning_interactions  (Phase A6 — small, compact real student
+--      behavioral event log: lesson opens, modality selections, practice-quiz
+--      start/complete, official module-quiz completion. NOT a lesson_completed
+--      event — public.progress already owns that signal. recommendation_matched
+--      is null (never false) when there was no recommendation to match
+--      against; false is reserved for "there was one and this wasn't it".
+--      quiz_attempt_id + score_percent are a reference + derived value only —
+--      quiz_attempts stays the source of truth, never duplicated here.)
+create table if not exists public.learning_interactions (
+  id                       uuid primary key default gen_random_uuid(),
+  user_id                  uuid not null references auth.users(id) on delete cascade,
+  course_id                uuid references public.courses(id) on delete cascade,
+  topic_id                 uuid references public.topics(id) on delete cascade,
+  lesson_id                uuid references public.lessons(id) on delete cascade,
+  event_type               text not null,
+  modality                 text,
+  recommended_modality     text,
+  effective_vark_category  text,
+  recommendation_matched   boolean,
+  quiz_attempt_id          uuid references public.quiz_attempts(id) on delete cascade,
+  score_percent            int,
+  difficulty               text,
+  created_at               timestamptz not null default now(),
+  constraint learning_interactions_event_type_check
+    check (event_type in (
+      'lesson_opened', 'modality_selected',
+      'practice_quiz_started', 'practice_quiz_completed',
+      'official_quiz_completed'
+    )),
+  constraint learning_interactions_modality_check
+    check (modality is null or modality in ('text', 'video', 'audio', 'slides')),
+  constraint learning_interactions_recommended_modality_check
+    check (recommended_modality is null or recommended_modality in ('text', 'video', 'audio', 'slides')),
+  constraint learning_interactions_vark_category_check
+    check (effective_vark_category is null or effective_vark_category in
+      ('visual', 'auditory', 'read_write', 'kinesthetic')),
+  constraint learning_interactions_score_percent_check
+    check (score_percent is null or (score_percent >= 0 and score_percent <= 100)),
+  constraint learning_interactions_difficulty_check
+    check (difficulty is null or difficulty in ('easy', 'medium', 'hard'))
+);
+create index if not exists learning_interactions_user_topic_idx
+  on public.learning_interactions (user_id, topic_id, created_at);
+-- One official_quiz_completed row per attempt, at most — see grade_quiz().
+create unique index if not exists learning_interactions_official_outcome_uq
+  on public.learning_interactions (quiz_attempt_id)
+  where event_type = 'official_quiz_completed';
+
 
 -- ============================================================================
 -- 3. FUNCTIONS  (all SECURITY DEFINER unless noted; search_path pinned)
@@ -610,6 +658,7 @@ declare
   v_expires timestamptz;
   v_cq_deadline timestamptz;
   v_lesson_id uuid;
+  v_course_id uuid;
   v_total int := 0;
   v_answered int := 0;
   v_score int := 0;
@@ -693,6 +742,25 @@ begin
         set completed_at = coalesce(public.progress.completed_at, excluded.completed_at),
             updated_at = now();
     end if;
+
+    -- Phase A6 — log the official quiz outcome in the same transaction as
+    -- grading (never from a page the student may not visit, never from a
+    -- client-supplied score). v_total > 0 is already guaranteed above.
+    -- Idempotent via learning_interactions_official_outcome_uq. Wrapped in
+    -- its own exception block so a failure here can never roll back the
+    -- grading update above — analytics is secondary.
+    begin
+      select course_id into v_course_id from public.topics where id = v_topic_id;
+      insert into public.learning_interactions
+        (user_id, course_id, topic_id, event_type, quiz_attempt_id, score_percent)
+      values
+        (v_user, v_course_id, v_topic_id, 'official_quiz_completed', _attempt_id,
+         round((v_score::numeric / v_total) * 100)::int)
+      on conflict (quiz_attempt_id) where event_type = 'official_quiz_completed'
+      do nothing;
+    exception when others then
+      null;
+    end;
   end if;
 
   return query
@@ -2191,6 +2259,7 @@ alter table public.learning_preferences  enable row level security;
 alter table public.ai_conversations      enable row level security;
 alter table public.ai_messages           enable row level security;
 alter table public.vark_profiles         enable row level security;
+alter table public.learning_interactions enable row level security;
 
 -- profiles: read / write only your own row
 create policy "profiles_select_own" on public.profiles for select to authenticated using (auth.uid() = id);
@@ -2326,6 +2395,18 @@ create policy "vark_profiles_insert_own" on public.vark_profiles
 create policy "vark_profiles_update_own" on public.vark_profiles
   for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "vark_profiles_delete_own" on public.vark_profiles
+  for delete to authenticated using (auth.uid() = user_id);
+
+-- learning_interactions: own rows only. No lecturer/admin policy — same
+-- posture as vark_profiles. Write-once event log — no update policy.
+-- official_quiz_completed is excluded from client inserts: only grade_quiz()
+-- (SECURITY DEFINER) may write that event type.
+create policy "learning_interactions_select_own" on public.learning_interactions
+  for select to authenticated using (auth.uid() = user_id);
+create policy "learning_interactions_insert_own" on public.learning_interactions
+  for insert to authenticated
+  with check (auth.uid() = user_id and event_type <> 'official_quiz_completed');
+create policy "learning_interactions_delete_own" on public.learning_interactions
   for delete to authenticated using (auth.uid() = user_id);
 
 

@@ -267,6 +267,14 @@ function ResetAccountButton() {
       if (prefsDel.error) throw prefsDel.error;
       const varkDel = await supabase.from("vark_profiles").delete().eq("user_id", uid);
       if (varkDel.error) throw varkDel.error;
+      // Phase A6 — learning_interactions rows referencing a deleted quiz
+      // attempt already cascade; this covers the rest (lesson opens, modality
+      // selections, practice quiz events) that don't reference quiz_attempts.
+      const interactionsDel = await supabase
+        .from("learning_interactions")
+        .delete()
+        .eq("user_id", uid);
+      if (interactionsDel.error) throw interactionsDel.error;
 
       await queryClient.invalidateQueries();
       toast.success("Your account data has been reset");

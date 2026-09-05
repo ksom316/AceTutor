@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
@@ -22,6 +22,7 @@ import {
   resolveEffectiveVarkCategory,
   resolveVarkContentRecommendation,
 } from "@/lib/vark-content-recommendation";
+import { buildRecommendationContext, logInteraction } from "@/lib/learning-interactions";
 
 type Modality = "text" | "video" | "audio" | "slides";
 
@@ -197,10 +198,10 @@ function TopicPage() {
   // activeModality/preferredModality (Learning Preferences' own, separate
   // default-tab mechanism, untouched) and never reorders or hides lessons.
   const { profile: varkProfile } = useVarkProfile();
+  const effectiveVarkCategory = useMemo(() => resolveEffectiveVarkCategory(varkProfile), [varkProfile]);
   const varkRecommendation = useMemo(
-    () =>
-      resolveVarkContentRecommendation(resolveEffectiveVarkCategory(varkProfile), availableModalities),
-    [varkProfile, availableModalities],
+    () => resolveVarkContentRecommendation(effectiveVarkCategory, availableModalities),
+    [effectiveVarkCategory, availableModalities],
   );
 
   const activeModality = useMemo<Modality | undefined>(() => {
@@ -211,6 +212,67 @@ function TopicPage() {
     }
     return availableModalities[0];
   }, [availableModalities, picked, preferredModality]);
+
+  const activeLessons = activeModality ? groups[activeModality] : [];
+
+  // Phase A6 — best-effort behavioral logging. Never affects
+  // activeModality/lesson order/rendering: these effects only ever call the
+  // fire-and-forget logInteraction() helper, which never throws. Ref-guarded
+  // so switching back to an already-logged modality, or a lesson already
+  // seen this page visit, never creates a duplicate row.
+  const loggedModalityRef = useRef<{ topicId: string; modality: Modality } | null>(null);
+  useEffect(() => {
+    if (!user || !activeModality || !topicId) return;
+    if (
+      loggedModalityRef.current?.topicId === topicId &&
+      loggedModalityRef.current?.modality === activeModality
+    ) {
+      return;
+    }
+    loggedModalityRef.current = { topicId, modality: activeModality };
+    logInteraction(user.id, {
+      event_type: "modality_selected",
+      course_id: data?.topic?.course_id ?? null,
+      topic_id: topicId,
+      modality: activeModality,
+      recommendationContext: buildRecommendationContext(
+        varkRecommendation,
+        effectiveVarkCategory,
+        activeModality,
+      ),
+    });
+  }, [user, topicId, activeModality, data?.topic?.course_id, varkRecommendation, effectiveVarkCategory]);
+
+  const loggedLessonIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user || !topicId) return;
+    for (const lesson of activeLessons) {
+      if (loggedLessonIdsRef.current.has(lesson.id)) continue;
+      loggedLessonIdsRef.current.add(lesson.id);
+      logInteraction(user.id, {
+        event_type: "lesson_opened",
+        course_id: data?.topic?.course_id ?? null,
+        topic_id: topicId,
+        lesson_id: lesson.id,
+        modality: lesson.modality,
+        recommendationContext: buildRecommendationContext(
+          varkRecommendation,
+          effectiveVarkCategory,
+          lesson.modality,
+        ),
+      });
+    }
+    // activeLessons is a derived array (new reference each render) — depend on
+    // its lesson ids specifically so this doesn't re-run on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    user,
+    topicId,
+    activeLessons.map((l) => l.id).join(","),
+    data?.topic?.course_id,
+    varkRecommendation,
+    effectiveVarkCategory,
+  ]);
 
   if (isLoading) {
     return (
@@ -245,8 +307,6 @@ function TopicPage() {
     | { title?: string; slug?: string }[]
     | null;
   const course = Array.isArray(courseRelation) ? courseRelation[0] : courseRelation;
-
-  const activeLessons = activeModality ? groups[activeModality] : [];
 
   // The module quiz CTA. Its placement depends on modality: for a text lesson it
   // is shown at the END of the reading (the last Guided Reader page, or below a

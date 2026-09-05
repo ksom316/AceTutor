@@ -726,6 +726,57 @@ export type Database = {
         };
         Relationships: [];
       };
+      learning_interactions: {
+        Row: {
+          course_id: string | null;
+          created_at: string;
+          difficulty: string | null;
+          effective_vark_category: string | null;
+          event_type: string;
+          id: string;
+          lesson_id: string | null;
+          modality: string | null;
+          quiz_attempt_id: string | null;
+          recommendation_matched: boolean | null;
+          recommended_modality: string | null;
+          score_percent: number | null;
+          topic_id: string | null;
+          user_id: string;
+        };
+        Insert: {
+          course_id?: string | null;
+          created_at?: string;
+          difficulty?: string | null;
+          effective_vark_category?: string | null;
+          event_type: string;
+          id?: string;
+          lesson_id?: string | null;
+          modality?: string | null;
+          quiz_attempt_id?: string | null;
+          recommendation_matched?: boolean | null;
+          recommended_modality?: string | null;
+          score_percent?: number | null;
+          topic_id?: string | null;
+          user_id: string;
+        };
+        Update: {
+          course_id?: string | null;
+          created_at?: string;
+          difficulty?: string | null;
+          effective_vark_category?: string | null;
+          event_type?: string;
+          id?: string;
+          lesson_id?: string | null;
+          modality?: string | null;
+          quiz_attempt_id?: string | null;
+          recommendation_matched?: boolean | null;
+          recommended_modality?: string | null;
+          score_percent?: number | null;
+          topic_id?: string | null;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

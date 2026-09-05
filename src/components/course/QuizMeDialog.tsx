@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 import {
   generatePracticeQuiz,
   gradePracticeQuiz,
@@ -39,6 +40,7 @@ import {
   type PracticeQuestion,
 } from "@/lib/practice-quiz.functions";
 import type { DifficultyBasis } from "@/lib/practice-quiz-difficulty";
+import { logInteraction } from "@/lib/learning-interactions";
 
 type Difficulty = "easy" | "medium" | "hard";
 const COUNTS = [5, 10, 15, 20, 25, 30];
@@ -85,6 +87,7 @@ export function QuizMeDialog({
   topics: { id: string; title: string }[];
   focusedTopicId?: string;
 }) {
+  const { user } = useAuth();
   const gen = useServerFn(generatePracticeQuiz);
   const grade = useServerFn(gradePracticeQuiz);
   const storageKey = `acetutor:practice:${courseId}`;
@@ -161,6 +164,14 @@ export function QuizMeDialog({
       });
       setResult(null);
       setPhase("quiz");
+      if (user) {
+        logInteraction(user.id, {
+          event_type: "practice_quiz_started",
+          course_id: courseId,
+          topic_id: res.topicId,
+          difficulty: res.difficulty,
+        });
+      }
     },
     onError: (e) => {
       setErrorMsg(practiceErrorMessage(e));
@@ -181,6 +192,15 @@ export function QuizMeDialog({
         sessionStorage.removeItem(storageKey);
       } catch {
         /* ignore */
+      }
+      if (user && quiz) {
+        logInteraction(user.id, {
+          event_type: "practice_quiz_completed",
+          course_id: courseId,
+          topic_id: quiz.topicId,
+          difficulty: quiz.difficulty,
+          score_percent: res.pct,
+        });
       }
     },
     onError: (e) => {
@@ -400,7 +420,9 @@ function QuizBody({
           finishing.
         </DialogDescription>
         {quiz.difficultyBasis === "official_attempt" && (
-          <p className="text-xs text-muted-foreground">Based on your latest completed module quiz.</p>
+          <p className="text-xs text-muted-foreground">
+            Based on your latest completed module quiz.
+          </p>
         )}
       </DialogHeader>
 
