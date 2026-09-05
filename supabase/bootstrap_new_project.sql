@@ -710,7 +710,10 @@ begin
     v_sel := (_answers ->> rec.id::text)::int;
     insert into public.attempt_answers (attempt_id, question_id, selected_index, is_correct)
     values (_attempt_id, rec.id, v_sel, v_sel = rec.correct_index)
-    on conflict (attempt_id, question_id)
+    -- Named-constraint form (not a column list): grade_quiz() has a
+    -- `question_id` OUT parameter (RETURNS TABLE), and an ON CONFLICT
+    -- column-list here is ambiguous against it. Same unique index either way.
+    on conflict on constraint attempt_answers_attempt_question_key
     do update set selected_index = excluded.selected_index,
                   is_correct     = excluded.is_correct;
   end loop;
