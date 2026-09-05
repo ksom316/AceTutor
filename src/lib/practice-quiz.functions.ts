@@ -3,18 +3,26 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { callAI } from "@/lib/course-chat.functions";
 import { extractJson, pickCorrectIndex } from "@/lib/lecturer-quiz.functions";
+import { resolvePracticeQuizDifficulty, type DifficultyBasis } from "@/lib/practice-quiz-difficulty";
+import type { PerfAttempt } from "@/lib/quiz-performance";
 
 /**
  * Quiz Me — AI-generated FORMATIVE PRACTICE quizzes.
  *
- * Completely separate from official assessment: nothing here reads or writes
+ * Completely separate from official assessment: nothing here WRITES
  * `quiz_attempts` / `attempt_answers`, touches Mastery, or records anything in
  * the database. A practice quiz lives only for the duration of the dialog.
+ * (Phase A5: `generatePracticeQuiz` now READS `quiz_attempts` — read-only,
+ * best-effort — solely to resolve an adaptive difficulty; see
+ * src/lib/practice-quiz-difficulty.ts. This still never writes anything and
+ * never calls any Mastery-affecting logic.)
  *
  *  - `generatePracticeQuiz` grounds one AI request in the selected course + topic
- *    + that topic's lesson material + difficulty, validates the JSON, and returns
- *    the questions WITHOUT the answer key. The answer key + explanations are
- *    sealed into an opaque AES-GCM token that only this server can open.
+ *    + that topic's lesson material + an ADAPTIVE difficulty resolved server-side
+ *    from the student's latest completed OFFICIAL module-quiz score (Phase A5 —
+ *    never a client-supplied difficulty), validates the JSON, and returns the
+ *    questions WITHOUT the answer key. The answer key + explanations are sealed
+ *    into an opaque AES-GCM token that only this server can open.
  *  - `gradePracticeQuiz` opens the token, grades the student's answers, and
  *    returns the review + strong/weak concepts. It never contacts the database.
  *
@@ -27,7 +35,6 @@ type Difficulty = z.infer<typeof DIFFICULTY>;
 const genSchema = z.object({
   courseId: z.string().uuid(),
   topicId: z.string().uuid(),
-  difficulty: DIFFICULTY,
   count: z
     .number()
     .int()
@@ -51,6 +58,10 @@ export type PracticeQuizResult = {
   topicId: string;
   topicTitle: string;
   difficulty: Difficulty;
+  /** Phase A5 — lets the UI say "Starting at Medium" (no completed official
+   *  attempt yet) vs "Adaptive difficulty: X" (computed from a real score),
+   *  without exposing the raw percentage. See practice-quiz-difficulty.ts. */
+  difficultyBasis: DifficultyBasis;
   /** True when the module has a published OFFICIAL quiz (drives the "Retake
    *  Official Module Quiz" CTA). */
   officialQuizExists: boolean;
@@ -358,8 +369,27 @@ export const generatePracticeQuiz = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!topic || topic.course_id !== data.courseId) throw new Error("TOPIC_NOT_IN_COURSE");
 
-    const [{ data: course }, { data: lessons }, { data: prefs }, officialCount] = await Promise.all(
-      [
+    // Phase A5 — best-effort, read-only lookup of this student's own official
+    // module-quiz attempts for this topic, used ONLY to resolve an adaptive
+    // difficulty (never a client-supplied difficulty/score). Same
+    // fail-safe-to-empty-array shape as loadModuleAttempts in
+    // course-chat.functions.ts: a failure here must never block quiz
+    // generation, and must never fabricate a prior performance.
+    const loadOfficialAttempts = async (): Promise<PerfAttempt[]> => {
+      try {
+        const { data: rows } = await supabase
+          .from("quiz_attempts")
+          .select("id, topic_id, score, total, finished_at, answered_count, started_at")
+          .eq("user_id", userId)
+          .eq("topic_id", data.topicId);
+        return (rows ?? []) as PerfAttempt[];
+      } catch {
+        return [];
+      }
+    };
+
+    const [{ data: course }, { data: lessons }, { data: prefs }, officialCount, attempts] =
+      await Promise.all([
         supabase.from("courses").select("title, summary").eq("id", data.courseId).maybeSingle(),
         supabase
           .from("lessons")
@@ -375,7 +405,12 @@ export const generatePracticeQuiz = createServerFn({ method: "POST" })
           .from("questions")
           .select("id", { count: "exact", head: true })
           .eq("topic_id", data.topicId),
-      ],
+        loadOfficialAttempts(),
+      ]);
+
+    const { difficulty, basis: difficultyBasis } = resolvePracticeQuizDifficulty(
+      data.topicId,
+      attempts,
     );
 
     const material = buildMaterial((lessons ?? []) as { title: string; body_md: string | null }[]);
@@ -389,7 +424,7 @@ export const generatePracticeQuiz = createServerFn({ method: "POST" })
       topic.title,
       topic.summary,
       material,
-      data.difficulty,
+      difficulty,
       data.count,
       prefs?.explanation_style ?? null,
     );
@@ -406,7 +441,7 @@ export const generatePracticeQuiz = createServerFn({ method: "POST" })
       uid: userId,
       courseId: data.courseId,
       topicId: data.topicId,
-      difficulty: data.difficulty,
+      difficulty,
       iat: Date.now(),
       key: questions.map((q) => ({
         correctIndex: q.correctIndex,
@@ -419,7 +454,8 @@ export const generatePracticeQuiz = createServerFn({ method: "POST" })
       quizToken,
       topicId: data.topicId,
       topicTitle: topic.title,
-      difficulty: data.difficulty,
+      difficulty,
+      difficultyBasis,
       officialQuizExists: (officialCount.count ?? 0) > 0,
       questions: questions.map((q, i) => ({
         id: `q${i}`,

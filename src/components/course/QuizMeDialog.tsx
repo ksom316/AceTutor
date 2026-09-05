@@ -38,10 +38,18 @@ import {
   type PracticeGradeResult,
   type PracticeQuestion,
 } from "@/lib/practice-quiz.functions";
+import type { DifficultyBasis } from "@/lib/practice-quiz-difficulty";
 
 type Difficulty = "easy" | "medium" | "hard";
-const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
 const COUNTS = [5, 10, 15, 20, 25, 30];
+
+/** "medium" -> "Medium" — just the one word, not Tailwind's `capitalize`
+ *  class (which would also title-case "difficulty" in "Adaptive difficulty:
+ *  medium", producing "Adaptive Difficulty: Medium" instead of the required
+ *  "Adaptive difficulty: Medium"). */
+function capitalizeWord(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
 
 type ActiveQuiz = {
   questions: PracticeQuestion[];
@@ -49,6 +57,9 @@ type ActiveQuiz = {
   topicId: string;
   topicTitle: string;
   difficulty: Difficulty;
+  /** Phase A5 — "no_official_attempt" vs "official_attempt", used to pick
+   *  between "Starting at Medium difficulty" and "Adaptive difficulty: X". */
+  difficultyBasis: DifficultyBasis;
   officialQuizExists: boolean;
   answers: (number | null)[];
   current: number;
@@ -88,7 +99,6 @@ export function QuizMeDialog({
   }, [focusedTopicId, topics]);
 
   const [topicId, setTopicId] = useState(defaultTopic);
-  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [count, setCount] = useState(10);
 
   const [quiz, setQuiz] = useState<ActiveQuiz | null>(null);
@@ -132,7 +142,7 @@ export function QuizMeDialog({
   }, [phase, quiz, storageKey]);
 
   const genMutation = useMutation({
-    mutationFn: async () => gen({ data: { courseId, topicId, difficulty, count } }),
+    mutationFn: async () => gen({ data: { courseId, topicId, count } }),
     onMutate: () => {
       setPhase("generating");
       setErrorMsg("");
@@ -144,6 +154,7 @@ export function QuizMeDialog({
         topicId: res.topicId,
         topicTitle: res.topicTitle,
         difficulty: res.difficulty,
+        difficultyBasis: res.difficultyBasis,
         officialQuizExists: res.officialQuizExists,
         answers: Array(res.questions.length).fill(null),
         current: 0,
@@ -229,7 +240,8 @@ export function QuizMeDialog({
                 <DialogTitle>Quiz Me · practice quiz</DialogTitle>
                 <DialogDescription>
                   AI-generated practice for {topicTitleFor(topicId)}. This is not an official quiz —
-                  it doesn&apos;t affect your Mastery Score or module completion.
+                  it doesn&apos;t affect your Mastery Score or module completion. Difficulty is set
+                  automatically based on your most recent official module quiz.
                 </DialogDescription>
               </DialogHeader>
 
@@ -248,24 +260,6 @@ export function QuizMeDialog({
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>Difficulty</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {DIFFICULTIES.map((d) => (
-                      <Button
-                        key={d}
-                        type="button"
-                        size="sm"
-                        variant={difficulty === d ? "default" : "outline"}
-                        className="rounded-full capitalize"
-                        onClick={() => setDifficulty(d)}
-                      >
-                        {d}
-                      </Button>
-                    ))}
-                  </div>
                 </div>
 
                 <div className="space-y-1.5">
@@ -395,14 +389,19 @@ function QuizBody({
           <span>
             Question {quiz.current + 1} of {total}
           </span>
-          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-normal capitalize text-muted-foreground">
-            {quiz.difficulty} practice
+          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-normal text-muted-foreground">
+            {quiz.difficultyBasis === "no_official_attempt"
+              ? `Starting at ${capitalizeWord(quiz.difficulty)} difficulty`
+              : `Adaptive difficulty: ${capitalizeWord(quiz.difficulty)}`}
           </span>
         </DialogTitle>
         <DialogDescription>
           {quiz.topicTitle} · {answered}/{total} answered. You can change any answer before
           finishing.
         </DialogDescription>
+        {quiz.difficultyBasis === "official_attempt" && (
+          <p className="text-xs text-muted-foreground">Based on your latest completed module quiz.</p>
+        )}
       </DialogHeader>
 
       <Progress value={((quiz.current + 1) / total) * 100} className="h-1.5" />
