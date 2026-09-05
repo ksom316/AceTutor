@@ -738,6 +738,7 @@ export type Database = {
           modality: string | null;
           quiz_attempt_id: string | null;
           recommendation_matched: boolean | null;
+          recommendation_source: string | null;
           recommended_modality: string | null;
           score_percent: number | null;
           topic_id: string | null;
@@ -754,6 +755,7 @@ export type Database = {
           modality?: string | null;
           quiz_attempt_id?: string | null;
           recommendation_matched?: boolean | null;
+          recommendation_source?: string | null;
           recommended_modality?: string | null;
           score_percent?: number | null;
           topic_id?: string | null;
@@ -770,6 +772,7 @@ export type Database = {
           modality?: string | null;
           quiz_attempt_id?: string | null;
           recommendation_matched?: boolean | null;
+          recommendation_source?: string | null;
           recommended_modality?: string | null;
           score_percent?: number | null;
           topic_id?: string | null;

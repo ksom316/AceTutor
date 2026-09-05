@@ -20,9 +20,12 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import type { VarkCategory } from "@/lib/vark";
 import type { LessonModality } from "@/lib/lesson-shared";
-import type { VarkContentRecommendation } from "@/lib/vark-content-recommendation";
 
 type InteractionRow = Database["public"]["Tables"]["learning_interactions"]["Insert"];
+
+/** Which layer produced the modality recommendation actually shown to the
+ *  student: the VARK prior (A4) or the adaptive override (A7). */
+export type RecommendationSource = "vark" | "adaptive";
 
 export type LearningInteractionEventType =
   | "lesson_opened"
@@ -46,32 +49,42 @@ export type RecommendationContext = {
   recommended_modality: LessonModality | null;
   effective_vark_category: VarkCategory | null;
   recommendation_matched: boolean | null;
+  recommendation_source: RecommendationSource | null;
 };
 
 /**
- * `recommendation` is null when Phase A4 had nothing to recommend at all (no
- * VARK category resolvable, or the recommended modality has no content in
- * this topic) — in that case every field here is null, INCLUDING
- * recommendation_matched, which is never fabricated to false. When a real
- * recommendation exists, recommendation_matched is a genuine boolean:
- * whether `actualModality` is the one that was recommended.
+ * Records the recommendation the student was ACTUALLY SHOWN at interaction
+ * time — which since A7 may be the adaptive override, not the VARK prior.
+ *
+ * - `recommendedModality` / `recommendationSource` come from the DISPLAYED
+ *   recommendation (adaptive when A7 overrode, else VARK, else null).
+ * - `effectiveCategory` is the student's real resolved VARK category — the
+ *   adaptive layer never changes their VARK classification, so this is
+ *   passed through independently of which source drove the recommendation.
+ * - When no recommendation was shown (`recommendedModality` is null), every
+ *   field here is null — same "only populated when a recommendation actually
+ *   ran" contract as A6. `recommendation_matched` is never fabricated to
+ *   false.
  */
-export function buildRecommendationContext(
-  recommendation: VarkContentRecommendation | null,
-  effectiveCategory: VarkCategory | null,
-  actualModality: LessonModality,
-): RecommendationContext {
-  if (!recommendation) {
+export function buildRecommendationContext(input: {
+  recommendedModality: LessonModality | null;
+  recommendationSource: RecommendationSource | null;
+  effectiveCategory: VarkCategory | null;
+  actualModality: LessonModality;
+}): RecommendationContext {
+  if (input.recommendedModality == null) {
     return {
       recommended_modality: null,
       effective_vark_category: null,
       recommendation_matched: null,
+      recommendation_source: null,
     };
   }
   return {
-    recommended_modality: recommendation.modality,
-    effective_vark_category: effectiveCategory,
-    recommendation_matched: recommendation.modality === actualModality,
+    recommended_modality: input.recommendedModality,
+    effective_vark_category: input.effectiveCategory,
+    recommendation_matched: input.recommendedModality === input.actualModality,
+    recommendation_source: input.recommendationSource,
   };
 }
 
@@ -126,6 +139,7 @@ export function logInteraction(userId: string, input: LearningInteractionInput):
     recommended_modality: null,
     effective_vark_category: null,
     recommendation_matched: null,
+    recommendation_source: null,
     quiz_attempt_id: null,
     score_percent: null,
     difficulty: null,
@@ -138,12 +152,14 @@ export function logInteraction(userId: string, input: LearningInteractionInput):
       row.recommended_modality = input.recommendationContext.recommended_modality;
       row.effective_vark_category = input.recommendationContext.effective_vark_category;
       row.recommendation_matched = input.recommendationContext.recommendation_matched;
+      row.recommendation_source = input.recommendationContext.recommendation_source;
       break;
     case "modality_selected":
       row.modality = input.modality;
       row.recommended_modality = input.recommendationContext.recommended_modality;
       row.effective_vark_category = input.recommendationContext.effective_vark_category;
       row.recommendation_matched = input.recommendationContext.recommendation_matched;
+      row.recommendation_source = input.recommendationContext.recommendation_source;
       break;
     case "practice_quiz_started":
       row.difficulty = input.difficulty;

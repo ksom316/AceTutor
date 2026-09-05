@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import { ArrowRight, FileText, Headphones, PlayCircle, Presentation, Sparkles } from "lucide-react";
@@ -23,6 +24,8 @@ import {
   resolveVarkContentRecommendation,
 } from "@/lib/vark-content-recommendation";
 import { buildRecommendationContext, logInteraction } from "@/lib/learning-interactions";
+import { getAdaptiveModalityRecommendation } from "@/lib/adaptive-modality.functions";
+import type { AdaptiveModalityRecommendation } from "@/lib/adaptive-modality";
 
 type Modality = "text" | "video" | "audio" | "slides";
 
@@ -204,6 +207,36 @@ function TopicPage() {
     [effectiveVarkCategory, availableModalities],
   );
 
+  // Phase A7 — server-computed adaptive modality recommendation. Reads only
+  // this student's own learning_interactions history server-side and returns
+  // just the final recommendation. Best-effort: while it loads or if it
+  // fails, `displayedRecommendation` falls back to the A4 VARK recommendation
+  // above, so the topic page and its content are never affected.
+  const runAdaptive = useServerFn(getAdaptiveModalityRecommendation);
+  const adaptiveQuery = useQuery({
+    queryKey: ["adaptive-modality", user?.id, topicId],
+    enabled: !!user && !!topicId && availableModalities.length > 0,
+    staleTime: 60_000,
+    queryFn: () => runAdaptive({ data: { topicId } }),
+  });
+  // The recommendation ACTUALLY shown to the student: the adaptive result
+  // once it has resolved, otherwise the A4 VARK recommendation. Memoized so
+  // it's a stable reference for the logging effects below.
+  const displayedRecommendation = useMemo<Pick<
+    AdaptiveModalityRecommendation,
+    "modality" | "category" | "source"
+  > | null>(() => {
+    if (adaptiveQuery.data) return adaptiveQuery.data;
+    if (varkRecommendation) {
+      return {
+        modality: varkRecommendation.modality,
+        category: varkRecommendation.category,
+        source: "vark" as const,
+      };
+    }
+    return null;
+  }, [adaptiveQuery.data, varkRecommendation]);
+
   const activeModality = useMemo<Modality | undefined>(() => {
     if (availableModalities.length === 0) return undefined;
     if (picked && availableModalities.includes(picked)) return picked;
@@ -220,9 +253,20 @@ function TopicPage() {
   // fire-and-forget logInteraction() helper, which never throws. Ref-guarded
   // so switching back to an already-logged modality, or a lesson already
   // seen this page visit, never creates a duplicate row.
+  //
+  // Phase A7: logging is held until the adaptive query has SETTLED
+  // (`isFetched` is true after success OR error). This guarantees the
+  // recorded `recommended_modality` / `recommendation_source` is the
+  // recommendation the student is actually seeing — never a premature VARK
+  // value that the adaptive result would supersede a moment later.
+  const recommendedModality = displayedRecommendation?.modality ?? null;
+  const recommendationSource = displayedRecommendation?.modality
+    ? displayedRecommendation.source
+    : null;
+
   const loggedModalityRef = useRef<{ topicId: string; modality: Modality } | null>(null);
   useEffect(() => {
-    if (!user || !activeModality || !topicId) return;
+    if (!user || !activeModality || !topicId || !adaptiveQuery.isFetched) return;
     if (
       loggedModalityRef.current?.topicId === topicId &&
       loggedModalityRef.current?.modality === activeModality
@@ -235,17 +279,27 @@ function TopicPage() {
       course_id: data?.topic?.course_id ?? null,
       topic_id: topicId,
       modality: activeModality,
-      recommendationContext: buildRecommendationContext(
-        varkRecommendation,
-        effectiveVarkCategory,
-        activeModality,
-      ),
+      recommendationContext: buildRecommendationContext({
+        recommendedModality,
+        recommendationSource,
+        effectiveCategory: effectiveVarkCategory,
+        actualModality: activeModality,
+      }),
     });
-  }, [user, topicId, activeModality, data?.topic?.course_id, varkRecommendation, effectiveVarkCategory]);
+  }, [
+    user,
+    topicId,
+    activeModality,
+    data?.topic?.course_id,
+    recommendedModality,
+    recommendationSource,
+    effectiveVarkCategory,
+    adaptiveQuery.isFetched,
+  ]);
 
   const loggedLessonIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!user || !topicId) return;
+    if (!user || !topicId || !adaptiveQuery.isFetched) return;
     for (const lesson of activeLessons) {
       if (loggedLessonIdsRef.current.has(lesson.id)) continue;
       loggedLessonIdsRef.current.add(lesson.id);
@@ -255,11 +309,12 @@ function TopicPage() {
         topic_id: topicId,
         lesson_id: lesson.id,
         modality: lesson.modality,
-        recommendationContext: buildRecommendationContext(
-          varkRecommendation,
-          effectiveVarkCategory,
-          lesson.modality,
-        ),
+        recommendationContext: buildRecommendationContext({
+          recommendedModality,
+          recommendationSource,
+          effectiveCategory: effectiveVarkCategory,
+          actualModality: lesson.modality,
+        }),
       });
     }
     // activeLessons is a derived array (new reference each render) — depend on
@@ -270,8 +325,10 @@ function TopicPage() {
     topicId,
     activeLessons.map((l) => l.id).join(","),
     data?.topic?.course_id,
-    varkRecommendation,
+    recommendedModality,
+    recommendationSource,
     effectiveVarkCategory,
+    adaptiveQuery.isFetched,
   ]);
 
   if (isLoading) {
@@ -411,7 +468,7 @@ function TopicPage() {
                     className={`ml-0.5 h-3 w-3 ${isActive ? "text-primary-foreground" : "text-accent"}`}
                   />
                 )}
-                {varkRecommendation?.modality === k && (
+                {displayedRecommendation?.modality === k && (
                   <Badge
                     variant="secondary"
                     className="ml-0.5 h-4 gap-1 rounded-full px-1.5 py-0 text-[10px] font-medium"
@@ -425,12 +482,18 @@ function TopicPage() {
         </motion.div>
       )}
 
-      {varkRecommendation && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Recommended based on your {VARK_CATEGORY_LABEL[varkRecommendation.category]} learning
-          profile — every format above is still available.
-        </p>
-      )}
+      {displayedRecommendation?.modality &&
+        (displayedRecommendation.source === "adaptive" ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Adjusted based on your recent learning activity and quiz outcomes — every format above
+            is still available.
+          </p>
+        ) : displayedRecommendation.category ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Recommended based on your {VARK_CATEGORY_LABEL[displayedRecommendation.category]} learning
+            profile — every format above is still available.
+          </p>
+        ) : null)}
 
       <AnimatePresence mode="wait">
         <motion.section

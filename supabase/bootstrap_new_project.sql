@@ -389,6 +389,9 @@ create table if not exists public.learning_interactions (
   recommended_modality     text,
   effective_vark_category  text,
   recommendation_matched   boolean,
+  -- Phase A7: which source drove the recommendation actually SHOWN
+  -- ('vark' = A4 prior, 'adaptive' = A7 override). Null when none shown.
+  recommendation_source    text,
   quiz_attempt_id          uuid references public.quiz_attempts(id) on delete cascade,
   score_percent            int,
   difficulty               text,
@@ -409,7 +412,9 @@ create table if not exists public.learning_interactions (
   constraint learning_interactions_score_percent_check
     check (score_percent is null or (score_percent >= 0 and score_percent <= 100)),
   constraint learning_interactions_difficulty_check
-    check (difficulty is null or difficulty in ('easy', 'medium', 'hard'))
+    check (difficulty is null or difficulty in ('easy', 'medium', 'hard')),
+  constraint learning_interactions_recommendation_source_check
+    check (recommendation_source is null or recommendation_source in ('vark', 'adaptive'))
 );
 create index if not exists learning_interactions_user_topic_idx
   on public.learning_interactions (user_id, topic_id, created_at);
