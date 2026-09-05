@@ -151,6 +151,18 @@ class handler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": "Inference failed."})
             return
 
+        # Observability only - proves the REAL deployed model produced this
+        # result (visible in Vercel's runtime logs). Deliberately limited to
+        # non-sensitive model/output fields only - no secret, no auth token,
+        # no user id/email/IP, no raw questionnaire responses.
+        print(
+            f"[VARK ML] event=vark_ml_inference_completed "
+            f"model_type={result.get('model_type')} "
+            f"model_version={result.get('model_version')} "
+            f"predicted_category={result.get('predicted_category')} "
+            f"confidence={result.get('confidence')}"
+        )
+
         self._send_json(200, result)
 
     def do_GET(self) -> None:
