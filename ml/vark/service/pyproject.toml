@@ -1,2 +1,13 @@
+[project]
+name = "acetutor-vark-inference"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "scikit-learn==1.7.0",
+    "joblib==1.5.1",
+    "numpy==2.3.0",
+    "pandas>=2.0"
+]
+
 [tool.vercel]
 entrypoint = "api.predict:handler"
