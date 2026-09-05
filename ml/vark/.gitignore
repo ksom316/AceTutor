@@ -1,0 +1,9 @@
+# Generated, reproducible outputs — not source. Regenerate with
+# generate_dataset.py / train.py rather than committing them.
+data/*.csv
+artifacts/*
+!artifacts/.gitkeep
+!data/.gitkeep
+
+__pycache__/
+*.pyc
