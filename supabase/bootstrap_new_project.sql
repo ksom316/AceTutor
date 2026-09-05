@@ -372,7 +372,11 @@ create table if not exists public.vark_profiles (
 
 -- 2.19 learning_interactions  (Phase A6 — small, compact real student
 --      behavioral event log: lesson opens, modality selections, practice-quiz
---      start/complete, official module-quiz completion. NOT a lesson_completed
+--      start/complete, official module-quiz completion, and (Phase A7)
+--      meaningful_engagement — a non-invasive signal that a modality's
+--      content was actively visible for ~30s; it is what A7's adaptive
+--      recommendation uses as modality evidence (modality_selected /
+--      lesson_opened stay as plain analytics). NOT a lesson_completed
 --      event — public.progress already owns that signal. recommendation_matched
 --      is null (never false) when there was no recommendation to match
 --      against; false is reserved for "there was one and this wasn't it".
@@ -398,7 +402,7 @@ create table if not exists public.learning_interactions (
   created_at               timestamptz not null default now(),
   constraint learning_interactions_event_type_check
     check (event_type in (
-      'lesson_opened', 'modality_selected',
+      'lesson_opened', 'modality_selected', 'meaningful_engagement',
       'practice_quiz_started', 'practice_quiz_completed',
       'official_quiz_completed'
     )),

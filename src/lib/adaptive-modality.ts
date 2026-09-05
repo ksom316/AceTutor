@@ -8,9 +8,12 @@
  *
  * The reward signal comes only from `official_quiz_completed` interaction
  * rows (module quizzes, server-written, one per attempt — General Course
- * Quiz and AI "Quiz Me" never produce them). `buildModalityEvidence` links
- * each outcome to the distinct modalities used since the previous outcome
- * for that same module, collapsing event volume so 20 lesson opens can't
+ * Quiz and AI "Quiz Me" never produce them). The modality-USE signal comes
+ * only from `meaningful_engagement` rows (Phase A7 — a modality's content
+ * was actively visible for ~30s; a brief accidental tab click never
+ * qualifies). `buildModalityEvidence` links each outcome to the distinct
+ * modalities meaningfully engaged with since the previous outcome for that
+ * same module, collapsing event volume so repeated engagement events can't
  * outweigh one genuine study session.
  */
 
@@ -52,12 +55,13 @@ type OutcomeRow = { topic_id: string; score_percent: number; created_at: string 
 type InteractionRow = { topic_id: string; modality: LessonModality; created_at: string };
 
 /**
- * Links `official_quiz_completed` outcomes to the modalities used beforehand
- * and collapses repeated events. Both inputs are ASSUMED already scoped to
- * one student (the server does that) and are sorted here defensively.
+ * Links `official_quiz_completed` outcomes to the modalities the student
+ * MEANINGFULLY ENGAGED WITH beforehand (`meaningful_engagement` rows) and
+ * collapses repeated events. Both inputs are ASSUMED already scoped to one
+ * student (the server does that) and are sorted here defensively.
  *
  * For each module's outcomes in time order, the "study session" behind
- * outcome i is the interactions for that module strictly between the
+ * outcome i is the engagement rows for that module strictly between the
  * previous outcome and outcome i — so a retake after re-studying counts as a
  * fresh, separate piece of evidence. Only the SET of distinct modalities in
  * that window matters; event count is ignored entirely.
@@ -196,4 +200,38 @@ export function computeAdaptiveModalityRecommendation(input: {
     evidenceCount: evidence.linkedOutcomeCount,
     evidenceScore: bestScore,
   };
+}
+
+/**
+ * Development-only human-readable summary of an A7 decision — modality
+ * names, integer counts/scores, the VARK-prior modality, the decision and
+ * its reason code. Pure. Deliberately contains NO user id, topic id, raw
+ * rows, PII, or secrets, so it is safe to log to the dev-server console (see
+ * adaptive-modality.functions.ts, gated on NODE_ENV === "development").
+ */
+export function formatAdaptiveDiagnostic(input: {
+  varkModality: LessonModality | null;
+  evidence: ModalityEvidence;
+  result: Pick<AdaptiveModalityRecommendation, "modality" | "source" | "reasonCode">;
+}): string {
+  const lines: string[] = [];
+  lines.push(`[A7 adaptive-modality] VARK prior: ${input.varkModality ?? "(none)"}`);
+
+  const mods = MODALITY_ORDER.filter((m) => input.evidence.perModality[m] != null);
+  if (mods.length === 0) {
+    lines.push("  (no meaningful-engagement evidence linked to any outcome yet)");
+  } else {
+    for (const m of mods) {
+      const e = input.evidence.perModality[m]!;
+      lines.push(`  ${m}: evidenceCount ${e.evidenceCount}  rewardScore ${e.score}`);
+    }
+  }
+  lines.push(`  linkedOutcomes: ${input.evidence.linkedOutcomeCount}`);
+  lines.push(
+    input.result.source === "adaptive"
+      ? `Decision: adaptive -> ${input.result.modality}`
+      : "Decision: VARK fallback",
+  );
+  lines.push(`Reason: ${input.result.reasonCode}`);
+  return lines.join("\n");
 }

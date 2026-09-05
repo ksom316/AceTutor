@@ -1,9 +1,10 @@
 /**
- * Phase A6 — a small, typed logging helper for genuine learning interactions.
- * Deliberately NOT a general analytics library: exactly the 4 CLIENT-loggable
- * event shapes below, nothing else. (A 5th event type, official_quiz_
- * completed, exists in the schema but is deliberately NOT client-loggable —
- * see the note on LearningInteractionEventType below.) See supabase/
+ * Phase A6 — a small, typed logging helper for genuine learning interactions
+ * (Phase A7 added the meaningful_engagement variant). Deliberately NOT a
+ * general analytics library: exactly the 5 CLIENT-loggable event shapes
+ * below, nothing else. (A 6th event type, official_quiz_completed, exists in
+ * the schema but is deliberately NOT client-loggable — see the note on
+ * LearningInteractionEventType below.) See supabase/
  * migrations/20260905190000_learning_interactions.sql for the schema and
  * full rationale (why no "lesson_completed", why recommendation_matched is
  * null-not-false when there's no recommendation, why there's no metadata
@@ -30,6 +31,7 @@ export type RecommendationSource = "vark" | "adaptive";
 export type LearningInteractionEventType =
   | "lesson_opened"
   | "modality_selected"
+  | "meaningful_engagement"
   | "practice_quiz_started"
   | "practice_quiz_completed"
   | "official_quiz_completed";
@@ -106,6 +108,15 @@ export type LearningInteractionInput =
       recommendationContext: RecommendationContext;
     })
   | (BaseFields & {
+      // Phase A7 — a modality's content was actively visible for the
+      // meaningful-engagement minimum period. Modality-level (no lesson_id):
+      // this is what A7's adaptive recommendation treats as real modality
+      // evidence, unlike modality_selected / lesson_opened.
+      event_type: "meaningful_engagement";
+      modality: LessonModality;
+      recommendationContext: RecommendationContext;
+    })
+  | (BaseFields & {
       event_type: "practice_quiz_started";
       difficulty: PracticeDifficulty;
     })
@@ -155,6 +166,7 @@ export function logInteraction(userId: string, input: LearningInteractionInput):
       row.recommendation_source = input.recommendationContext.recommendation_source;
       break;
     case "modality_selected":
+    case "meaningful_engagement":
       row.modality = input.modality;
       row.recommended_modality = input.recommendationContext.recommended_modality;
       row.effective_vark_category = input.recommendationContext.effective_vark_category;

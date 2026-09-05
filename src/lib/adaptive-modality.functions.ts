@@ -10,6 +10,7 @@ import {
 import {
   buildModalityEvidence,
   computeAdaptiveModalityRecommendation,
+  formatAdaptiveDiagnostic,
   type AdaptiveModalityRecommendation,
 } from "@/lib/adaptive-modality";
 
@@ -58,11 +59,16 @@ export const getAdaptiveModalityRecommendation = createServerFn({ method: "POST"
           .order("created_at", { ascending: false })
           .order("id", { ascending: false })
           .limit(MAX_ROWS),
+        // Phase A7 evidence-quality fix: modality evidence comes ONLY from
+        // meaningful_engagement (a modality's content was actively visible
+        // for ~30s) — never a bare modality_selected / lesson_opened, which
+        // a 2-second accidental tab click would satisfy. Those events still
+        // exist for A6 analytics; they're just not read here.
         supabase
           .from("learning_interactions")
           .select("topic_id, modality, created_at")
           .eq("user_id", userId)
-          .in("event_type", ["modality_selected", "lesson_opened"])
+          .eq("event_type", "meaningful_engagement")
           .not("modality", "is", null)
           .order("created_at", { ascending: false })
           .order("id", { ascending: false })
@@ -120,10 +126,25 @@ export const getAdaptiveModalityRecommendation = createServerFn({ method: "POST"
       availableModalities,
     );
 
-    return computeAdaptiveModalityRecommendation({
+    const result = computeAdaptiveModalityRecommendation({
       varkRecommendation,
       effectiveVarkCategory,
       availableModalities,
       evidence,
     });
+
+    // Development-only diagnostic — dev-server console only, explicit
+    // allowlist so it's absent from any production build and never reaches a
+    // browser. The formatted string carries no user id, topic id, or PII.
+    if (process.env.NODE_ENV === "development") {
+      console.info(
+        formatAdaptiveDiagnostic({
+          varkModality: varkRecommendation?.modality ?? null,
+          evidence,
+          result,
+        }),
+      );
+    }
+
+    return result;
   });

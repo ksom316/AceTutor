@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildModalityEvidence,
   computeAdaptiveModalityRecommendation,
+  formatAdaptiveDiagnostic,
   outcomeReward,
   type ModalityEvidence,
 } from "@/lib/adaptive-modality";
@@ -271,6 +272,113 @@ test("buildModalityEvidence: outcome with no preceding interaction is not linked
   assert.equal(ev.linkedOutcomeCount, 0);
 });
 
+/* --- A7 evidence-quality: meaningful_engagement is the only modality signal --- */
+
+test("A7.3 meaningful text engagement then an 85% official outcome -> text gets +1", () => {
+  const T = "topic-1";
+  const ev = buildModalityEvidence(
+    [{ topic_id: T, score_percent: 85, created_at: "2026-02-01T01:00:00Z" }],
+    [{ topic_id: T, modality: "text", created_at: "2026-02-01T00:30:00Z" }],
+  );
+  assert.equal(ev.linkedOutcomeCount, 1);
+  assert.deepEqual(ev.perModality.text, { score: 1, evidenceCount: 1 });
+});
+
+test("A7.4 accidental Video click never reaches evidence; only meaningfully-engaged Text is rewarded", () => {
+  // The server query only selects meaningful_engagement rows, so a
+  // modality_selected for video is simply absent from `interactions`.
+  const T = "topic-1";
+  const ev = buildModalityEvidence(
+    [{ topic_id: T, score_percent: 85, created_at: "2026-02-01T01:00:00Z" }],
+    [{ topic_id: T, modality: "text", created_at: "2026-02-01T00:30:00Z" }],
+  );
+  assert.deepEqual(ev.perModality.text, { score: 1, evidenceCount: 1 });
+  assert.equal(ev.perModality.video, undefined);
+});
+
+test("A7.5 many meaningful_engagement events for one modality before one outcome -> evidenceCount 1", () => {
+  const T = "topic-1";
+  const ev = buildModalityEvidence(
+    [{ topic_id: T, score_percent: 90, created_at: "2026-02-01T02:00:00Z" }],
+    Array.from({ length: 8 }, (_, i) => ({
+      topic_id: T,
+      modality: "text" as LessonModality,
+      created_at: `2026-02-01T01:0${i}:00Z`,
+    })),
+  );
+  assert.deepEqual(ev.perModality.text, { score: 1, evidenceCount: 1 });
+});
+
+test("A7.6 meaningful engagement with no later official outcome -> no reward at all", () => {
+  const ev = buildModalityEvidence(
+    [],
+    [{ topic_id: "t1", modality: "text", created_at: "2026-02-01T00:00:00Z" }],
+  );
+  assert.equal(ev.linkedOutcomeCount, 0);
+  assert.deepEqual(ev.perModality, {});
+});
+
+test("A7.7 official outcome with no preceding meaningful engagement -> no modality reward", () => {
+  const ev = buildModalityEvidence(
+    [{ topic_id: "t1", score_percent: 85, created_at: "2026-02-01T00:00:00Z" }],
+    [],
+  );
+  assert.equal(ev.linkedOutcomeCount, 0);
+  assert.deepEqual(ev.perModality, {});
+});
+
+/* ---------------- formatAdaptiveDiagnostic (development-only) ---------------- */
+
+test("A7.9 diagnostic reports per-modality evidence and a VARK-fallback tie decision", () => {
+  const ev = evidence(
+    { text: { score: 2, evidenceCount: 2 }, audio: { score: 2, evidenceCount: 2 } },
+    3,
+  );
+  const result = computeAdaptiveModalityRecommendation({
+    varkRecommendation: VISUAL_REC,
+    effectiveVarkCategory: "visual",
+    availableModalities: ALL,
+    evidence: ev,
+  });
+  const out = formatAdaptiveDiagnostic({ varkModality: "video", evidence: ev, result });
+  assert.match(out, /VARK prior: video/);
+  assert.match(out, /text: evidenceCount 2 {2}rewardScore 2/);
+  assert.match(out, /audio: evidenceCount 2 {2}rewardScore 2/);
+  assert.match(out, /linkedOutcomes: 3/);
+  assert.match(out, /Decision: VARK fallback/);
+  assert.match(out, /Reason: tie/);
+  assert.doesNotMatch(out, /topic|user|uuid/i);
+});
+
+test("A7.9 diagnostic reports an adaptive-override decision", () => {
+  const ev = evidence(
+    { text: { score: 2, evidenceCount: 2 }, video: { score: -2, evidenceCount: 2 } },
+    2,
+  );
+  const result = computeAdaptiveModalityRecommendation({
+    varkRecommendation: VISUAL_REC,
+    effectiveVarkCategory: "visual",
+    availableModalities: ALL,
+    evidence: ev,
+  });
+  const out = formatAdaptiveDiagnostic({ varkModality: "video", evidence: ev, result });
+  assert.match(out, /Decision: adaptive -> text/);
+  assert.match(out, /Reason: adaptive_override/);
+});
+
+test("A7.9 diagnostic with no linked evidence says so plainly", () => {
+  const ev = evidence({}, 0);
+  const result = computeAdaptiveModalityRecommendation({
+    varkRecommendation: VISUAL_REC,
+    effectiveVarkCategory: "visual",
+    availableModalities: ALL,
+    evidence: ev,
+  });
+  const out = formatAdaptiveDiagnostic({ varkModality: "video", evidence: ev, result });
+  assert.match(out, /no meaningful-engagement evidence/);
+  assert.match(out, /Decision: VARK fallback/);
+});
+
 /* ---------------- server function: static security/scope checks ---------------- */
 
 const fnSrc = readFileSync(
@@ -299,9 +407,24 @@ test("6. General Course Quiz outcomes are excluded — only official_quiz_comple
   assert.doesNotMatch(fnSrc, /course_quiz|general_quiz|practice_quiz_completed/);
 });
 
+test("A7.1/A7.2 modality evidence is read ONLY from meaningful_engagement rows", () => {
+  // modality_selected / lesson_opened alone must never count as A7 evidence —
+  // the server no longer queries them.
+  assert.match(fnSrc, /\.eq\("event_type", "meaningful_engagement"\)/);
+  assert.doesNotMatch(fnSrc, /"modality_selected"/);
+  assert.doesNotMatch(fnSrc, /"lesson_opened"/);
+  assert.doesNotMatch(fnSrc, /\.in\("event_type",/);
+});
+
+test("A7 dev diagnostic is gated on NODE_ENV === development and leaks no ids", () => {
+  assert.match(fnSrc, /process\.env\.NODE_ENV === "development"/);
+  assert.match(fnSrc, /formatAdaptiveDiagnostic\(/);
+});
+
 test("only the compact final recommendation is returned, not raw history", () => {
   assert.match(fnSrc, /Promise<AdaptiveModalityRecommendation>/);
-  assert.match(fnSrc, /return computeAdaptiveModalityRecommendation\(/);
+  assert.match(fnSrc, /computeAdaptiveModalityRecommendation\(\{/);
+  assert.match(fnSrc, /return result;/);
 });
 
 test("capped history query has explicit, deterministic ordering (recent-first)", () => {

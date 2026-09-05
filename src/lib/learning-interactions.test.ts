@@ -8,7 +8,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildRecommendationContext } from "@/lib/learning-interactions";
+import {
+  buildRecommendationContext,
+  type LearningInteractionInput,
+} from "@/lib/learning-interactions";
 
 test("VARK fallback: matched true when the student's modality equals the recommended one", () => {
   const ctx = buildRecommendationContext({
@@ -101,6 +104,26 @@ test("no recommendation shown -> every context field null, never false", () => {
     recommendation_source: null,
   });
   assert.notEqual(ctx.recommendation_matched, false);
+});
+
+test("A7: a meaningful_engagement input is well-typed and carries modality + context", () => {
+  const input: LearningInteractionInput = {
+    event_type: "meaningful_engagement",
+    course_id: null,
+    topic_id: "topic-1",
+    modality: "text",
+    recommendationContext: buildRecommendationContext({
+      recommendedModality: "text",
+      recommendationSource: "adaptive",
+      effectiveCategory: "visual",
+      actualModality: "text",
+    }),
+  };
+  assert.equal(input.event_type, "meaningful_engagement");
+  assert.equal(input.modality, "text");
+  assert.equal(input.recommendationContext.recommendation_matched, true);
+  // no lesson_id on this modality-level variant
+  assert.ok(!("lesson_id" in input));
 });
 
 test("no forbidden keys ever appear in a built recommendation context (no secrets/PII)", () => {

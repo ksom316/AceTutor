@@ -1,5 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type SyntheticEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AnimatePresence, motion } from "framer-motion";
@@ -13,6 +20,11 @@ import { MasteryBadge, MasteryTrend } from "@/components/course/MasteryBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
+import { useMeaningfulEngagement } from "@/hooks/use-meaningful-engagement";
+import {
+  MEANINGFUL_ENGAGEMENT_MIN_SECONDS,
+  resolveEngagementPlan,
+} from "@/lib/meaningful-engagement";
 import { useVarkProfile } from "@/hooks/use-vark-profile";
 import { computeModuleMastery } from "@/lib/mastery";
 import type { PerfAttempt } from "@/lib/quiz-performance";
@@ -331,6 +343,74 @@ function TopicPage() {
     adaptiveQuery.isFetched,
   ]);
 
+  // Phase A7 evidence-quality — a modality qualifies as real study evidence
+  // only after a CONTENT-LENGTH-AWARE slice of engagement (see
+  // src/lib/meaningful-engagement.ts): ~30% of the estimated reading /
+  // playback time, clamped to 90–300s. For native (direct/uploaded) video &
+  // audio this counts verified playback time; for text, slides, and
+  // provider/iframe media it counts foreground-visible exposure. This is the
+  // ONLY signal A7's adaptive recommendation treats as modality evidence;
+  // modality_selected / lesson_opened above stay as plain A6 analytics.
+  const engagementPlan = useMemo(() => {
+    if (!activeModality) {
+      return { threshold: MEANINGFUL_ENGAGEMENT_MIN_SECONDS, signal: "exposure" as const };
+    }
+    const lessons = groups[activeModality];
+    const totalTextLength = lessons.reduce((n, l) => n + (l.body_md?.length ?? 0), 0);
+    const durations = lessons.map((l) => l.duration_sec ?? 0);
+    const totalDurationSec = durations.some((d) => d > 0)
+      ? durations.reduce((a, b) => a + b, 0)
+      : null;
+    const mediaLessons = lessons.filter((l) => l.media_url);
+    const playbackVerifiable =
+      (activeModality === "video" || activeModality === "audio") &&
+      mediaLessons.length > 0 &&
+      mediaLessons.length === lessons.length &&
+      mediaLessons.every((l) => isDirectMediaUrl(l.media_url!));
+    return resolveEngagementPlan({
+      modality: activeModality,
+      totalTextLength,
+      totalDurationSec,
+      playbackVerifiable,
+    });
+  }, [activeModality, groups]);
+
+  // Verified play time (seconds) per native <video>/<audio> lesson, reported
+  // by <TrackedMedia>. Summed across the active modality's lessons for the
+  // "playback" engagement signal. Ref only — never triggers a re-render.
+  const playbackByLessonRef = useRef<Map<string, number>>(new Map());
+
+  useMeaningfulEngagement({
+    enabled: !!user && availableModalities.length > 0 && adaptiveQuery.isFetched,
+    topicId,
+    activeModality,
+    threshold: engagementPlan.threshold,
+    signal: engagementPlan.signal,
+    getPlaybackSeconds: () => {
+      if (!activeModality) return 0;
+      let total = 0;
+      for (const l of groups[activeModality]) {
+        total += playbackByLessonRef.current.get(l.id) ?? 0;
+      }
+      return total;
+    },
+    onQualify: (modality) => {
+      if (!user) return;
+      logInteraction(user.id, {
+        event_type: "meaningful_engagement",
+        course_id: data?.topic?.course_id ?? null,
+        topic_id: topicId,
+        modality,
+        recommendationContext: buildRecommendationContext({
+          recommendedModality,
+          recommendationSource,
+          effectiveCategory: effectiveVarkCategory,
+          actualModality: modality,
+        }),
+      });
+    },
+  });
+
   if (isLoading) {
     return (
       <main className="container mx-auto max-w-4xl px-4 py-12">
@@ -514,6 +594,9 @@ function TopicPage() {
                     quizCta={
                       textLessonReading && idx === activeLessons.length - 1 ? quizCta : undefined
                     }
+                    onPlayback={(playedSeconds) =>
+                      playbackByLessonRef.current.set(lesson.id, playedSeconds)
+                    }
                   />
                 </div>
               </div>
@@ -548,11 +631,77 @@ function TopicPage() {
   );
 }
 
-/** Renders one lesson's body for its modality. Behaviour is unchanged from
- *  Phase 7 — direct/uploaded video uses <video>, provider links use <iframe>,
- *  audio uses <audio>, slides use the PDF iframe + open-in-new-tab link, text
- *  uses the Markdown renderer, and a non-text lesson's body_md is a caption. */
-function LessonBody({ lesson, quizCta }: { lesson: LessonRow; quizCta?: ReactNode }) {
+/**
+ * A native `<video>`/`<audio>` element that reports cumulative VERIFIED
+ * playback seconds (normal forward progression only — seeks, skips and
+ * rewinds are excluded). Used only for direct/uploaded media; provider embeds
+ * render as an `<iframe>` whose playback can't be read without a provider SDK.
+ */
+function TrackedMedia({
+  kind,
+  src,
+  title,
+  className,
+  onPlayedSeconds,
+}: {
+  kind: "video" | "audio";
+  src: string;
+  title?: string;
+  className?: string;
+  onPlayedSeconds?: (seconds: number) => void;
+}) {
+  const playedRef = useRef(0);
+  const lastTimeRef = useRef(0);
+  const onPlayedRef = useRef(onPlayedSeconds);
+  onPlayedRef.current = onPlayedSeconds;
+
+  const handleTimeUpdate = (e: SyntheticEvent<HTMLMediaElement>) => {
+    const el = e.currentTarget;
+    const delta = el.currentTime - lastTimeRef.current;
+    lastTimeRef.current = el.currentTime;
+    if (!el.paused && delta > 0 && delta < 1.5) {
+      playedRef.current += delta;
+      onPlayedRef.current?.(playedRef.current);
+    }
+  };
+  const syncCursor = (e: SyntheticEvent<HTMLMediaElement>) => {
+    lastTimeRef.current = e.currentTarget.currentTime;
+  };
+
+  return kind === "video" ? (
+    <video
+      src={src}
+      title={title}
+      controls
+      className={className}
+      onTimeUpdate={handleTimeUpdate}
+      onSeeking={syncCursor}
+    />
+  ) : (
+    <audio
+      src={src}
+      controls
+      className={className}
+      onTimeUpdate={handleTimeUpdate}
+      onSeeking={syncCursor}
+    />
+  );
+}
+
+/** Renders one lesson's body for its modality. Rendering is unchanged from
+ *  Phase 7 — direct/uploaded video & audio use native elements (now wrapped by
+ *  <TrackedMedia> to report verified playback time), provider links use an
+ *  <iframe>, slides use the PDF iframe + open-in-new-tab link, text uses the
+ *  Markdown renderer, and a non-text lesson's body_md is a caption. */
+function LessonBody({
+  lesson,
+  quizCta,
+  onPlayback,
+}: {
+  lesson: LessonRow;
+  quizCta?: ReactNode;
+  onPlayback?: (playedSeconds: number) => void;
+}) {
   return (
     <>
       {lesson.modality === "text" && (
@@ -562,7 +711,13 @@ function LessonBody({ lesson, quizCta }: { lesson: LessonRow; quizCta?: ReactNod
         lesson.media_url &&
         (isDirectMediaUrl(lesson.media_url) ? (
           <div className="aspect-video w-full overflow-hidden rounded-xl bg-black shadow-sm">
-            <video src={lesson.media_url} title={lesson.title} controls className="h-full w-full" />
+            <TrackedMedia
+              kind="video"
+              src={lesson.media_url}
+              title={lesson.title}
+              className="h-full w-full"
+              onPlayedSeconds={onPlayback}
+            />
           </div>
         ) : (
           <div className="aspect-video w-full overflow-hidden rounded-xl shadow-sm">
@@ -576,7 +731,12 @@ function LessonBody({ lesson, quizCta }: { lesson: LessonRow; quizCta?: ReactNod
           </div>
         ))}
       {lesson.modality === "audio" && lesson.media_url && (
-        <audio controls src={lesson.media_url} className="w-full" />
+        <TrackedMedia
+          kind="audio"
+          src={lesson.media_url}
+          className="w-full"
+          onPlayedSeconds={onPlayback}
+        />
       )}
       {lesson.modality === "slides" && lesson.media_url && (
         <div className="space-y-3">
