@@ -117,10 +117,13 @@ const inputSchema = z.object({ attemptId: z.string().uuid() });
 
 /* ---- module material (same capability rule as the quiz generator) ---- */
 
-const MATERIAL_CHAR_CAP = 12_000;
+export const MATERIAL_CHAR_CAP = 12_000;
 const PER_LESSON_CHAR_CAP = 5_000;
 
-function buildModuleMaterial(lessons: LessonForCapability[]): string {
+/** Concatenate the analysable lecturer material for a set of lessons, capped.
+ *  Exported so R1's remedial generator grounds on the exact same material as
+ *  the Study Path it extends (no second material loader). */
+export function buildModuleMaterial(lessons: LessonForCapability[]): string {
   const parts: string[] = [];
   for (const l of lessons) {
     const info = classifyLessonSource(l);

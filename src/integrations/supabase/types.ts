@@ -523,6 +523,9 @@ export type Database = {
           created_at: string;
           saved_at: string | null;
           completed_at: string | null;
+          remedial_content: Json | null;
+          remedial_modality: string | null;
+          remedial_generated_at: string | null;
         };
         Insert: {
           id?: string;
@@ -535,6 +538,9 @@ export type Database = {
           created_at?: string;
           saved_at?: string | null;
           completed_at?: string | null;
+          remedial_content?: Json | null;
+          remedial_modality?: string | null;
+          remedial_generated_at?: string | null;
         };
         Update: {
           id?: string;
@@ -547,6 +553,9 @@ export type Database = {
           created_at?: string;
           saved_at?: string | null;
           completed_at?: string | null;
+          remedial_content?: Json | null;
+          remedial_modality?: string | null;
+          remedial_generated_at?: string | null;
         };
         Relationships: [
           {
@@ -1030,6 +1039,24 @@ export type Database = {
           created_at: string;
           saved_at: string | null;
           completed_at: string | null;
+        };
+      };
+      save_study_path_remedial: {
+        Args: { _study_path_id: string; _content: Json; _modality: string };
+        Returns: {
+          id: string;
+          user_id: string;
+          topic_id: string | null;
+          course_id: string;
+          attempt_id: string;
+          weak_question_ids: string[];
+          content: Json;
+          created_at: string;
+          saved_at: string | null;
+          completed_at: string | null;
+          remedial_content: Json | null;
+          remedial_modality: string | null;
+          remedial_generated_at: string | null;
         };
       };
       set_study_path_saved: {

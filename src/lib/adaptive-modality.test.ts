@@ -388,7 +388,12 @@ const fnSrc = readFileSync(
 
 test("server function is authenticated and never trusts a client user id", () => {
   assert.match(fnSrc, /\.middleware\(\[requireSupabaseAuth\]\)/);
-  assert.match(fnSrc, /const \{ supabase, userId \} = context/);
+  // the handler passes the AUTH-derived context values into the shared compute;
+  // only topicId comes from the client
+  assert.match(
+    fnSrc,
+    /resolveAdaptiveModalityRecommendation\(context\.supabase, context\.userId, data\.topicId\)/,
+  );
   assert.doesNotMatch(fnSrc, /data\.userId|data\.user_id/);
 });
 

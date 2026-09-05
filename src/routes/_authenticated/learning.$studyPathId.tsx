@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useStudyPathById } from "@/hooks/use-study-path";
 import { GuidedReader, type ReaderSection } from "@/components/course/GuidedReader";
 import { WeakAreaBody } from "@/components/course/StudyPathPanel";
+import { RemedialExplanationPanel } from "@/components/course/RemedialExplanation";
 
 export const Route = createFileRoute("/_authenticated/learning/$studyPathId")({
   component: StudyPathLearningPage,
@@ -293,6 +294,13 @@ function StudyPathLearningPage() {
             ? "Your Learning Preferences changed after this Study Path was built. It stays as it was. Your current preferences apply when a new Study Path is generated — remove this one and build it again to use them."
             : "This Study Path was built with your Learning Preferences at the time. Changing your preferences won't modify it. Your new preferences apply when a new Study Path is generated."}
         </p>
+      </div>
+
+      {/* R1 — personalized remedial explanation of this path's weak areas.
+          Generated on demand, cached, and never affects course/module progress
+          or the A7 learning algorithm. */}
+      <div className="mt-6">
+        <RemedialExplanationPanel studyPath={studyPath} />
       </div>
 
       <div className="mt-6">

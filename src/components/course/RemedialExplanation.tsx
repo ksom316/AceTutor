@@ -1,0 +1,215 @@
+import { useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { AlertTriangle, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import type { RemedialContent } from "@/lib/remedial-content";
+import {
+  REMEDIAL_MODALITIES,
+  REMEDIAL_MODALITY_IMPLEMENTED,
+  REMEDIAL_MODALITY_LABEL,
+  type RemedialModality,
+} from "@/lib/remedial-modality";
+import { useRemedialLesson } from "@/hooks/use-remedial-lesson";
+import type { ParsedStudyPath } from "@/hooks/use-study-path";
+
+/* ------------------------------------------------------------------ *
+ * RemedialContentView — the format-agnostic remedial lesson, rendered as
+ * TEXT for R1. R2 will speak `content` (see remedialContentToScript); R3 will
+ * turn `weakConcepts` / `keyPoints` into a diagram. Nothing about generation
+ * is coupled to this component.
+ * ------------------------------------------------------------------ */
+export function RemedialContentView({ content }: { content: RemedialContent }) {
+  return (
+    <div className="space-y-5">
+      <div>
+        <h3 className="font-display text-xl">{content.title}</h3>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {content.weakConcepts.map((c) => (
+            <Badge key={c} variant="secondary" className="font-normal">
+              {c}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      <p className="text-sm text-muted-foreground">{content.summary}</p>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Explanation
+        </p>
+        <div className="prose-lesson mt-1.5 max-w-none break-words text-foreground">
+          <ReactMarkdown>{content.explanation}</ReactMarkdown>
+        </div>
+      </div>
+
+      {content.workedExample && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Worked example
+          </p>
+          <div className="prose-lesson mt-1.5 max-w-none break-words rounded-lg bg-muted/60 p-4 text-foreground">
+            <ReactMarkdown>{content.workedExample}</ReactMarkdown>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Key points
+        </p>
+        <ul className="mt-2 space-y-1.5 text-sm">
+          {content.keyPoints.map((k, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              <span>{k}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {content.practicePrompt && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Try this
+          </p>
+          <p className="mt-1.5 text-sm text-foreground">{content.practicePrompt}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * RemedialExplanationPanel — the entry point on the Study Path page.
+ * ------------------------------------------------------------------ */
+export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudyPath }) {
+  const remedial = useRemedialLesson(studyPath.id);
+
+  // The saved remedial content (from the Study Path row), or the one just
+  // generated this session.
+  const content: RemedialContent | null =
+    remedial.generateResult?.content ?? studyPath.remedial?.content ?? null;
+
+  const recommended: RemedialModality =
+    remedial.recommendation?.modality ?? studyPath.remedial?.modality ?? "text";
+
+  const [format, setFormat] = useState<RemedialModality | null>(null);
+  const activeFormat: RemedialModality = format ?? recommended;
+
+  const recommendedLabel = REMEDIAL_MODALITY_LABEL[recommended];
+  const hasContent = !!content;
+
+  const generateLabel = useMemo(() => {
+    if (remedial.generating) return "Generating explanation…";
+    if (remedial.generateFailed) return "Try again";
+    return hasContent ? "Regenerate explanation" : "Generate explanation";
+  }, [remedial.generating, remedial.generateFailed, hasContent]);
+
+  return (
+    <section
+      aria-label="Personalized explanation"
+      className="rounded-2xl border border-primary/25 bg-primary/5 p-6"
+    >
+      <div className="flex items-start gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+          <Sparkles className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-display text-xl">Personalized explanation</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            A short, targeted explanation of the weak areas from your quiz — not a summary of the
+            whole {studyPath.topic_id ? "module" : "course"}.
+          </p>
+
+          {/* Recommended format + toggle */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Recommended for you: {recommendedLabel}
+            </span>
+            <div className="inline-flex rounded-full border border-border bg-background p-0.5">
+              {REMEDIAL_MODALITIES.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={activeFormat === m}
+                  onClick={() => setFormat(m)}
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                    activeFormat === m
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {REMEDIAL_MODALITY_LABEL[m]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Format body */}
+          <div className="mt-4">
+            {!REMEDIAL_MODALITY_IMPLEMENTED[activeFormat] ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-300">
+                <p className="font-medium">
+                  {REMEDIAL_MODALITY_LABEL[activeFormat]} version coming in the next step.
+                </p>
+                <p className="mt-1">
+                  You can study the text explanation now.{" "}
+                  <button
+                    type="button"
+                    onClick={() => setFormat("text")}
+                    className="font-semibold underline underline-offset-2"
+                  >
+                    Switch to text
+                  </button>
+                </p>
+              </div>
+            ) : hasContent && content ? (
+              <div className="space-y-4">
+                <RemedialContentView content={content} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={remedial.generating}
+                    onClick={() => remedial.generate(true)}
+                  >
+                    {remedial.generating ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Regenerate explanation
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {remedial.generateFailed && (
+                  <p className="flex items-start gap-2 text-sm text-destructive">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      {remedial.generateErrorMessage ??
+                        "That didn't work. Your Study Path is unaffected — try again."}
+                    </span>
+                  </p>
+                )}
+                <Button disabled={remedial.generating} onClick={() => remedial.generate(false)}>
+                  {remedial.generating ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-1.5 h-4 w-4" />
+                  )}
+                  {generateLabel}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

@@ -279,8 +279,16 @@ create table if not exists public.study_paths (
   created_at        timestamptz not null default now(),
   completed_at      timestamptz,
   saved_at          timestamptz,
+  -- R1: cached personalized remedial explanation for this path's weak concepts
+  -- (generated on demand; independent of `content`). Modality is the recommended
+  -- format AT GENERATION TIME — presentation only, never a restriction.
+  remedial_content      jsonb,
+  remedial_modality     text,
+  remedial_generated_at timestamptz,
   constraint study_paths_attempt_unique unique (attempt_id),
-  constraint study_paths_content_object_ck check (jsonb_typeof(content) = 'object')
+  constraint study_paths_content_object_ck check (jsonb_typeof(content) = 'object'),
+  constraint study_paths_remedial_modality_ck
+    check (remedial_modality is null or remedial_modality in ('text', 'audio', 'visual'))
 );
 create index if not exists study_paths_user_topic_created_idx
   on public.study_paths (user_id, topic_id, created_at desc);
@@ -1531,6 +1539,39 @@ begin
 end;
 $$;
 
+-- R1: upsert the cached remedial explanation for one of the caller's OWN study
+-- paths. study_paths has no client write policy — this is the only writer.
+create or replace function public.save_study_path_remedial(
+  _study_path_id uuid, _content jsonb, _modality text
+)
+returns public.study_paths
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_row public.study_paths;
+begin
+  if v_uid is null then raise exception 'AUTH_REQUIRED'; end if;
+  if _content is null or jsonb_typeof(_content) <> 'object' then
+    raise exception 'INVALID_CONTENT';
+  end if;
+  if _modality is null or _modality not in ('text', 'audio', 'visual') then
+    raise exception 'INVALID_MODALITY';
+  end if;
+
+  update public.study_paths
+     set remedial_content      = _content,
+         remedial_modality     = _modality,
+         remedial_generated_at = now()
+   where id = _study_path_id
+     and user_id = v_uid
+  returning * into v_row;
+
+  if v_row.id is null then raise exception 'STUDY_PATH_NOT_FOUND'; end if;
+  return v_row;
+end;
+$$;
+
 -- Dormant in the current app UI, kept in the schema for compatibility.
 create or replace function public.set_study_path_saved(_id uuid, _saved boolean)
 returns public.study_paths
@@ -2671,6 +2712,9 @@ grant  execute on function public.save_study_path(uuid, jsonb, uuid[])          
 
 revoke execute on function public.mark_study_path_completed(uuid)                                  from public, anon;
 grant  execute on function public.mark_study_path_completed(uuid)                                  to authenticated;
+
+revoke execute on function public.save_study_path_remedial(uuid, jsonb, text)                      from public, anon;
+grant  execute on function public.save_study_path_remedial(uuid, jsonb, text)                      to authenticated;
 
 revoke execute on function public.set_study_path_saved(uuid, boolean)                              from public, anon;
 grant  execute on function public.set_study_path_saved(uuid, boolean)                              to authenticated;

@@ -11,6 +11,8 @@ import {
   studyPathContentSchema,
   studyPathErrorMessage,
 } from "@/lib/study-path.functions";
+import { remedialContentSchema, type RemedialContent } from "@/lib/remedial-content";
+import type { RemedialModality } from "@/lib/remedial-modality";
 
 /**
  * Client access to the AI Study Path backend.
@@ -30,7 +32,14 @@ const ONE_KEY = "study-path";
 const COURSE_KEY = "study-paths-course";
 
 const ROW_SELECT =
-  "id, user_id, topic_id, course_id, attempt_id, weak_question_ids, content, created_at, saved_at, completed_at";
+  "id, user_id, topic_id, course_id, attempt_id, weak_question_ids, content, created_at, saved_at, completed_at, remedial_content, remedial_modality, remedial_generated_at";
+
+/** R1 — the cached remedial explanation on a Study Path row, if present + valid. */
+export type StudyPathRemedial = {
+  content: RemedialContent;
+  modality: RemedialModality;
+  generatedAt: string;
+};
 
 /** A study_paths row whose `content` has been validated with the shared schema.
  *  A row whose stored content no longer matches the contract is treated as
@@ -46,6 +55,8 @@ export type ParsedStudyPath = {
   created_at: string;
   saved_at: string | null;
   completed_at: string | null;
+  /** R1 — cached personalized remedial explanation, or null. */
+  remedial: StudyPathRemedial | null;
 };
 
 type StudyPathDbRow = {
@@ -59,7 +70,21 @@ type StudyPathDbRow = {
   created_at: string;
   saved_at: string | null;
   completed_at: string | null;
+  remedial_content: unknown;
+  remedial_modality: string | null;
+  remedial_generated_at: string | null;
 };
+
+function parseRemedial(row: StudyPathDbRow): StudyPathRemedial | null {
+  if (!row.remedial_content || !row.remedial_generated_at) return null;
+  const parsed = remedialContentSchema.safeParse(row.remedial_content);
+  if (!parsed.success) return null;
+  const modality: RemedialModality =
+    row.remedial_modality === "audio" || row.remedial_modality === "visual"
+      ? row.remedial_modality
+      : "text";
+  return { content: parsed.data, modality, generatedAt: row.remedial_generated_at };
+}
 
 function parseRow(row: StudyPathDbRow): ParsedStudyPath | null {
   const parsed = studyPathContentSchema.safeParse(row.content);
@@ -74,6 +99,7 @@ function parseRow(row: StudyPathDbRow): ParsedStudyPath | null {
     created_at: row.created_at,
     saved_at: row.saved_at,
     completed_at: row.completed_at,
+    remedial: parseRemedial(row),
   };
 }
 
