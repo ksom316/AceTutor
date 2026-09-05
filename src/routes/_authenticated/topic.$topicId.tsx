@@ -5,16 +5,23 @@ import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import { ArrowRight, FileText, Headphones, PlayCircle, Presentation, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
 import { GuidedReader } from "@/components/course/GuidedReader";
 import { MasteryBadge, MasteryTrend } from "@/components/course/MasteryBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
+import { useVarkProfile } from "@/hooks/use-vark-profile";
 import { computeModuleMastery } from "@/lib/mastery";
 import type { PerfAttempt } from "@/lib/quiz-performance";
 import { splitLessonIntoSections } from "@/lib/reading-sections";
 import { fadeUp } from "@/lib/motion";
+import { VARK_CATEGORY_LABEL } from "@/lib/vark";
+import {
+  resolveEffectiveVarkCategory,
+  resolveVarkContentRecommendation,
+} from "@/lib/vark-content-recommendation";
 
 type Modality = "text" | "video" | "audio" | "slides";
 
@@ -184,6 +191,18 @@ function TopicPage() {
     [groups],
   );
 
+  // Phase A4 — VARK-aware content recommendation. Presentation-only: reads
+  // the already-persisted VARK profile (never re-runs ML inference here),
+  // and only ever adds a badge/caption below — it never changes
+  // activeModality/preferredModality (Learning Preferences' own, separate
+  // default-tab mechanism, untouched) and never reorders or hides lessons.
+  const { profile: varkProfile } = useVarkProfile();
+  const varkRecommendation = useMemo(
+    () =>
+      resolveVarkContentRecommendation(resolveEffectiveVarkCategory(varkProfile), availableModalities),
+    [varkProfile, availableModalities],
+  );
+
   const activeModality = useMemo<Modality | undefined>(() => {
     if (availableModalities.length === 0) return undefined;
     if (picked && availableModalities.includes(picked)) return picked;
@@ -332,10 +351,25 @@ function TopicPage() {
                     className={`ml-0.5 h-3 w-3 ${isActive ? "text-primary-foreground" : "text-accent"}`}
                   />
                 )}
+                {varkRecommendation?.modality === k && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-0.5 h-4 gap-1 rounded-full px-1.5 py-0 text-[10px] font-medium"
+                  >
+                    Recommended for you
+                  </Badge>
+                )}
               </button>
             );
           })}
         </motion.div>
+      )}
+
+      {varkRecommendation && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Recommended based on your {VARK_CATEGORY_LABEL[varkRecommendation.category]} learning
+          profile — every format above is still available.
+        </p>
       )}
 
       <AnimatePresence mode="wait">
