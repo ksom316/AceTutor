@@ -25,6 +25,7 @@ import {
   MEANINGFUL_ENGAGEMENT_MIN_SECONDS,
   resolveEngagementPlan,
 } from "@/lib/meaningful-engagement";
+import { resolveInitialModality } from "@/lib/initial-modality";
 import { useVarkProfile } from "@/hooks/use-vark-profile";
 import { computeModuleMastery } from "@/lib/mastery";
 import type { PerfAttempt } from "@/lib/quiz-performance";
@@ -249,14 +250,57 @@ function TopicPage() {
     return null;
   }, [adaptiveQuery.data, varkRecommendation]);
 
+  // Phase A7 final UX — the effective recommendation drives the INITIAL tab:
+  // a genuine adaptive override → A4 VARK recommendation → Learning-Preferences
+  // default → first available. The learner is never re-classified; only the
+  // current recommended modality moves (see src/lib/initial-modality.ts).
+  // Both candidates come from `displayedRecommendation` (the same value shown
+  // in the UI): source "adaptive" is the override, source "vark" is the A4
+  // recommendation (server-resolved, else the client A4 fallback).
+  const overrideModality =
+    displayedRecommendation?.source === "adaptive" ? displayedRecommendation.modality : null;
+  const varkRecModality =
+    displayedRecommendation?.source === "vark" ? displayedRecommendation.modality : null;
+
+  // Freeze the auto-selected initial tab the first render A7 has settled (or
+  // isn't going to run). After that only a manual `picked` can move the tab —
+  // a late adaptive result, refetch, or re-render never yanks it. Revisiting
+  // within the query's staleTime freezes immediately from cache (no flicker);
+  // only a genuine override on a cold load can briefly show the VARK tab
+  // first, because the override isn't known until the request returns.
+  const adaptiveWillRun = !!user && !!topicId;
+  const canFreezeInitial =
+    availableModalities.length > 0 &&
+    (!adaptiveWillRun || adaptiveQuery.isFetched || adaptiveQuery.isError);
+
+  const frozenInitialRef = useRef<Modality | null>(null);
+  if (frozenInitialRef.current === null && canFreezeInitial) {
+    frozenInitialRef.current =
+      resolveInitialModality({
+        manualPick: null,
+        adaptiveOverrideModality: overrideModality,
+        varkModality: varkRecModality,
+        preferredModality: preferredModality ?? null,
+        availableModalities,
+      }) ?? null;
+  }
+  const frozenInitial = frozenInitialRef.current;
+
   const activeModality = useMemo<Modality | undefined>(() => {
     if (availableModalities.length === 0) return undefined;
     if (picked && availableModalities.includes(picked)) return picked;
-    if (preferredModality && availableModalities.includes(preferredModality)) {
-      return preferredModality;
-    }
-    return availableModalities[0];
-  }, [availableModalities, picked, preferredModality]);
+    if (frozenInitial && availableModalities.includes(frozenInitial)) return frozenInitial;
+    // Pre-freeze only (A7 still first-loading): `displayedRecommendation` is
+    // the client A4 VARK value here, so this already matches the frozen result
+    // except on a genuine first-load override.
+    return resolveInitialModality({
+      manualPick: null,
+      adaptiveOverrideModality: overrideModality,
+      varkModality: varkRecModality,
+      preferredModality: preferredModality ?? null,
+      availableModalities,
+    });
+  }, [availableModalities, picked, frozenInitial, overrideModality, varkRecModality, preferredModality]);
 
   const activeLessons = activeModality ? groups[activeModality] : [];
 
@@ -276,32 +320,33 @@ function TopicPage() {
     ? displayedRecommendation.source
     : null;
 
-  const loggedModalityRef = useRef<{ topicId: string; modality: Modality } | null>(null);
+  // `modality_selected` means the student ACTUALLY picked a format tab — it is
+  // keyed off `picked`, never the system-selected initial `activeModality`, so
+  // an auto-displayed recommendation never fabricates a selection event.
+  const loggedPicksRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!user || !activeModality || !topicId || !adaptiveQuery.isFetched) return;
-    if (
-      loggedModalityRef.current?.topicId === topicId &&
-      loggedModalityRef.current?.modality === activeModality
-    ) {
-      return;
-    }
-    loggedModalityRef.current = { topicId, modality: activeModality };
+    if (!user || !picked || !topicId || !adaptiveQuery.isFetched) return;
+    if (!availableModalities.includes(picked)) return;
+    const key = `${topicId}:${picked}`;
+    if (loggedPicksRef.current.has(key)) return;
+    loggedPicksRef.current.add(key);
     logInteraction(user.id, {
       event_type: "modality_selected",
       course_id: data?.topic?.course_id ?? null,
       topic_id: topicId,
-      modality: activeModality,
+      modality: picked,
       recommendationContext: buildRecommendationContext({
         recommendedModality,
         recommendationSource,
         effectiveCategory: effectiveVarkCategory,
-        actualModality: activeModality,
+        actualModality: picked,
       }),
     });
   }, [
     user,
     topicId,
-    activeModality,
+    picked,
+    availableModalities,
     data?.topic?.course_id,
     recommendedModality,
     recommendationSource,
