@@ -960,6 +960,84 @@ as $$
     and a.user_id = auth.uid();
 $$;
 
+-- Finished-attempt review (SEC-01): the caller may see the answer key ONLY for
+-- their OWN, FINISHED attempt. topic_id / course_quiz_id are derived from the
+-- attempt row, never a client argument. One row per question in the quiz, LEFT
+-- JOINed to the caller's own attempt_answers (unanswered → selected_index /
+-- is_correct NULL).
+create or replace function public.get_attempt_review(_attempt_id uuid)
+returns table (
+  question_id    uuid,
+  prompt         text,
+  choices        jsonb,
+  correct_index  int,
+  explanation    text,
+  order_index    int,
+  selected_index int,
+  is_correct     boolean
+)
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v_user     uuid;
+  v_topic    uuid;
+  v_cq       uuid;
+  v_finished timestamptz;
+begin
+  if auth.uid() is null then
+    raise exception 'forbidden';
+  end if;
+
+  select user_id, topic_id, course_quiz_id, finished_at
+    into v_user, v_topic, v_cq, v_finished
+  from public.quiz_attempts
+  where id = _attempt_id;
+
+  if v_user is null or v_user <> auth.uid() then
+    raise exception 'forbidden';
+  end if;
+  if v_finished is null then
+    raise exception 'ATTEMPT_NOT_FINISHED';
+  end if;
+
+  return query
+    select
+      q.id, q.prompt, q.choices, q.correct_index, q.explanation, q.order_index,
+      aa.selected_index, aa.is_correct
+    from public.questions q
+    left join public.attempt_answers aa
+      on aa.question_id = q.id and aa.attempt_id = _attempt_id
+    where (v_topic is not null and q.topic_id = v_topic)
+       or (v_cq   is not null and q.course_quiz_id = v_cq)
+    order by q.order_index, q.id;
+end;
+$$;
+
+-- "Which of these modules have a quiz published?" — an existence check the
+-- student-facing Take-a-Quiz list and the module page need now that students
+-- can't read public.questions directly. Returns ONLY topic ids.
+create or replace function public.topics_with_questions(_topic_ids uuid[])
+returns setof uuid
+language sql stable security definer set search_path = public
+as $$
+  select distinct q.topic_id
+  from public.questions q
+  where q.topic_id = any(_topic_ids)
+    and q.topic_id is not null;
+$$;
+
+-- Question PROMPTS only (no choices / correct_index / explanation) — same
+-- sensitivity as get_quiz_questions(). Used for AI grounding of remedial
+-- content over a Study Path's own weak_question_ids.
+create or replace function public.get_question_prompts(_question_ids uuid[])
+returns table (id uuid, prompt text)
+language sql stable security definer set search_path = public
+as $$
+  select q.id, q.prompt
+  from public.questions q
+  where q.id = any(_question_ids);
+$$;
+
 -- Grade the caller's own timed-out attempts (module or general) never submitted.
 -- A General Course Quiz attempt is also finalised once its quiz deadline passes,
 -- not only when its own normal timer runs out.
@@ -1432,6 +1510,12 @@ as $$
   join public.topics t on t.course_id = lc.course_id
   join public.quiz_attempts a on a.topic_id = t.id
   join public.profiles p on p.id = a.user_id
+  -- SEC-03: only attempts by students actually enrolled in the course (a
+  -- non-enrolled module attempt is only possible from legacy data now).
+  where exists (
+    select 1 from public.enrollments e
+    where e.course_id = lc.course_id and e.user_id = a.user_id
+  )
 
   union all
 
@@ -1746,6 +1830,36 @@ begin
 end;
 $$;
 
+-- Settings "Reset account data" (SEC-02a): atomic, own-data-only. Clears the
+-- EXACT set the old client flow cleared — enrollments, lesson progress, study
+-- time, quiz history, learning preferences, VARK, interaction log. Deleting
+-- the caller's quiz_attempts cascades to attempt_answers, study_paths
+-- (attempt_id FK) and the learning_interactions that reference either; the
+-- final learning_interactions delete mops up the rest (lesson opens, modality
+-- selections, practice-quiz events). Profile name / password / AI conversations
+-- are NOT touched. Takes NO id / user_id argument — a client can neither target
+-- another user nor delete one arbitrary attempt by UUID.
+create or replace function public.reset_my_learning_data()
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+begin
+  if v_uid is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  delete from public.quiz_attempts        where user_id = v_uid;
+  delete from public.progress             where user_id = v_uid;
+  delete from public.study_sessions       where user_id = v_uid;
+  delete from public.enrollments          where user_id = v_uid;
+  delete from public.learning_preferences where user_id = v_uid;
+  delete from public.vark_profiles        where user_id = v_uid;
+  delete from public.learning_interactions where user_id = v_uid;
+end;
+$$;
+
 
 -- 3.11 trigger functions: quiz-attempt guards --------------------------
 
@@ -1775,8 +1889,8 @@ begin
 end;
 $$;
 
--- BEFORE INSERT: enrolment + availability + deadline + attempt-cap for
--- general-quiz attempts.
+-- BEFORE INSERT: enrolment (module AND general), plus availability + deadline +
+-- attempt-cap for general-quiz attempts.
 create or replace function public.enforce_course_quiz_attempt()
 returns trigger
 language plpgsql security definer set search_path = public
@@ -1788,6 +1902,26 @@ declare
   v_max int;
   v_used int;
 begin
+  -- MODULE attempt (SEC-03): historically this returned early for topic_id
+  -- attempts — no check applied. Course content is world-readable, so any
+  -- authenticated user could start a module quiz for a course they never
+  -- joined. Now: enrollment in that module's course is required (or being
+  -- that course's own lecturer — preview).
+  if new.topic_id is not null then
+    select t.course_id into v_course from public.topics t where t.id = new.topic_id;
+    if v_course is null then
+      raise exception 'This module no longer exists.';
+    end if;
+    if public.current_lecturer_course() is distinct from v_course
+       and not exists (
+         select 1 from public.enrollments e
+         where e.course_id = v_course and e.user_id = auth.uid()
+       ) then
+      raise exception 'You must be enrolled in this course to take this quiz.';
+    end if;
+    return new;
+  end if;
+
   if new.course_quiz_id is null then
     return new;
   end if;
@@ -2605,9 +2739,17 @@ create policy "course_quizzes_lecturer_write" on public.course_quizzes
   using (course_id = public.current_lecturer_course())
   with check (course_id = public.current_lecturer_course());
 
--- questions: any authenticated user may read; lecturer scoped write (module OR their course quiz)
-create policy "Authenticated can read questions" on public.questions
-  for select to authenticated using (true);
+-- questions: NO direct student read (correct_index / explanation are the answer
+-- key — SEC-01). Students get sanitized questions only via get_quiz_questions()
+-- / get_course_quiz_questions(); finished-attempt review via get_attempt_review().
+-- Lecturers keep direct read of their OWN course's questions for the editor.
+create policy "questions_lecturer_read" on public.questions
+  for select to authenticated
+  using (
+    (topic_id in (select t.id from public.topics t where t.course_id = public.current_lecturer_course()))
+    or
+    (course_quiz_id in (select cq.id from public.course_quizzes cq where cq.course_id = public.current_lecturer_course()))
+  );
 create policy "questions_lecturer_write" on public.questions
   for all to authenticated
   using (
@@ -2621,25 +2763,39 @@ create policy "questions_lecturer_write" on public.questions
     (course_quiz_id in (select cq.id from public.course_quizzes cq where cq.course_id = public.current_lecturer_course()))
   );
 
--- quiz_attempts: own rows (select / insert / update / delete)
+-- quiz_attempts: SELECT own rows only. INSERT is constrained to a genuinely
+-- fresh, un-graded attempt (SEC-02) — a client cannot fabricate score / total /
+-- finished_at on insert. There is NO client UPDATE or DELETE policy:
+--   - grading / answer saves / timeout finalisation → grade_quiz() /
+--     save_quiz_answer() / finalize_expired_quiz_attempts() (SECURITY DEFINER,
+--     run as owner, not subject to RLS);
+--   - the Settings "Reset account data" feature → reset_my_learning_data()
+--     (SECURITY DEFINER). A per-row DELETE let a student drop a poor latest
+--     official attempt from the console and manipulate Mastery (SEC-02a).
 create policy "attempts_select_own" on public.quiz_attempts for select to authenticated using (auth.uid() = user_id);
-create policy "attempts_insert_own" on public.quiz_attempts for insert to authenticated with check (auth.uid() = user_id);
-create policy "attempts_update_own" on public.quiz_attempts for update to authenticated using (auth.uid() = user_id);
-create policy "attempts_delete_own" on public.quiz_attempts for delete to authenticated using (auth.uid() = user_id);
+create policy "attempts_insert_own" on public.quiz_attempts for insert to authenticated
+  with check (
+    auth.uid() = user_id
+    and finished_at is null
+    and score = 0
+    and total = 0
+    and answered_count is null
+    and timed_out = false
+  );
 
--- attempt_answers: rows whose parent attempt is yours. SELECT is withheld until
--- the attempt is FINISHED so a student can't read is_correct on the answers they
--- saved mid-quiz (Quiz Recovery). Resume reads selected indices via the
--- SECURITY DEFINER get_attempt_answers() instead.
+-- attempt_answers: browser gets SELECT only, and only once the parent attempt
+-- is FINISHED (so a student can't read is_correct on answers they saved
+-- mid-quiz — Quiz Recovery). Resume reads selected indices via the SECURITY
+-- DEFINER get_attempt_answers(); finished-attempt review via get_attempt_review().
+-- ALL client writes are revoked (SEC-02: is_correct was client-suppliable) —
+-- the only writers are save_quiz_answer() / grade_quiz() (SECURITY DEFINER).
+-- Rows still cascade-delete when their quiz_attempts row is deleted. The
+-- write-privilege REVOKE is in section 6 (after the blanket `grant all`).
 create policy "answers_select_own" on public.attempt_answers for select to authenticated
   using (exists (
     select 1 from public.quiz_attempts a
     where a.id = attempt_id and a.user_id = auth.uid() and a.finished_at is not null
   ));
-create policy "answers_insert_own" on public.attempt_answers for insert to authenticated
-  with check (exists (select 1 from public.quiz_attempts a where a.id = attempt_id and a.user_id = auth.uid()));
-create policy "answers_delete_own" on public.attempt_answers for delete to authenticated
-  using (exists (select 1 from public.quiz_attempts a where a.id = attempt_id and a.user_id = auth.uid()));
 
 -- progress: own rows
 create policy "progress_select_own" on public.progress for select to authenticated using (auth.uid() = user_id);
@@ -2745,6 +2901,15 @@ alter default privileges in schema public grant all on sequences to anon, authen
 -- Explicit (matches migration 20260611211725).
 grant select on public.questions to authenticated;
 
+-- Official quiz-integrity: no client write access to attempt_answers, and no
+-- client UPDATE/DELETE on quiz_attempts (SEC-02 / SEC-02a). RLS already denies
+-- these (no matching policy), but the blanket `grant all` above hands out the
+-- privilege, so pull it back explicitly. The SECURITY DEFINER quiz functions
+-- (grade_quiz / save_quiz_answer / finalize_expired_quiz_attempts) and
+-- reset_my_learning_data() run as owner and are unaffected.
+revoke insert, update, delete on public.attempt_answers from anon, authenticated;
+revoke update, delete          on public.quiz_attempts   from anon, authenticated;
+
 -- 6.2 Function EXECUTE. Supabase auto-grants EXECUTE on new functions to
 --     anon+authenticated via default privileges, so every function is first
 --     REVOKEd and then GRANTed exactly where it belongs.
@@ -2790,6 +2955,15 @@ grant  execute on function public.save_quiz_answer(uuid, uuid, int)             
 
 revoke execute on function public.get_attempt_answers(uuid)                                        from public, anon;
 grant  execute on function public.get_attempt_answers(uuid)                                        to authenticated;
+
+revoke execute on function public.get_attempt_review(uuid)                                         from public, anon;
+grant  execute on function public.get_attempt_review(uuid)                                         to authenticated;
+
+revoke execute on function public.topics_with_questions(uuid[])                                    from public, anon;
+grant  execute on function public.topics_with_questions(uuid[])                                    to authenticated;
+
+revoke execute on function public.get_question_prompts(uuid[])                                     from public, anon;
+grant  execute on function public.get_question_prompts(uuid[])                                     to authenticated;
 
 revoke execute on function public.finalize_expired_quiz_attempts()                                 from public, anon;
 grant  execute on function public.finalize_expired_quiz_attempts()                                 to authenticated;
@@ -2868,6 +3042,9 @@ grant  execute on function public.set_study_path_saved(uuid, boolean)           
 
 revoke execute on function public.delete_study_path(uuid)                                          from public, anon;
 grant  execute on function public.delete_study_path(uuid)                                          to authenticated;
+
+revoke execute on function public.reset_my_learning_data()                                         from public, anon;
+grant  execute on function public.reset_my_learning_data()                                         to authenticated;
 
 
 -- ============================================================================

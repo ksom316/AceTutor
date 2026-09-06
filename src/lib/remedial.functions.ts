@@ -446,13 +446,15 @@ export const generateRemedialLesson = createServerFn({ method: "POST" })
     }
 
     // Missed-question PROMPTS only (never choices or the correct answer).
+    // Students have no direct read on `questions` (SEC-01); get_question_prompts()
+    // is a SECURITY DEFINER RPC that returns ONLY prompts (same sensitivity as
+    // get_quiz_questions()) — this function still touches no service-role client.
     let missedQuestionPrompts: string[] = [];
     const weakIds = (row.weak_question_ids ?? []).filter((x): x is string => typeof x === "string");
     if (weakIds.length > 0) {
-      const { data: qs } = await supabase
-        .from("questions")
-        .select("id, prompt")
-        .in("id", weakIds.slice(0, 20));
+      const { data: qs } = await supabase.rpc("get_question_prompts", {
+        _question_ids: weakIds.slice(0, 20),
+      });
       missedQuestionPrompts = ((qs ?? []) as { prompt: string | null }[])
         .map((q) => (q.prompt ?? "").trim())
         .filter((p) => p.length > 0);

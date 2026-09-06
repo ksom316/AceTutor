@@ -983,6 +983,34 @@ export type Database = {
           selected_index: number;
         }[];
       };
+      get_attempt_review: {
+        Args: { _attempt_id: string };
+        Returns: {
+          choices: Json;
+          correct_index: number;
+          explanation: string | null;
+          is_correct: boolean | null;
+          order_index: number;
+          prompt: string;
+          question_id: string;
+          selected_index: number | null;
+        }[];
+      };
+      topics_with_questions: {
+        Args: { _topic_ids: string[] };
+        Returns: string[];
+      };
+      get_question_prompts: {
+        Args: { _question_ids: string[] };
+        Returns: {
+          id: string;
+          prompt: string;
+        }[];
+      };
+      reset_my_learning_data: {
+        Args: Record<PropertyKey, never>;
+        Returns: undefined;
+      };
       get_quiz_questions: {
         Args: { _limit?: number; _topic_id: string };
         Returns: {

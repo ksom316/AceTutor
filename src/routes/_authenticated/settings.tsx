@@ -237,44 +237,15 @@ function ResetAccountButton() {
     if (!user) return;
     setResetting(true);
     try {
-      const uid = user.id;
-
-      // attempt_answers has no user_id — remove them via the user's attempts first.
-      const { data: attempts, error: attemptsErr } = await supabase
-        .from("quiz_attempts")
-        .select("id")
-        .eq("user_id", uid);
-      if (attemptsErr) throw attemptsErr;
-      const attemptIds = (attempts ?? []).map((a) => a.id);
-      if (attemptIds.length) {
-        const { error } = await supabase
-          .from("attempt_answers")
-          .delete()
-          .in("attempt_id", attemptIds);
-        if (error) throw error;
-      }
-
-      // Delete the user's activity records.
-      const attemptsDel = await supabase.from("quiz_attempts").delete().eq("user_id", uid);
-      if (attemptsDel.error) throw attemptsDel.error;
-      const progressDel = await supabase.from("progress").delete().eq("user_id", uid);
-      if (progressDel.error) throw progressDel.error;
-      const sessionsDel = await supabase.from("study_sessions").delete().eq("user_id", uid);
-      if (sessionsDel.error) throw sessionsDel.error;
-      const enrollDel = await supabase.from("enrollments").delete().eq("user_id", uid);
-      if (enrollDel.error) throw enrollDel.error;
-      const prefsDel = await supabase.from("learning_preferences").delete().eq("user_id", uid);
-      if (prefsDel.error) throw prefsDel.error;
-      const varkDel = await supabase.from("vark_profiles").delete().eq("user_id", uid);
-      if (varkDel.error) throw varkDel.error;
-      // Phase A6 — learning_interactions rows referencing a deleted quiz
-      // attempt already cascade; this covers the rest (lesson opens, modality
-      // selections, practice quiz events) that don't reference quiz_attempts.
-      const interactionsDel = await supabase
-        .from("learning_interactions")
-        .delete()
-        .eq("user_id", uid);
-      if (interactionsDel.error) throw interactionsDel.error;
+      // One atomic SECURITY DEFINER call (SEC-02a): clears the caller's
+      // enrollments, lesson progress, study time, quiz history (attempts +
+      // answers + study paths, via cascade), learning preferences, VARK
+      // profile and interaction log. Takes no arguments — it can only ever
+      // touch auth.uid()'s own rows, and a client can no longer delete a
+      // single quiz attempt by id. Profile name / password / AI conversations
+      // are untouched, same as before.
+      const { error } = await supabase.rpc("reset_my_learning_data");
+      if (error) throw error;
 
       await queryClient.invalidateQueries();
       toast.success("Your account data has been reset");

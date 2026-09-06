@@ -71,6 +71,18 @@ type QuestionRow = {
   explanation: string | null;
   order_index: number;
 };
+/** One row of get_attempt_review() — a quiz question with the caller's own
+ *  answer merged in (nullable when unanswered). */
+type ReviewRow = {
+  question_id: string;
+  prompt: string;
+  choices: unknown;
+  correct_index: number;
+  explanation: string | null;
+  order_index: number;
+  selected_index: number | null;
+  is_correct: boolean | null;
+};
 
 /** Count-up percentage shown in the score hero. */
 function ScoreCounter({ value }: { value: number }) {
@@ -104,31 +116,49 @@ function ResultPage() {
         )
         .eq("id", attemptId)
         .maybeSingle();
-      const { data: answers } = await supabase
-        .from("attempt_answers")
-        .select(
-          "question_id, selected_index, is_correct, questions(prompt, choices, correct_index, explanation)",
-        )
-        .eq("attempt_id", attemptId);
+      // Finished-attempt review comes from the SECURITY DEFINER RPC
+      // get_attempt_review() — students have no direct read on `questions`
+      // (SEC-01). The RPC returns one row per question in the quiz, with the
+      // caller's own answer merged in (selected_index / is_correct null when
+      // unanswered), and only for the caller's own FINISHED attempt.
+      let review: ReviewRow[] = [];
+      if (attempt?.finished_at) {
+        try {
+          const { data: rows } = await supabase.rpc("get_attempt_review", {
+            _attempt_id: attemptId,
+          });
+          review = (rows ?? []) as unknown as ReviewRow[];
+        } catch {
+          review = []; // review is best-effort — the score hero still renders
+        }
+      }
 
-      // The FULL question set for this quiz, so the review can show every
-      // question — including the ones the student left unanswered — with its
-      // correct answer. Read-only: `questions` is student-readable, and nothing
-      // here writes an attempt_answers row for an unanswered question.
-      const topicId = attempt?.topic_id ?? null;
-      const courseQuizId = attempt?.course_quiz_id ?? null;
-      let questionsQuery = supabase
-        .from("questions")
-        .select("id, prompt, choices, correct_index, explanation, order_index");
-      questionsQuery = topicId
-        ? questionsQuery.eq("topic_id", topicId)
-        : questionsQuery.eq("course_quiz_id", courseQuizId ?? "");
-      const { data: questions } = await questionsQuery.order("order_index").order("id");
+      const questions: QuestionRow[] = review.map((r) => ({
+        id: r.question_id,
+        prompt: r.prompt,
+        choices: r.choices as string[],
+        correct_index: r.correct_index,
+        explanation: r.explanation,
+        order_index: r.order_index,
+      }));
+      const answers: AnswerRow[] = review
+        .filter((r) => r.selected_index != null && r.is_correct != null)
+        .map((r) => ({
+          question_id: r.question_id,
+          selected_index: r.selected_index as number,
+          is_correct: r.is_correct as boolean,
+          questions: {
+            prompt: r.prompt,
+            choices: r.choices as string[],
+            correct_index: r.correct_index,
+            explanation: r.explanation,
+          },
+        }));
 
       return {
         attempt: (attempt ?? null) as unknown as AttemptDetail | null,
-        answers: (answers ?? []) as unknown as AnswerRow[],
-        questions: (questions ?? []) as unknown as QuestionRow[],
+        answers,
+        questions,
       };
     },
   });

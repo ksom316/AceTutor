@@ -352,6 +352,10 @@ export const generatePracticeQuiz = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => genSchema.parse(input))
   .handler(async ({ data, context }): Promise<PracticeQuizResult> => {
     const { supabase, userId } = context;
+    // Read-only service client for the "does an official quiz exist?" count —
+    // students have no direct read on `questions` (SEC-01). Enrollment +
+    // topic↔course validation below still gate this handler.
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { data: enrollment } = await supabase
       .from("enrollments")
@@ -401,7 +405,7 @@ export const generatePracticeQuiz = createServerFn({ method: "POST" })
           .select("explanation_style")
           .eq("user_id", userId)
           .maybeSingle(),
-        supabase
+        supabaseAdmin
           .from("questions")
           .select("id", { count: "exact", head: true })
           .eq("topic_id", data.topicId),

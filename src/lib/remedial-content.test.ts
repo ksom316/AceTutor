@@ -199,8 +199,10 @@ test("the AI receives no user id, email, or quiz answers", () => {
   assert.ok(gen.length > 200);
   assert.doesNotMatch(gen, /userId|user_id|email|correct_index|correctAnswer|\bchoices\b/);
   assert.match(gen, /missedQuestionPrompts/); // prompts only
-  // the missed-question query never selects the answer
-  assert.match(fnSrc, /\.from\("questions"\)\s*\.select\("id, prompt"\)/);
+  // the missed-question lookup goes through the prompts-only RPC (SEC-01:
+  // students have no direct read on `questions`), which returns no answer key
+  assert.match(fnSrc, /supabase\.rpc\("get_question_prompts", \{/);
+  assert.doesNotMatch(fnSrc, /\.from\("questions"\)/);
 });
 
 test("analytics: R1 logs nothing (no meaningful_engagement / selection / completion events)", () => {

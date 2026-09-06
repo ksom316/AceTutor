@@ -77,8 +77,12 @@ function TakeAQuizPage() {
     enabled: !!user && topics.length > 0,
     queryFn: async () => {
       const ids = topics.map((t) => t.id);
-      const { data: qs } = await supabase.from("questions").select("topic_id").in("topic_id", ids);
-      const withQuiz = new Set((qs ?? []).map((q) => q.topic_id).filter(Boolean) as string[]);
+      // Students can't read `questions` directly (SEC-01) — this RPC returns
+      // only the subset of topic ids that have a quiz published.
+      const { data: withQuizIds } = await supabase.rpc("topics_with_questions", {
+        _topic_ids: ids,
+      });
+      const withQuiz = new Set((withQuizIds ?? []) as string[]);
 
       const { data: att } = await supabase
         .from("quiz_attempts")

@@ -182,11 +182,9 @@ function TopicPage() {
   const { data: hasQuiz } = useQuery({
     queryKey: ["topic-has-quiz", topicId],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("questions")
-        .select("id")
-        .eq("topic_id", topicId)
-        .limit(1);
+      // Students can't read `questions` directly (SEC-01) — this RPC echoes
+      // back only the topic ids that have a quiz.
+      const { data } = await supabase.rpc("topics_with_questions", { _topic_ids: [topicId] });
       return (data ?? []).length > 0;
     },
   });

@@ -426,11 +426,20 @@ export const generateStudyPath = createServerFn({ method: "POST" })
       if (sufficientIds.length > 0) wrongAttemptIds = sufficientIds;
     }
 
-    const { data: wrongRows } = await supabase
+    // The student's own wrong answers on their own (finished, verified) attempts
+    // — `attempt_answers` reads are RLS-scoped to the caller. The question
+    // details (correct answer + explanation) are then read with the service
+    // client: students have no direct read on `questions` (SEC-01), and the
+    // attempt ownership + `is_correct = false` filter above already bound the
+    // id set to this student's own missed questions.
+    const { data: wrongAnswerRows } = await supabase
       .from("attempt_answers")
-      .select("question_id, questions(prompt, choices, correct_index, explanation)")
+      .select("question_id")
       .in("attempt_id", wrongAttemptIds)
       .eq("is_correct", false);
+    const wrongQuestionIds = [
+      ...new Set(((wrongAnswerRows ?? []) as { question_id: string }[]).map((r) => r.question_id)),
+    ];
 
     type WrongRow = {
       question_id: string;
@@ -441,15 +450,25 @@ export const generateStudyPath = createServerFn({ method: "POST" })
         explanation: string | null;
       } | null;
     };
-    const seenQuestion = new Set<string>();
-    const incorrect = ((wrongRows ?? []) as unknown as WrongRow[]).filter((r) => {
-      if (!r.questions || typeof r.questions.prompt !== "string" || !r.questions.prompt.trim()) {
-        return false;
-      }
-      if (seenQuestion.has(r.question_id)) return false;
-      seenQuestion.add(r.question_id);
-      return true;
-    });
+    let incorrect: WrongRow[] = [];
+    if (wrongQuestionIds.length > 0) {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data: qRows } = await supabaseAdmin
+        .from("questions")
+        .select("id, prompt, choices, correct_index, explanation")
+        .in("id", wrongQuestionIds.slice(0, 100));
+      incorrect = ((qRows ?? []) as unknown as (WrongRow["questions"] & { id: string })[])
+        .filter((q) => q && typeof q.prompt === "string" && q.prompt.trim())
+        .map((q) => ({
+          question_id: q.id,
+          questions: {
+            prompt: q.prompt,
+            choices: q.choices,
+            correct_index: q.correct_index,
+            explanation: q.explanation,
+          },
+        }));
+    }
 
     // 12. No weakness evidence (from DB facts, not the AI) → no AI call. Covers
     // the "weak by average but every answered question was correct" edge too.
