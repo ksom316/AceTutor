@@ -749,7 +749,11 @@ export type Database = {
           recommendation_matched: boolean | null;
           recommendation_source: string | null;
           recommended_modality: string | null;
+          recommended_remedial_format: string | null;
+          remedial_content_version: string | null;
+          remedial_format: string | null;
           score_percent: number | null;
+          study_path_id: string | null;
           topic_id: string | null;
           user_id: string;
         };
@@ -766,7 +770,11 @@ export type Database = {
           recommendation_matched?: boolean | null;
           recommendation_source?: string | null;
           recommended_modality?: string | null;
+          recommended_remedial_format?: string | null;
+          remedial_content_version?: string | null;
+          remedial_format?: string | null;
           score_percent?: number | null;
+          study_path_id?: string | null;
           topic_id?: string | null;
           user_id: string;
         };
@@ -783,7 +791,11 @@ export type Database = {
           recommendation_matched?: boolean | null;
           recommendation_source?: string | null;
           recommended_modality?: string | null;
+          recommended_remedial_format?: string | null;
+          remedial_content_version?: string | null;
+          remedial_format?: string | null;
           score_percent?: number | null;
+          study_path_id?: string | null;
           topic_id?: string | null;
           user_id?: string;
         };
@@ -1058,6 +1070,16 @@ export type Database = {
           remedial_modality: string | null;
           remedial_generated_at: string | null;
         };
+      };
+      log_remedial_interaction: {
+        Args: {
+          _study_path_id: string;
+          _event_type: string;
+          _remedial_format: string;
+          _recommended_format: string | null;
+          _recommendation_source: string | null;
+        };
+        Returns: undefined;
       };
       set_study_path_saved: {
         Args: { _id: string; _saved: boolean };

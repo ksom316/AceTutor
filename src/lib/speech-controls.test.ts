@@ -87,7 +87,10 @@ test("1. the spoken text is remedialContentToScript(content) — no separate aud
     panelSrc,
     /const script = useMemo\(\(\) => \(content \? remedialContentToScript\(content\) : ""\)/,
   );
-  assert.match(panelSrc, /<RemedialAudioPlayer key=\{audioKey\} script=\{script\}/);
+  assert.match(
+    panelSrc,
+    /<RemedialAudioPlayer[\s\S]{0,80}key=\{audioKey\}[\s\S]{0,40}script=\{script\}/,
+  );
   assert.match(playerSrc, /useSpeechSynthesis\(script\)/);
   // the player builds no AI call / no generation of its own
   assert.doesNotMatch(playerSrc, /callAI|askCourse|\.generate\(|createServerFn/);
@@ -138,8 +141,8 @@ test("8/9. narration stops on content change AND on unmount", () => {
   assert.match(hookSrc, /return \(\) => stop\(\);\s*\},\s*\[text, stop\]\)/);
   // <RemedialAudioPlayer> is rendered in exactly one place — the audio+content
   // branch — so switching to Text/Visual (or leaving the page) unmounts it.
-  assert.equal((panelSrc.match(/<RemedialAudioPlayer key=/g) ?? []).length, 1);
-  assert.match(panelSrc, /activeFormat === "audio" \? \([\s\S]{0,200}<RemedialAudioPlayer key=/);
+  assert.equal((panelSrc.match(/<RemedialAudioPlayer\s/g) ?? []).length, 1);
+  assert.match(panelSrc, /activeFormat === "audio" \? \([\s\S]{0,200}<RemedialAudioPlayer\s/);
 });
 
 test("10. SSR-safe support detection + honest fallback text", () => {

@@ -411,17 +411,25 @@ create table if not exists public.learning_interactions (
   effective_vark_category  text,
   recommendation_matched   boolean,
   -- Phase A7: which source drove the recommendation actually SHOWN
-  -- ('vark' = A4 prior, 'adaptive' = A7 override). Null when none shown.
+  -- ('vark' = A4 prior, 'adaptive' = A7 override). R4 also allows
+  -- 'preference' / 'default' for remedial events. Null when none shown.
   recommendation_source    text,
   quiz_attempt_id          uuid references public.quiz_attempts(id) on delete cascade,
   score_percent            int,
   difficulty               text,
+  -- R4 (remedial tracking): the intervention, the format used, the format R1
+  -- recommended, and the content version (study_paths.remedial_generated_at).
+  study_path_id                uuid references public.study_paths(id) on delete cascade,
+  remedial_format              text,
+  recommended_remedial_format  text,
+  remedial_content_version     timestamptz,
   created_at               timestamptz not null default now(),
   constraint learning_interactions_event_type_check
     check (event_type in (
       'lesson_opened', 'modality_selected', 'meaningful_engagement',
       'practice_quiz_started', 'practice_quiz_completed',
-      'official_quiz_completed'
+      'official_quiz_completed',
+      'remedial_format_selected', 'remedial_meaningful_engagement'
     )),
   constraint learning_interactions_modality_check
     check (modality is null or modality in ('text', 'video', 'audio', 'slides')),
@@ -435,7 +443,13 @@ create table if not exists public.learning_interactions (
   constraint learning_interactions_difficulty_check
     check (difficulty is null or difficulty in ('easy', 'medium', 'hard')),
   constraint learning_interactions_recommendation_source_check
-    check (recommendation_source is null or recommendation_source in ('vark', 'adaptive'))
+    check (recommendation_source is null
+      or recommendation_source in ('vark', 'adaptive', 'preference', 'default')),
+  constraint learning_interactions_remedial_format_check
+    check (remedial_format is null or remedial_format in ('text', 'audio', 'visual')),
+  constraint learning_interactions_recommended_remedial_format_check
+    check (recommended_remedial_format is null
+      or recommended_remedial_format in ('text', 'audio', 'visual'))
 );
 create index if not exists learning_interactions_user_topic_idx
   on public.learning_interactions (user_id, topic_id, created_at);
@@ -443,6 +457,13 @@ create index if not exists learning_interactions_user_topic_idx
 create unique index if not exists learning_interactions_official_outcome_uq
   on public.learning_interactions (quiz_attempt_id)
   where event_type = 'official_quiz_completed';
+-- R4: one meaningful engagement per (study path, format, content version).
+create unique index if not exists learning_interactions_remedial_engagement_uq
+  on public.learning_interactions (study_path_id, remedial_format, remedial_content_version)
+  where event_type = 'remedial_meaningful_engagement';
+create index if not exists learning_interactions_study_path_idx
+  on public.learning_interactions (study_path_id, event_type, created_at)
+  where study_path_id is not null;
 
 
 -- ============================================================================
@@ -1572,6 +1593,76 @@ begin
 end;
 $$;
 
+-- R4 (remedial tracking): the sole writer for the remedial_* learning_
+-- interactions events. Re-checks Study Path ownership, derives topic/course +
+-- content version from the row (never the client), constrains event type +
+-- format, and dedups meaningful engagement via the partial unique index.
+create or replace function public.log_remedial_interaction(
+  _study_path_id uuid,
+  _event_type text,
+  _remedial_format text,
+  _recommended_format text,
+  _recommendation_source text
+)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_sp record;
+begin
+  if v_uid is null then raise exception 'AUTH_REQUIRED'; end if;
+
+  -- R4: only an ESTABLISHED student may log remedial evidence. Trusted source
+  -- is public.user_roles (one role per user): role = 'student' AND status =
+  -- 'established'. A lecturer / admin / provisional row is rejected even if
+  -- malformed data gave that account a study_paths row.
+  if not exists (
+    select 1 from public.user_roles
+    where user_id = v_uid and role = 'student' and status = 'established'
+  ) then
+    raise exception 'NOT_AN_ESTABLISHED_STUDENT';
+  end if;
+
+  if _event_type not in ('remedial_format_selected', 'remedial_meaningful_engagement') then
+    raise exception 'INVALID_EVENT_TYPE';
+  end if;
+  if _remedial_format is null or _remedial_format not in ('text', 'audio', 'visual') then
+    raise exception 'INVALID_REMEDIAL_FORMAT';
+  end if;
+  if _recommended_format is not null
+     and _recommended_format not in ('text', 'audio', 'visual') then
+    raise exception 'INVALID_RECOMMENDED_FORMAT';
+  end if;
+  if _recommendation_source is not null
+     and _recommendation_source not in ('vark', 'adaptive', 'preference', 'default') then
+    raise exception 'INVALID_RECOMMENDATION_SOURCE';
+  end if;
+
+  select id, user_id, topic_id, course_id, remedial_generated_at
+    into v_sp
+  from public.study_paths
+  where id = _study_path_id;
+
+  if not found then raise exception 'STUDY_PATH_NOT_FOUND'; end if;
+  if v_sp.user_id <> v_uid then raise exception 'STUDY_PATH_NOT_OWNED'; end if;
+
+  if _event_type = 'remedial_meaningful_engagement' and v_sp.remedial_generated_at is null then
+    raise exception 'NO_REMEDIAL_CONTENT';
+  end if;
+
+  insert into public.learning_interactions
+    (user_id, course_id, topic_id, study_path_id, event_type,
+     remedial_format, recommended_remedial_format, recommendation_source,
+     remedial_content_version)
+  values
+    (v_uid, v_sp.course_id, v_sp.topic_id, v_sp.id, _event_type,
+     _remedial_format, _recommended_format, _recommendation_source,
+     v_sp.remedial_generated_at)
+  on conflict do nothing;
+end;
+$$;
+
 -- Dormant in the current app UI, kept in the schema for compatibility.
 create or replace function public.set_study_path_saved(_id uuid, _saved boolean)
 returns public.study_paths
@@ -2578,13 +2669,19 @@ create policy "vark_profiles_delete_own" on public.vark_profiles
 
 -- learning_interactions: own rows only. No lecturer/admin policy — same
 -- posture as vark_profiles. Write-once event log — no update policy.
--- official_quiz_completed is excluded from client inserts: only grade_quiz()
--- (SECURITY DEFINER) may write that event type.
+-- official_quiz_completed (grade_quiz) and the R4 remedial_* events
+-- (log_remedial_interaction) are excluded from direct client inserts: only
+-- their SECURITY DEFINER functions may write those event types.
 create policy "learning_interactions_select_own" on public.learning_interactions
   for select to authenticated using (auth.uid() = user_id);
 create policy "learning_interactions_insert_own" on public.learning_interactions
   for insert to authenticated
-  with check (auth.uid() = user_id and event_type <> 'official_quiz_completed');
+  with check (
+    auth.uid() = user_id
+    and event_type not in (
+      'official_quiz_completed', 'remedial_format_selected', 'remedial_meaningful_engagement'
+    )
+  );
 create policy "learning_interactions_delete_own" on public.learning_interactions
   for delete to authenticated using (auth.uid() = user_id);
 
@@ -2715,6 +2812,9 @@ grant  execute on function public.mark_study_path_completed(uuid)               
 
 revoke execute on function public.save_study_path_remedial(uuid, jsonb, text)                      from public, anon;
 grant  execute on function public.save_study_path_remedial(uuid, jsonb, text)                      to authenticated;
+
+revoke execute on function public.log_remedial_interaction(uuid, text, text, text, text)           from public, anon;
+grant  execute on function public.log_remedial_interaction(uuid, text, text, text, text)           to authenticated;
 
 revoke execute on function public.set_study_path_saved(uuid, boolean)                              from public, anon;
 grant  execute on function public.set_study_path_saved(uuid, boolean)                              to authenticated;

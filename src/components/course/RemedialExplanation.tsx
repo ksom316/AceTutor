@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { AlertTriangle, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import {
   type RemedialModality,
 } from "@/lib/remedial-modality";
 import { useRemedialLesson } from "@/hooks/use-remedial-lesson";
+import { useRemedialTracking } from "@/hooks/use-remedial-tracking";
 import type { ParsedStudyPath } from "@/hooks/use-study-path";
 import { RemedialAudioPlayer } from "@/components/course/RemedialAudioPlayer";
 import { RemedialVisual } from "@/components/course/RemedialVisual";
@@ -116,6 +117,27 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
   const audioKey =
     remedial.generateResult?.generatedAt ?? studyPath.remedial?.generatedAt ?? "audio";
 
+  // R4 tracking — the truthful content version, and genuine audio listening
+  // seconds fed up from <RemedialAudioPlayer>. All fire-and-forget; nothing
+  // here can break the reader / narration / Study Path, and nothing feeds A7.
+  const contentVersion =
+    remedial.generateResult?.generatedAt ?? studyPath.remedial?.generatedAt ?? null;
+  const [audioSpokenSeconds, setAudioSpokenSeconds] = useState(0);
+  useEffect(() => {
+    setAudioSpokenSeconds(0);
+  }, [activeFormat, audioKey]);
+
+  const tracking = useRemedialTracking({
+    enabled: hasContent,
+    studyPathId: studyPath.id,
+    content,
+    contentVersion,
+    activeFormat,
+    recommendedFormat: remedial.recommendation?.modality ?? studyPath.remedial?.modality ?? null,
+    recommendationSource: remedial.recommendation?.source ?? null,
+    audioSpokenSeconds,
+  });
+
   const generateLabel = useMemo(() => {
     if (remedial.generating) return "Generating explanation…";
     if (remedial.generateFailed) return "Try again";
@@ -167,7 +189,12 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
                   key={m}
                   type="button"
                   aria-pressed={activeFormat === m}
-                  onClick={() => setFormat(m)}
+                  onClick={() => {
+                    // R4: a real toggle click that CHANGES the format. Clicking
+                    // the already-active tab logs nothing.
+                    if (m !== activeFormat) tracking.logFormatSelection(m);
+                    setFormat(m);
+                  }}
                   className={cn(
                     "rounded-full px-3 py-1 text-xs font-medium transition-colors",
                     activeFormat === m
@@ -228,7 +255,11 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
               </div>
             ) : activeFormat === "audio" ? (
               <div className="space-y-4">
-                <RemedialAudioPlayer key={audioKey} script={script} />
+                <RemedialAudioPlayer
+                  key={audioKey}
+                  script={script}
+                  onSpokenProgress={setAudioSpokenSeconds}
+                />
                 {regenerateButton}
               </div>
             ) : activeFormat === "visual" && visualModel ? (

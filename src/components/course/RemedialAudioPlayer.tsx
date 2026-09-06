@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Pause, Play, RotateCcw, Square, StepForward } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSpeechSynthesis } from "@/hooks/use-speech-synthesis";
@@ -11,9 +12,39 @@ import { resolveSpeechControls } from "@/lib/speech-controls";
  * All speech logic lives in `useSpeechSynthesis`; this component only maps its
  * state to labelled, correctly-disabled controls. Unmounting it (switching to
  * Text/Visual, navigating away) stops narration.
+ *
+ * R4 (tracking only): `onSpokenProgress` reports the cumulative GENUINE spoken
+ * seconds for this narration — counted only while actually speaking, not
+ * paused, and the tab is visible. It never affects playback or R2 behaviour.
  */
-export function RemedialAudioPlayer({ script }: { script: string }) {
+export function RemedialAudioPlayer({
+  script,
+  onSpokenProgress,
+}: {
+  script: string;
+  onSpokenProgress?: (spokenSeconds: number) => void;
+}) {
   const speech = useSpeechSynthesis(script);
+
+  const spokenRef = useRef(0);
+  const onSpokenRef = useRef(onSpokenProgress);
+  onSpokenRef.current = onSpokenProgress;
+  const speakingRef = useRef(speech.speaking);
+  speakingRef.current = speech.speaking;
+  const pausedRef = useRef(speech.paused);
+  pausedRef.current = speech.paused;
+
+  useEffect(() => {
+    if (speech.supported !== true) return;
+    const id = window.setInterval(() => {
+      const visible = typeof document === "undefined" || document.visibilityState === "visible";
+      if (speakingRef.current && !pausedRef.current && visible) {
+        spokenRef.current += 1;
+        onSpokenRef.current?.(spokenRef.current);
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [speech.supported]);
 
   // null = the client hasn't checked support yet (SSR / first paint).
   if (speech.supported === null) {
