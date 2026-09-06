@@ -31,22 +31,27 @@ function Row({ label, value, hint }: { label: string; value: React.ReactNode; hi
   );
 }
 
+/** Label + count on one line (label wraps freely, count pinned right), with a
+ *  full-width proportion bar on its own line underneath — so long reason-code
+ *  labels are never clipped or squeezed by the bar. */
 function Distribution({ data }: { data: Record<string, number> }) {
   const total = Object.values(data).reduce((a, b) => a + b, 0);
   return (
-    <ul className="space-y-1.5">
+    <ul className="space-y-2.5">
       {Object.entries(data).map(([k, v]) => (
-        <li key={k} className="flex items-center gap-3 text-sm">
-          <span className="w-24 shrink-0 capitalize text-muted-foreground">
-            {k.replace("_", "/")}
-          </span>
-          <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+        <li key={k} className="space-y-1">
+          <div className="flex items-baseline justify-between gap-3 text-sm">
+            <span className="min-w-0 break-words capitalize text-muted-foreground">
+              {k.replace("_", "/")}
+            </span>
+            <span className="shrink-0 font-medium tabular-nums">{v}</span>
+          </div>
+          <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
             <span
               className="block h-full rounded-full bg-primary/70"
               style={{ width: total ? `${Math.round((v / total) * 100)}%` : "0%" }}
             />
           </span>
-          <span className="w-8 shrink-0 text-right tabular-nums">{v}</span>
         </li>
       ))}
     </ul>
@@ -306,17 +311,33 @@ function EvaluationPage() {
                 <p className="mb-2 text-xs text-muted-foreground">
                   {summary.live.adaptation.outcomeAssociationDisclaimer}
                 </p>
-                <ul className="space-y-1 text-sm">
+                <ul className="space-y-2.5 text-sm">
                   {summary.live.adaptation.outcomeAssociationByModality.map((a) => (
-                    <li key={a.modality} className="flex items-center justify-between gap-3">
-                      <span className="capitalize text-muted-foreground">{a.modality}</span>
-                      <span className="tabular-nums">
-                        {a.averageScorePercent == null ? "—" : `${a.averageScorePercent}%`}{" "}
-                        <span className="text-xs text-muted-foreground">
-                          (n={a.linkedOutcomeCount}
-                          {a.evidenceState !== "sufficient" && `, ${a.evidenceState} evidence`})
+                    <li key={a.modality} className="space-y-1">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                        <span className="shrink-0 capitalize text-muted-foreground">
+                          {a.modality}
                         </span>
-                      </span>
+                        <span className="tabular-nums">
+                          {a.averageScorePercent == null ? "—" : `${a.averageScorePercent}%`}{" "}
+                          <span className="text-xs text-muted-foreground">
+                            (n={a.linkedOutcomeCount}
+                            {a.evidenceState !== "sufficient" && `, ${a.evidenceState} evidence`})
+                          </span>
+                        </span>
+                      </div>
+                      {/* Score bar only when there is a real average (0–100 scale);
+                          a modality with no linked outcome gets no bar. */}
+                      {a.averageScorePercent != null && (
+                        <span className="block h-1.5 overflow-hidden rounded-full bg-muted">
+                          <span
+                            className="block h-full rounded-full bg-primary/70"
+                            style={{
+                              width: `${Math.max(0, Math.min(100, a.averageScorePercent))}%`,
+                            }}
+                          />
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
