@@ -526,6 +526,8 @@ export type Database = {
           remedial_content: Json | null;
           remedial_modality: string | null;
           remedial_generated_at: string | null;
+          remedial_video: Json | null;
+          remedial_video_generated_at: string | null;
         };
         Insert: {
           id?: string;
@@ -541,6 +543,8 @@ export type Database = {
           remedial_content?: Json | null;
           remedial_modality?: string | null;
           remedial_generated_at?: string | null;
+          remedial_video?: Json | null;
+          remedial_video_generated_at?: string | null;
         };
         Update: {
           id?: string;
@@ -556,6 +560,8 @@ export type Database = {
           remedial_content?: Json | null;
           remedial_modality?: string | null;
           remedial_generated_at?: string | null;
+          remedial_video?: Json | null;
+          remedial_video_generated_at?: string | null;
         };
         Relationships: [
           {
@@ -661,16 +667,19 @@ export type Database = {
         Row: {
           id: string;
           role: Database["public"]["Enums"]["app_role"];
+          status: string;
           user_id: string;
         };
         Insert: {
           id?: string;
           role: Database["public"]["Enums"]["app_role"];
+          status?: string;
           user_id: string;
         };
         Update: {
           id?: string;
           role?: Database["public"]["Enums"]["app_role"];
+          status?: string;
           user_id?: string;
         };
         Relationships: [];
@@ -1070,6 +1079,10 @@ export type Database = {
           remedial_modality: string | null;
           remedial_generated_at: string | null;
         };
+      };
+      save_study_path_remedial_video: {
+        Args: { _study_path_id: string; _video: Json };
+        Returns: undefined;
       };
       log_remedial_interaction: {
         Args: {

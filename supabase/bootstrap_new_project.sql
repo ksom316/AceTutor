@@ -285,6 +285,10 @@ create table if not exists public.study_paths (
   remedial_content      jsonb,
   remedial_modality     text,
   remedial_generated_at timestamptz,
+  -- R6: cached remedial VIDEO recommendation (canonical YouTube id + validated
+  -- metadata, or NULL = "searched, nothing suitable"). Additional resource only.
+  remedial_video              jsonb,
+  remedial_video_generated_at timestamptz,
   constraint study_paths_attempt_unique unique (attempt_id),
   constraint study_paths_content_object_ck check (jsonb_typeof(content) = 'object'),
   constraint study_paths_remedial_modality_ck
@@ -1593,6 +1597,45 @@ begin
 end;
 $$;
 
+-- R6 (remedial video): the sole writer for study_paths.remedial_video on one of
+-- the caller's OWN study paths. Requires an authenticated ESTABLISHED student
+-- (public.user_roles), re-checks ownership. `_video` is a JSON object or NULL
+-- ("searched, nothing found"); both stamp remedial_video_generated_at.
+create or replace function public.save_study_path_remedial_video(
+  _study_path_id uuid, _video jsonb
+)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_uid uuid := auth.uid();
+  v_owner uuid;
+begin
+  if v_uid is null then raise exception 'AUTH_REQUIRED'; end if;
+
+  if not exists (
+    select 1 from public.user_roles
+    where user_id = v_uid and role = 'student' and status = 'established'
+  ) then
+    raise exception 'NOT_AN_ESTABLISHED_STUDENT';
+  end if;
+
+  if _video is not null and jsonb_typeof(_video) <> 'object' then
+    raise exception 'INVALID_VIDEO';
+  end if;
+
+  select user_id into v_owner from public.study_paths where id = _study_path_id;
+  if not found then raise exception 'STUDY_PATH_NOT_FOUND'; end if;
+  if v_owner <> v_uid then raise exception 'STUDY_PATH_NOT_OWNED'; end if;
+
+  update public.study_paths
+     set remedial_video              = _video,
+         remedial_video_generated_at = now()
+   where id = _study_path_id
+     and user_id = v_uid;
+end;
+$$;
+
 -- R4 (remedial tracking): the sole writer for the remedial_* learning_
 -- interactions events. Re-checks Study Path ownership, derives topic/course +
 -- content version from the row (never the client), constrains event type +
@@ -2812,6 +2855,9 @@ grant  execute on function public.mark_study_path_completed(uuid)               
 
 revoke execute on function public.save_study_path_remedial(uuid, jsonb, text)                      from public, anon;
 grant  execute on function public.save_study_path_remedial(uuid, jsonb, text)                      to authenticated;
+
+revoke execute on function public.save_study_path_remedial_video(uuid, jsonb)                      from public, anon;
+grant  execute on function public.save_study_path_remedial_video(uuid, jsonb)                      to authenticated;
 
 revoke execute on function public.log_remedial_interaction(uuid, text, text, text, text)           from public, anon;
 grant  execute on function public.log_remedial_interaction(uuid, text, text, text, text)           to authenticated;

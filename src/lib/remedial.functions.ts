@@ -113,7 +113,7 @@ async function resolveRemedialModalityForStudyPath(
 
 /* ---------------- load + validate the Study Path ---------------- */
 
-type StudyPathRemedialRow = {
+export type StudyPathRemedialRow = {
   id: string;
   user_id: string;
   topic_id: string | null;
@@ -123,9 +123,13 @@ type StudyPathRemedialRow = {
   remedial_content: unknown;
   remedial_modality: string | null;
   remedial_generated_at: string | null;
+  remedial_video: unknown;
+  remedial_video_generated_at: string | null;
 };
 
-async function loadOwnStudyPath(
+/** Load one Study Path the caller OWNS (RLS-scoped client + explicit user_id
+ *  re-check) and validate its `content`. Shared by R1 and R6. */
+export async function loadOwnStudyPath(
   supabase: SupabaseClient<Database>,
   userId: string,
   studyPathId: string,
@@ -133,7 +137,7 @@ async function loadOwnStudyPath(
   const { data, error } = await supabase
     .from("study_paths")
     .select(
-      "id, user_id, topic_id, course_id, weak_question_ids, content, remedial_content, remedial_modality, remedial_generated_at",
+      "id, user_id, topic_id, course_id, weak_question_ids, content, remedial_content, remedial_modality, remedial_generated_at, remedial_video, remedial_video_generated_at",
     )
     .eq("id", studyPathId)
     .maybeSingle();

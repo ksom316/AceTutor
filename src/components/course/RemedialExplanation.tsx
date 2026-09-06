@@ -12,9 +12,11 @@ import {
 } from "@/lib/remedial-modality";
 import { useRemedialLesson } from "@/hooks/use-remedial-lesson";
 import { useRemedialTracking } from "@/hooks/use-remedial-tracking";
+import { useRemedialVideo } from "@/hooks/use-remedial-video";
 import type { ParsedStudyPath } from "@/hooks/use-study-path";
 import { RemedialAudioPlayer } from "@/components/course/RemedialAudioPlayer";
 import { RemedialVisualView } from "@/components/course/RemedialVisualSpec";
+import { RemedialVideoCard } from "@/components/course/RemedialVideoCard";
 import { remedialContentToVisualModel } from "@/lib/remedial-visual";
 import { parseRemedialVisualSpec } from "@/lib/remedial-visual-spec";
 
@@ -133,6 +135,12 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
   useEffect(() => {
     setAudioSpokenSeconds(0);
   }, [activeFormat, audioKey]);
+
+  // R6 — an additional embedded remedial video (course video first, then a
+  // validated YouTube result). Cached on the Study Path; only searched once the
+  // student has generated their explanation. A failure here shows no card and
+  // never affects Text/Audio/Visual.
+  const video = useRemedialVideo(studyPath.id, { enabled: hasContent });
 
   const tracking = useRemedialTracking({
     enabled: hasContent,
@@ -281,6 +289,17 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
               </div>
             )}
           </div>
+
+          {/* R6 — additional embedded video resource, for every format. */}
+          {hasContent && (
+            <RemedialVideoCard
+              recommendation={video.recommendation}
+              searchUnavailable={video.searchUnavailable}
+              loading={video.loading}
+              onRefresh={video.refresh}
+              refreshing={video.refreshing}
+            />
+          )}
         </div>
       </div>
     </section>
