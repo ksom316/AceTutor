@@ -22,6 +22,7 @@ import {
   remedialContentSchema,
   type RemedialContent,
 } from "@/lib/remedial-content";
+import { REMEDIAL_VISUAL_PROMPT_SHAPES } from "@/lib/remedial-visual-spec";
 
 /**
  * R1 — Adaptive Remedial Content Core.
@@ -149,7 +150,7 @@ async function loadOwnStudyPath(
 
 /* ---------------- AI generation ---------------- */
 
-const REMEDIAL_MAX_TOKENS = 1400;
+const REMEDIAL_MAX_TOKENS = 1800;
 
 type RemedialPayload = {
   scope: "module" | "course";
@@ -174,7 +175,12 @@ async function runRemedialGeneration(
     `explanation to this ${unit}. Include one worked example when it genuinely helps understanding. ` +
     `Do NOT restate or reveal the quiz's correct answers as a cheat sheet. Do NOT assert facts that ` +
     `the supplied material does not support — use general subject knowledge only to fill gaps, and ` +
-    `stay correct. Be concise; avoid filler. Respond with strict JSON only — no prose, no code fences.`;
+    `stay correct. Be concise; avoid filler. You may also return ONE small "visual" structure that ` +
+    `mirrors the concept's real shape (a sorting sequence, ordered process, layered hierarchy, ` +
+    `side-by-side comparison, table, indexed array, or linked structure). Base it ONLY on what the ` +
+    `material and weak concepts support; never invent technical relationships just to draw something; ` +
+    `keep it short. If no specialised structure genuinely fits, use { "type": "concept-map" } or omit ` +
+    `"visual". Respond with strict JSON only — no prose, no code fences.`;
 
   const user = [
     `${payload.scope === "course" ? "COURSE" : "MODULE"}: ${payload.contextTitle}`,
@@ -197,13 +203,16 @@ async function runRemedialGeneration(
         ]
       : []),
     "Respond ONLY with JSON of exactly this shape:",
-    `{ "title": string, "weakConcepts": string[], "summary": string, "explanation": string, "workedExample": string, "keyPoints": string[], "practicePrompt": string }`,
+    `{ "title": string, "weakConcepts": string[], "summary": string, "explanation": string, "workedExample": string, "keyPoints": string[], "practicePrompt": string, "visual": object }`,
     "- weakConcepts: echo the concept names you are teaching.",
     "- summary: 1–2 sentences naming the misunderstanding.",
     "- explanation: the core teaching, ~120–250 words, focused on the weak concepts.",
     "- workedExample: optional; include only if it aids understanding.",
     "- keyPoints: 3–6 short bullet takeaways.",
     "- practicePrompt: optional; one open reflection/practice question (NOT a quiz answer).",
+    "- visual: optional; ONE of the following shapes, whichever fits the concept (or omit):",
+    REMEDIAL_VISUAL_PROMPT_SHAPES,
+    "  keep every list short (≤12 items), strings brief; only content the material supports.",
   ].join("\n");
 
   const messages = [

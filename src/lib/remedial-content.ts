@@ -11,6 +11,11 @@
 
 import { z } from "zod";
 import { REMEDIAL_MODALITIES, type RemedialModality } from "@/lib/remedial-modality";
+import {
+  parseRemedialVisualSpec,
+  remedialVisualSpecSchema,
+  type RemedialVisualSpec,
+} from "@/lib/remedial-visual-spec";
 
 export const remedialContentSchema = z.object({
   title: z.string().trim().min(1).max(160),
@@ -21,6 +26,10 @@ export const remedialContentSchema = z.object({
   workedExample: z.string().trim().min(1).max(5000).optional(),
   keyPoints: z.array(z.string().trim().min(1).max(500)).min(1).max(12),
   practicePrompt: z.string().trim().min(1).max(1500).optional(),
+  /** R5 — an optional concept-fitted visual structure. A malformed value is
+   *  dropped to `undefined` (via `.catch`) so it can never fail the whole
+   *  lesson; the Visual tab then renders the R3 concept map. */
+  visual: remedialVisualSpecSchema.optional().catch(undefined),
 });
 
 export type RemedialContent = z.infer<typeof remedialContentSchema>;
@@ -80,6 +89,10 @@ export function parseRemedialContent(
     .map((s) => s.trim())
     .slice(0, 12);
 
+  // R5 — untrusted; a malformed/oversized visual is simply dropped (the Visual
+  // tab then falls back to the R3 concept map). It never fails the lesson.
+  const visual = parseRemedialVisualSpec(obj.visual ?? obj.visual_spec) ?? undefined;
+
   const candidate = {
     title:
       typeof obj.title === "string" && obj.title.trim()
@@ -97,6 +110,7 @@ export function parseRemedialContent(
       typeof (obj.practicePrompt ?? obj.practice_prompt) === "string"
         ? String(obj.practicePrompt ?? obj.practice_prompt).trim() || undefined
         : undefined,
+    visual,
   };
 
   const result = remedialContentSchema.safeParse(candidate);

@@ -14,8 +14,9 @@ import { useRemedialLesson } from "@/hooks/use-remedial-lesson";
 import { useRemedialTracking } from "@/hooks/use-remedial-tracking";
 import type { ParsedStudyPath } from "@/hooks/use-study-path";
 import { RemedialAudioPlayer } from "@/components/course/RemedialAudioPlayer";
-import { RemedialVisual } from "@/components/course/RemedialVisual";
+import { RemedialVisualView } from "@/components/course/RemedialVisualSpec";
 import { remedialContentToVisualModel } from "@/lib/remedial-visual";
+import { parseRemedialVisualSpec } from "@/lib/remedial-visual-spec";
 
 /* ------------------------------------------------------------------ *
  * RemedialContentView — the format-agnostic remedial lesson, rendered as
@@ -111,6 +112,12 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
   const script = useMemo(() => (content ? remedialContentToScript(content) : ""), [content]);
   const visualModel = useMemo(
     () => (content ? remedialContentToVisualModel(content) : null),
+    [content],
+  );
+  // R5 — the concept-fitted visual, re-validated from the saved lesson
+  // (untrusted). null / "concept-map" → the R3 map. Deterministic on revisit.
+  const visualSpec = useMemo(
+    () => (content ? parseRemedialVisualSpec(content.visual) : null),
     [content],
   );
   // Remounts <RemedialAudioPlayer> (→ stops any narration) when the content changes.
@@ -264,7 +271,7 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
               </div>
             ) : activeFormat === "visual" && visualModel ? (
               <div className="space-y-4">
-                <RemedialVisual model={visualModel} />
+                <RemedialVisualView spec={visualSpec} fallbackModel={visualModel} />
                 {regenerateButton}
               </div>
             ) : (
