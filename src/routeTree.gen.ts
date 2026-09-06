@@ -24,6 +24,7 @@ import { Route as LecturerIndexRouteImport } from './routes/lecturer.index'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as TeachersAuthRouteImport } from './routes/teachers.auth'
 import { Route as LecturerStudentsRouteImport } from './routes/lecturer.students'
+import { Route as LecturerRemedialEvaluationRouteImport } from './routes/lecturer.remedial-evaluation'
 import { Route as LecturerPerformanceRouteImport } from './routes/lecturer.performance'
 import { Route as LecturerNotificationsRouteImport } from './routes/lecturer.notifications'
 import { Route as LecturerMaterialsRouteImport } from './routes/lecturer.materials'
@@ -128,6 +129,12 @@ const LecturerStudentsRoute = LecturerStudentsRouteImport.update({
   path: '/students',
   getParentRoute: () => LecturerRoute,
 } as any)
+const LecturerRemedialEvaluationRoute =
+  LecturerRemedialEvaluationRouteImport.update({
+    id: '/remedial-evaluation',
+    path: '/remedial-evaluation',
+    getParentRoute: () => LecturerRoute,
+  } as any)
 const LecturerPerformanceRoute = LecturerPerformanceRouteImport.update({
   id: '/performance',
   path: '/performance',
@@ -314,6 +321,7 @@ export interface FileRoutesByFullPath {
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
+  '/lecturer/remedial-evaluation': typeof LecturerRemedialEvaluationRoute
   '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses/': typeof CoursesIndexRoute
@@ -358,6 +366,7 @@ export interface FileRoutesByTo {
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
+  '/lecturer/remedial-evaluation': typeof LecturerRemedialEvaluationRoute
   '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses': typeof CoursesIndexRoute
@@ -405,6 +414,7 @@ export interface FileRoutesById {
   '/lecturer/materials': typeof LecturerMaterialsRoute
   '/lecturer/notifications': typeof LecturerNotificationsRoute
   '/lecturer/performance': typeof LecturerPerformanceRoute
+  '/lecturer/remedial-evaluation': typeof LecturerRemedialEvaluationRoute
   '/lecturer/students': typeof LecturerStudentsRoute
   '/teachers/auth': typeof TeachersAuthRoute
   '/courses/': typeof CoursesIndexRoute
@@ -452,6 +462,7 @@ export interface FileRouteTypes {
     | '/lecturer/materials'
     | '/lecturer/notifications'
     | '/lecturer/performance'
+    | '/lecturer/remedial-evaluation'
     | '/lecturer/students'
     | '/teachers/auth'
     | '/courses/'
@@ -496,6 +507,7 @@ export interface FileRouteTypes {
     | '/lecturer/materials'
     | '/lecturer/notifications'
     | '/lecturer/performance'
+    | '/lecturer/remedial-evaluation'
     | '/lecturer/students'
     | '/teachers/auth'
     | '/courses'
@@ -542,6 +554,7 @@ export interface FileRouteTypes {
     | '/lecturer/materials'
     | '/lecturer/notifications'
     | '/lecturer/performance'
+    | '/lecturer/remedial-evaluation'
     | '/lecturer/students'
     | '/teachers/auth'
     | '/courses/'
@@ -683,6 +696,13 @@ declare module '@tanstack/react-router' {
       path: '/students'
       fullPath: '/lecturer/students'
       preLoaderRoute: typeof LecturerStudentsRouteImport
+      parentRoute: typeof LecturerRoute
+    }
+    '/lecturer/remedial-evaluation': {
+      id: '/lecturer/remedial-evaluation'
+      path: '/remedial-evaluation'
+      fullPath: '/lecturer/remedial-evaluation'
+      preLoaderRoute: typeof LecturerRemedialEvaluationRouteImport
       parentRoute: typeof LecturerRoute
     }
     '/lecturer/performance': {
@@ -945,6 +965,7 @@ interface LecturerRouteChildren {
   LecturerMaterialsRoute: typeof LecturerMaterialsRoute
   LecturerNotificationsRoute: typeof LecturerNotificationsRoute
   LecturerPerformanceRoute: typeof LecturerPerformanceRoute
+  LecturerRemedialEvaluationRoute: typeof LecturerRemedialEvaluationRoute
   LecturerStudentsRoute: typeof LecturerStudentsRoute
   LecturerIndexRoute: typeof LecturerIndexRoute
   LecturerQuizzesTopicIdRoute: typeof LecturerQuizzesTopicIdRoute
@@ -958,6 +979,7 @@ const LecturerRouteChildren: LecturerRouteChildren = {
   LecturerMaterialsRoute: LecturerMaterialsRoute,
   LecturerNotificationsRoute: LecturerNotificationsRoute,
   LecturerPerformanceRoute: LecturerPerformanceRoute,
+  LecturerRemedialEvaluationRoute: LecturerRemedialEvaluationRoute,
   LecturerStudentsRoute: LecturerStudentsRoute,
   LecturerIndexRoute: LecturerIndexRoute,
   LecturerQuizzesTopicIdRoute: LecturerQuizzesTopicIdRoute,

@@ -15,6 +15,7 @@ import {
   Mail,
   Menu,
   Settings,
+  Sparkles,
   User as UserIcon,
   Users,
 } from "lucide-react";
@@ -66,6 +67,7 @@ const lecturerItems: NavItem[] = [
   { label: "Quizzes", icon: ClipboardList, to: "/lecturer/quizzes" },
   { label: "Performance", icon: BarChart3, to: "/lecturer/performance" },
   { label: "Evaluation", icon: Gauge, to: "/lecturer/evaluation" },
+  { label: "Remedial Intelligence", icon: Sparkles, to: "/lecturer/remedial-evaluation" },
   { label: "Notifications", icon: Bell, to: "/lecturer/notifications" },
   { label: "Profile", icon: UserIcon, to: "/profile" },
   { label: "Settings", icon: Settings, to: "/settings" },

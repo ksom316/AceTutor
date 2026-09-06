@@ -16,16 +16,15 @@ import {
 import type { RemedialModality } from "@/lib/remedial-modality";
 import { deriveRemedialFormatRecommendation } from "@/lib/remedial-adaptation";
 import {
-  buildRemedialInterventionRecords,
   REMEDIAL_INTERACTION_EVENT_TYPES,
-  type RemedialInteractionRow,
   type RemedialInterventionRecord,
 } from "@/lib/remedial-intelligence";
+import { toRemedialInterventionRecords } from "@/lib/remedial-intelligence-evaluation";
 import {
   resolveRemedialRecommendation,
   type RemedialRecommendation,
 } from "@/lib/remedial-recommendation";
-import { isSufficientAttempt, type PerfAttempt } from "@/lib/quiz-performance";
+import type { PerfAttempt } from "@/lib/quiz-performance";
 import {
   parseRemedialContent,
   remedialContentSchema,
@@ -76,9 +75,6 @@ const ALL_MODALITIES: readonly LessonModality[] = ["video", "slides", "audio", "
  *  from the same saved content — never a stocked lesson). */
 const AVAILABLE_REMEDIAL_FORMATS: readonly RemedialModality[] = ["text", "audio", "visual"];
 
-const asRemedialFormat = (v: string | null): RemedialModality | null =>
-  v === "text" || v === "audio" || v === "visual" ? v : null;
-
 /**
  * R8.3 — assemble this student's OWN remedial-intervention history
  * (`RemedialInterventionRecord[]`) from data that already exists, for the R8.1
@@ -86,8 +82,9 @@ const asRemedialFormat = (v: string | null): RemedialModality | null =>
  * the recommendation silently falls back to the existing A7 / VARK /
  * preference / default chain. It writes nothing and never throws.
  *
- * Baseline / outcome scores use the SAME "sufficient attempt" bar as Mastery,
- * Study Path and the R4 evaluation layer (`isSufficientAttempt`).
+ * The row → record mapping (including the shared "sufficient attempt" bar) is
+ * `toRemedialInterventionRecords` — the SAME mapper the lecturer R8.4 feed
+ * uses, so the two can never drift.
  */
 async function buildStudentRemedialHistory(
   supabase: SupabaseClient<Database>,
@@ -111,61 +108,31 @@ async function buildStudentRemedialHistory(
         .in("event_type", REMEDIAL_INTERACTION_EVENT_TYPES as unknown as string[]),
     ]);
 
-    const sufficient = ((attempts ?? []) as unknown as PerfAttempt[]).filter(isSufficientAttempt);
-    const pct = (a: PerfAttempt): number | null =>
-      a.total && a.total > 0 ? Math.round(((a.score ?? 0) / a.total) * 100) : null;
-    const attemptById = new Map(sufficient.map((a) => [a.id, a] as const));
-
-    const studyPaths = (
-      (paths ?? []) as { id: string; topic_id: string | null; attempt_id: string }[]
-    )
-      .filter((p) => p.topic_id)
-      .map((p) => {
-        const anchor = attemptById.get(p.attempt_id);
-        return {
-          id: p.id,
-          topicId: p.topic_id as string,
-          baselineScore: anchor ? pct(anchor) : null,
-          hasRemedialVideoRecommendation: false,
-        };
-      });
-
-    const moduleOutcomes = sufficient
-      .filter((a) => a.topic_id && a.finished_at && pct(a) != null)
-      .map((a) => ({
-        attemptId: a.id,
-        topicId: a.topic_id as string,
-        scorePercent: pct(a) as number,
-        completedAt: a.finished_at as string,
-      }));
-
-    const remedialInteractions: RemedialInteractionRow[] = (
-      (events ?? []) as {
-        study_path_id: string | null;
-        event_type: string;
-        remedial_format: string | null;
-        recommended_remedial_format: string | null;
-        recommendation_source: string | null;
-        remedial_content_version: string | null;
-        created_at: string;
-      }[]
-    ).flatMap((e) => {
-      const fmt = asRemedialFormat(e.remedial_format);
-      if (!e.study_path_id || !fmt) return [];
-      return [
-        {
-          studyPathId: e.study_path_id,
-          eventType: e.event_type as RemedialInteractionRow["eventType"],
-          format: fmt,
-          recommendedFormat: asRemedialFormat(e.recommended_remedial_format),
-          recommendationSource: e.recommendation_source,
-          contentVersion: e.remedial_content_version,
-          createdAt: e.created_at,
-        },
-      ];
+    return toRemedialInterventionRecords({
+      studyPaths: (
+        (paths ?? []) as { id: string; topic_id: string | null; attempt_id: string | null }[]
+      ).map((p) => ({ id: p.id, topicId: p.topic_id, attemptId: p.attempt_id })),
+      moduleAttempts: (attempts ?? []) as unknown as PerfAttempt[],
+      interactions: (
+        (events ?? []) as {
+          study_path_id: string | null;
+          event_type: string;
+          remedial_format: string | null;
+          recommended_remedial_format: string | null;
+          recommendation_source: string | null;
+          remedial_content_version: string | null;
+          created_at: string;
+        }[]
+      ).map((e) => ({
+        studyPathId: e.study_path_id,
+        eventType: e.event_type,
+        remedialFormat: e.remedial_format,
+        recommendedFormat: e.recommended_remedial_format,
+        recommendationSource: e.recommendation_source,
+        contentVersion: e.remedial_content_version,
+        createdAt: e.created_at,
+      })),
     });
-
-    return buildRemedialInterventionRecords({ studyPaths, remedialInteractions, moduleOutcomes });
   } catch (e) {
     console.error(
       `[buildStudentRemedialHistory] failed: ${e instanceof Error ? e.message : String(e)}`,

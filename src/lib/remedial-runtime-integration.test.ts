@@ -214,8 +214,9 @@ test("the history builder is READ-ONLY and best-effort", () => {
   assert.doesNotMatch(builder, /\.(insert|update|upsert|delete)\(|\.rpc\(/);
   // any failure => [] (never throws, never blocks the recommendation)
   assert.match(builder, /catch \(e\)[\s\S]{0,160}return \[\]/);
-  // uses the shared sufficiency bar, not a bespoke score filter
-  assert.match(builder, /isSufficientAttempt/);
+  // row -> record mapping is the SHARED mapper (also used by the R8.4 feed),
+  // never a bespoke re-implementation
+  assert.match(builder, /toRemedialInterventionRecords\(/);
 });
 
 test("R8.3 does not touch A7 / VARK / Mastery / grading source", () => {
