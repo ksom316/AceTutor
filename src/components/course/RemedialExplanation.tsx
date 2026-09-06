@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { AlertTriangle, Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import {
   REMEDIAL_MODALITY_LABEL,
   type RemedialModality,
 } from "@/lib/remedial-modality";
+import { remedialRecommendationExplanation } from "@/lib/remedial-recommendation-copy";
 import { useRemedialLesson } from "@/hooks/use-remedial-lesson";
 import { useRemedialTracking } from "@/hooks/use-remedial-tracking";
 import { useRemedialVideo } from "@/hooks/use-remedial-video";
@@ -108,6 +109,12 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
   const recommendedLabel = REMEDIAL_MODALITY_LABEL[recommended];
   const hasContent = !!content;
 
+  // P1.1 — a short, observational "why this format" line, keyed on the source
+  // R8.2 already resolved. Only shown once the recommendation has loaded.
+  const recExplanation = remedial.recommendation
+    ? remedialRecommendationExplanation(remedial.recommendation.source, recommended)
+    : null;
+
   // Every format renders the SAME RemedialContent — no format-specific lesson,
   // no extra AI. Both derivations are deterministic + memoised, and change only
   // when the content is regenerated.
@@ -193,34 +200,49 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
             whole {studyPath.topic_id ? "module" : "course"}.
           </p>
 
-          {/* Recommended format + toggle */}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Recommended for you: {recommendedLabel}
-            </span>
-            <div className="inline-flex rounded-full border border-border bg-background p-0.5">
-              {REMEDIAL_MODALITIES.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  aria-pressed={activeFormat === m}
-                  onClick={() => {
-                    // R4: a real toggle click that CHANGES the format. Clicking
-                    // the already-active tab logs nothing.
-                    if (m !== activeFormat) tracking.logFormatSelection(m);
-                    setFormat(m);
-                  }}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                    activeFormat === m
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {REMEDIAL_MODALITY_LABEL[m]}
-                </button>
-              ))}
+          {/* Recommended format + observational explanation + format toggle */}
+          <div className="mt-4 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />
+                {recExplanation?.badge ?? "Recommended for you"}: {recommendedLabel}
+              </span>
+              <div className="inline-flex rounded-full border border-border bg-background p-0.5">
+                {REMEDIAL_MODALITIES.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={activeFormat === m}
+                    aria-label={
+                      m === recommended
+                        ? `${REMEDIAL_MODALITY_LABEL[m]} explanation (recommended for you)`
+                        : `${REMEDIAL_MODALITY_LABEL[m]} explanation`
+                    }
+                    onClick={() => {
+                      // R4: a real toggle click that CHANGES the format. Clicking
+                      // the already-active tab logs nothing.
+                      if (m !== activeFormat) tracking.logFormatSelection(m);
+                      setFormat(m);
+                    }}
+                    className={cn(
+                      "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                      activeFormat === m
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {REMEDIAL_MODALITY_LABEL[m]}
+                    {m === recommended && <span aria-hidden> ✓</span>}
+                  </button>
+                ))}
+              </div>
             </div>
+            {recExplanation && (
+              <p className="text-xs text-muted-foreground">{recExplanation.detail}</p>
+            )}
+            <p className="text-xs text-muted-foreground/80">
+              All three formats explain the same material — switch whenever you like.
+            </p>
           </div>
 
           {/* Format body */}
@@ -239,12 +261,18 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
                     learning map.
                   </p>
                 )}
+                {activeFormat === "text" && !remedial.generateFailed && (
+                  <p className="text-sm text-muted-foreground">
+                    Your personalized explanation isn&apos;t generated yet. Create it once —
+                    it&apos;s saved to this Study Path, so you can come back to it anytime.
+                  </p>
+                )}
                 {remedial.generateFailed && (
                   <p className="flex items-start gap-2 text-sm text-destructive">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <span>
                       {remedial.generateErrorMessage ??
-                        "That didn't work. Your Study Path is unaffected — try again."}
+                        "We couldn't build your explanation just now. Your Study Path is safe — try again in a moment."}
                     </span>
                   </p>
                 )}

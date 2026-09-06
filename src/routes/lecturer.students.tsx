@@ -441,7 +441,8 @@ function LecturerStudents() {
             <Users className="mx-auto h-10 w-10 text-muted-foreground" />
             <h2 className="mt-4 font-display text-2xl">No students yet</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              There are currently no students enrolled in this course.
+              No students are enrolled in this course yet. Once they enroll and start quizzes, their
+              progress and mastery will appear here.
             </p>
           </div>
         ) : visible.length === 0 ? (
@@ -451,8 +452,7 @@ function LecturerStudents() {
         ) : (
           <>
             <p className="mb-3 text-xs text-muted-foreground">
-              {visible.length} of {students.length}{" "}
-              {students.length === 1 ? "student" : "students"}
+              {visible.length} of {students.length} {students.length === 1 ? "student" : "students"}
             </p>
             <div className="space-y-3">
               {visible.map((s) => (

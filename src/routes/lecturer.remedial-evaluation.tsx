@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
-import { Sparkles } from "lucide-react";
+import { Info, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { fadeUp } from "@/lib/motion";
@@ -18,6 +18,13 @@ import type {
   FormatTally,
   RemedialIntelligenceEvaluation,
 } from "@/lib/remedial-intelligence-evaluation";
+import {
+  evidenceStateLabel,
+  followRateSentence,
+  formatEffectivenessSentence,
+  observedImprovementSentence,
+  REMEDIAL_CAUSATION_NOTE,
+} from "@/lib/remedial-evaluation-copy";
 
 export const Route = createFileRoute("/lecturer/remedial-evaluation")({
   component: RemedialEvaluationPage,
@@ -31,30 +38,31 @@ const FORMAT_LABEL: Record<RemedialIntelligenceFormat, string> = {
 };
 
 const SOURCE_LABEL: Record<string, string> = {
-  history: "Personal history (R8)",
-  adaptive: "Adaptive (A7)",
-  vark: "VARK",
-  preference: "Learning preference",
-  default: "Default",
+  history: "Personal remedial history",
+  adaptive: "Recent learning activity",
+  vark: "Learning preferences",
+  preference: "Chosen format",
+  default: "Default format",
 };
 
 const pct = (n: number | null) => (n == null ? "—" : `${n}%`);
 const rate = (n: number | null) => (n == null ? "—" : `${(n * 100).toFixed(1)}%`);
 
 function EvidenceBadge({ state }: { state: RemedialEvidenceState }) {
-  const label =
-    state === "sufficient"
-      ? "Sufficient"
-      : state === "insufficient"
-        ? "Insufficient"
-        : state === "unavailable"
-          ? "Not measured"
-          : "No evidence";
   const variant = state === "sufficient" ? "default" : "secondary";
   return (
     <Badge variant={variant} className="font-normal">
-      {label}
+      {evidenceStateLabel(state)}
     </Badge>
+  );
+}
+
+function CausationNote() {
+  return (
+    <p className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+      {REMEDIAL_CAUSATION_NOTE}
+    </p>
   );
 }
 
@@ -128,7 +136,7 @@ function RemedialEvaluationPage() {
         </p>
         <h1 className="mt-1 font-display text-4xl">Remedial Intelligence Evaluation</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Whether the R8 remedial recommendation system is producing useful evidence for your
+          Whether the personal remedial recommendations are producing useful evidence for your
           course. Every figure is an observational aggregate — no individual student data is shown.
         </p>
       </div>
@@ -145,9 +153,23 @@ function RemedialEvaluationPage() {
       ) : data ? (
         <div className="mt-8 space-y-6">
           <p className="text-xs text-muted-foreground">
-            Generated {new Date(data.generatedAt).toLocaleString()} · minimum{" "}
-            {data.overview.minimumObservations} observations for a reliable reading
+            Generated {new Date(data.generatedAt).toLocaleString()} · a metric needs at least{" "}
+            {data.overview.minimumObservations} before/after observations to read as a trend
           </p>
+
+          <CausationNote />
+
+          {data.overview.evidenceState === "none" &&
+            data.overview.meaningfulRemedialEngagements === 0 && (
+              <div className="rounded-xl border border-dashed border-border bg-card p-5 text-center">
+                <p className="text-sm font-medium">No remedial data yet</p>
+                <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                  Students need to open a remedial explanation on a Study Path and then complete an
+                  official module quiz before this evaluation can show anything. The sections below
+                  will fill in as that happens.
+                </p>
+              </div>
+            )}
 
           {/* 1 — Overview */}
           <Card>
@@ -219,6 +241,13 @@ function RemedialEvaluationPage() {
                   ))}
                 </tbody>
               </table>
+              {data.recommendationSourcePerformance
+                .filter((s) => s.source === "history" && s.recommendationsIssued > 0)
+                .map((s) => (
+                  <p key={s.source} className="mt-3 text-xs text-muted-foreground">
+                    Personal history: {followRateSentence(s)}
+                  </p>
+                ))}
             </CardContent>
           </Card>
 
@@ -227,41 +256,56 @@ function RemedialEvaluationPage() {
             <CardHeader>
               <CardTitle className="text-lg">3 · Format Effectiveness</CardTitle>
               <p className="text-xs text-muted-foreground">
-                &ldquo;{data.observedImprovementLabel}&rdquo; is a later same-module quiz score
-                minus the baseline attempt — observed, not caused.
+                &ldquo;Observed improvement&rdquo; compares a later same-module quiz score with the
+                baseline attempt for students who completed that remedial format. It describes what
+                happened, not what the format caused.
               </p>
             </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="pb-2 font-medium">Format</th>
-                    <th className="pb-2 text-right font-medium">Observations</th>
-                    <th className="pb-2 text-right font-medium">Baseline</th>
-                    <th className="pb-2 text-right font-medium">After</th>
-                    <th className="pb-2 text-right font-medium">Observed improvement</th>
-                    <th className="pb-2 text-right font-medium">Evidence</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/70 tabular-nums">
-                  {data.formatEffectiveness.map((f) => (
-                    <tr key={f.format}>
-                      <td className="py-2 pr-2 text-muted-foreground">{FORMAT_LABEL[f.format]}</td>
-                      <td className="py-2 text-right">{f.linkedQuizOutcomes}</td>
-                      <td className="py-2 text-right">{pct(f.averageBaselineScore)}</td>
-                      <td className="py-2 text-right">{pct(f.averageSubsequentScore)}</td>
-                      <td className="py-2 text-right">
-                        {f.observedImprovement == null
-                          ? "—"
-                          : `${f.observedImprovement > 0 ? "+" : ""}${f.observedImprovement}`}
-                      </td>
-                      <td className="py-2 text-right">
-                        <EvidenceBadge state={f.evidenceState} />
-                      </td>
+            <CardContent className="space-y-4">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="pb-2 font-medium">Format</th>
+                      <th className="pb-2 text-right font-medium">Before/after obs.</th>
+                      <th className="pb-2 text-right font-medium">Avg baseline</th>
+                      <th className="pb-2 text-right font-medium">Avg after</th>
+                      <th className="pb-2 text-right font-medium">Observed improvement (pts)</th>
+                      <th className="pb-2 text-right font-medium">Evidence</th>
                     </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/70 tabular-nums">
+                    {data.formatEffectiveness.map((f) => (
+                      <tr key={f.format}>
+                        <td className="py-2 pr-2 text-muted-foreground">
+                          {FORMAT_LABEL[f.format]}
+                        </td>
+                        <td className="py-2 text-right">{f.linkedQuizOutcomes}</td>
+                        <td className="py-2 text-right">{pct(f.averageBaselineScore)}</td>
+                        <td className="py-2 text-right">{pct(f.averageSubsequentScore)}</td>
+                        <td className="py-2 text-right">
+                          {f.observedImprovement == null
+                            ? "—"
+                            : `${f.observedImprovement > 0 ? "+" : ""}${f.observedImprovement}`}
+                        </td>
+                        <td className="py-2 text-right">
+                          <EvidenceBadge state={f.evidenceState} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <ul className="space-y-1.5 text-xs text-muted-foreground">
+                {data.formatEffectiveness
+                  .filter((f) => f.linkedQuizOutcomes > 0 || f.evidenceState === "unavailable")
+                  .map((f) => (
+                    <li key={f.format}>{formatEffectivenessSentence(f)}</li>
                   ))}
-                </tbody>
-              </table>
+              </ul>
+
+              <CausationNote />
             </CardContent>
           </Card>
 
@@ -304,46 +348,36 @@ function RemedialEvaluationPage() {
               </div>
 
               <div className="rounded-xl border border-border p-3">
-                <p className="text-sm font-medium">Outcomes after history recommendations</p>
-                <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
-                  <span className="text-muted-foreground">
-                    Observations:{" "}
-                    <span className="tabular-nums text-foreground">
-                      {
-                        data.historyLearning.outcomesAfterHistoryRecommendations
-                          .observationsWithOutcome
-                      }
-                    </span>
+                <p className="text-sm font-medium">Outcomes after history-based recommendations</p>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  {observedImprovementSentence(
+                    data.historyLearning.outcomesAfterHistoryRecommendations.observedImprovement,
+                    "history-based remediation",
+                  )}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    {
+                      data.historyLearning.outcomesAfterHistoryRecommendations
+                        .observationsWithOutcome
+                    }{" "}
+                    before/after observation
+                    {data.historyLearning.outcomesAfterHistoryRecommendations
+                      .observationsWithOutcome === 1
+                      ? ""
+                      : "s"}
                   </span>
-                  <span className="text-muted-foreground">
-                    Baseline:{" "}
-                    <span className="tabular-nums text-foreground">
-                      {pct(
-                        data.historyLearning.outcomesAfterHistoryRecommendations
-                          .averageBaselineScore,
-                      )}
-                    </span>
+                  <span>
+                    baseline{" "}
+                    {pct(
+                      data.historyLearning.outcomesAfterHistoryRecommendations.averageBaselineScore,
+                    )}{" "}
+                    → after{" "}
+                    {pct(
+                      data.historyLearning.outcomesAfterHistoryRecommendations
+                        .averageSubsequentScore,
+                    )}
                   </span>
-                  <span className="text-muted-foreground">
-                    After:{" "}
-                    <span className="tabular-nums text-foreground">
-                      {pct(
-                        data.historyLearning.outcomesAfterHistoryRecommendations
-                          .averageSubsequentScore,
-                      )}
-                    </span>
-                  </span>
-                  <span className="text-muted-foreground">
-                    {data.observedImprovementLabel}:{" "}
-                    <span className="tabular-nums text-foreground">
-                      {data.historyLearning.outcomesAfterHistoryRecommendations
-                        .observedImprovement == null
-                        ? "—"
-                        : `${data.historyLearning.outcomesAfterHistoryRecommendations.observedImprovement}`}
-                    </span>
-                  </span>
-                </div>
-                <div className="mt-2">
                   <EvidenceBadge
                     state={data.historyLearning.outcomesAfterHistoryRecommendations.evidenceState}
                   />

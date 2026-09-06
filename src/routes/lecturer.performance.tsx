@@ -557,11 +557,11 @@ function LecturerPerformance() {
               value={String(summary.completed)}
               loading={loading}
             />
-            <StatTile 
-              icon={Clock} 
-              label="Started but did not finish" 
-              value={String(summary.inProgress)} 
-              loading={loading} 
+            <StatTile
+              icon={Clock}
+              label="Started but did not finish"
+              value={String(summary.inProgress)}
+              loading={loading}
             />
             <StatTile
               icon={Target}
@@ -667,7 +667,8 @@ function LecturerPerformance() {
                           </div>
                           <div className="rounded-xl border border-border p-4">
                             <p className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
-                              <CheckCircle2 className="h-3.5 w-3.5 text-success" /> Strongest modules
+                              <CheckCircle2 className="h-3.5 w-3.5 text-success" /> Strongest
+                              modules
                             </p>
                             {moduleSummary.strongest.length === 0 ? (
                               <p className="mt-1 text-sm text-muted-foreground">None yet.</p>
@@ -731,10 +732,7 @@ function LecturerPerformance() {
                     {/* Per-module list */}
                     <ul className="space-y-3">
                       {cohorts.map((c) => (
-                        <li
-                          key={c.topic.id}
-                          className="rounded-xl border border-border p-3"
-                        >
+                        <li key={c.topic.id} className="rounded-xl border border-border p-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="font-medium">{c.topic.title}</span>
                             <ModuleStateBadge state={c.state} average={c.averageScore} />
@@ -1003,7 +1001,10 @@ function LecturerPerformance() {
                 {loading ? (
                   <SkeletonRows />
                 ) : byQuiz.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No quiz attempts yet.</p>
+                  <p className="text-sm text-muted-foreground">
+                    No quiz results yet. Students need to complete official module quizzes before
+                    this appears.
+                  </p>
                 ) : (
                   <ul className="space-y-3">
                     {byQuiz.map((m) => (
@@ -1176,7 +1177,10 @@ function LecturerPerformance() {
               {loading ? (
                 <SkeletonRows rows={6} />
               ) : perf.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No quiz attempts yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  No quiz results yet. Students need to complete official module quizzes before this
+                  appears.
+                </p>
               ) : attempts.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-border bg-card/50 p-6 text-center text-sm text-muted-foreground">
                   No attempts match your filters.

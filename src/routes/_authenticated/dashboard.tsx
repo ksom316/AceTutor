@@ -5,8 +5,9 @@ import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 import {
   ArrowRight,
   ArrowUpRight,
+  Award,
   BookOpen,
-  Clock,
+  CalendarDays,
   GraduationCap,
   Play,
   Sparkles,
@@ -20,6 +21,11 @@ import { useStudentDashboard, type ModuleBreakdownItem } from "@/hooks/use-stude
 import { COURSE_CTA_LABEL, courseCtaState } from "@/lib/course-progress";
 import { masteryLabel } from "@/lib/mastery";
 import { answeredCountOf, isSufficientAttempt } from "@/lib/quiz-performance";
+import {
+  buildMasteryCardModel,
+  deriveNextSteps,
+  summarizeModuleProgress,
+} from "@/lib/dashboard-summary";
 import { fadeUp, staggerContainer, staggerItem, viewportOnce } from "@/lib/motion";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -118,6 +124,25 @@ function Dashboard() {
     { name: "Remaining", value: Math.max(0, 100 - overallPct) },
   ];
 
+  // P1.2 — presentation-only reshaping of the numbers the hook already produced.
+  // No progress / mastery is recomputed here.
+  const completedModules = donut.find((d) => d.name === "Completed")?.value ?? 0;
+  const inProgressModules = donut.find((d) => d.name === "In Progress")?.value ?? 0;
+  const progress = summarizeModuleProgress({
+    perCourse,
+    completedModules,
+    inProgressModules,
+    overallPercent: overallPct,
+  });
+  const mastery = buildMasteryCardModel(perCourse);
+  const nextSteps = deriveNextSteps({
+    continueCourse,
+    inProgressModules: moduleBreakdown.inProgress,
+    perCourse,
+    untouchedCourses: recommended,
+  });
+  const continueCta = continueCourse ? courseCtaState(continueCourse.pct) : "start";
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 md:px-6">
       <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
@@ -132,7 +157,7 @@ function Dashboard() {
               {firstName}'s learning overview
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Progress, study time, and quiz history across every course.
+              Your progress, mastery, and quiz activity across every course.
             </p>
           </motion.div>
 
@@ -158,9 +183,11 @@ function Dashboard() {
                 className="absolute -bottom-16 -right-4 h-40 w-40 rounded-full bg-white/10 blur-2xl"
               />
               <p className="relative text-xs font-medium uppercase tracking-widest text-primary-foreground/80">
-                {continueCourse && courseCtaState(continueCourse.pct) === "review"
+                {continueCta === "review"
                   ? "Course complete"
-                  : "Continue learning"}
+                  : continueCta === "start"
+                    ? "Start learning"
+                    : "Continue learning"}
               </p>
               {continueCourse ? (
                 <>
@@ -168,7 +195,7 @@ function Dashboard() {
                     {continueCourse.title}
                   </h2>
                   <p className="relative mt-1 text-sm text-primary-foreground/80">
-                    {continueCourse.done}/{continueCourse.total || "—"} lessons complete
+                    {continueCourse.done}/{continueCourse.total || "—"} modules complete
                   </p>
                   <div className="relative mt-5 h-2 w-full max-w-sm overflow-hidden rounded-full bg-white/25">
                     <motion.div
@@ -186,8 +213,7 @@ function Dashboard() {
                     params={{ slug: continueCourse.slug }}
                     className="relative mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-primary shadow-sm transition-transform hover:scale-[1.03] active:scale-95"
                   >
-                    <Play className="h-4 w-4 fill-primary" />{" "}
-                    {COURSE_CTA_LABEL[courseCtaState(continueCourse.pct)]}
+                    <Play className="h-4 w-4 fill-primary" /> {COURSE_CTA_LABEL[continueCta]}
                   </Link>
                 </>
               ) : (
@@ -208,17 +234,64 @@ function Dashboard() {
               )}
             </motion.div>
 
-            {/* Progress — full width; donut on the left, module lists on the right */}
+            {/* Your learning progress — a plain-language summary, then the donut
+                + module lists. No chart is shown until there is data. */}
             <motion.div
               variants={staggerItem}
               className="rounded-3xl border border-border bg-card p-6 shadow-sm"
             >
               <div className="flex items-center justify-between">
-                <h2 className="font-display text-lg">Your progress</h2>
+                <h2 className="font-display text-lg">Your learning progress</h2>
                 <Target className="h-4 w-4 text-primary" />
               </div>
 
-              <div className="mt-4 grid gap-6 sm:grid-cols-[minmax(0,190px)_1fr] sm:items-start">
+              {progress.hasData ? (
+                <>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    You&apos;ve completed{" "}
+                    <span className="font-semibold text-foreground">
+                      {progress.modulesCompleted}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-semibold text-foreground">{progress.modulesTotal}</span>{" "}
+                    modules across{" "}
+                    <span className="font-semibold text-foreground">{progress.coursesStarted}</span>{" "}
+                    started course{progress.coursesStarted === 1 ? "" : "s"}.
+                  </p>
+                  <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {(
+                      [
+                        ["Completion", `${progress.overallPercent}%`],
+                        ["Modules done", progress.modulesCompleted],
+                        ["In progress", progress.modulesInProgress],
+                        ["Not started", progress.modulesNotStarted],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-xl border border-border bg-background p-3"
+                      >
+                        <dd className="font-display text-xl leading-none tabular-nums">{value}</dd>
+                        <dt className="mt-1 text-xs text-muted-foreground">{label}</dt>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {progress.coursesEnrolled === 0
+                    ? "Enroll in a course to start tracking your module progress here."
+                    : "Your courses don't have module quizzes yet — your progress will appear here once they do."}
+                </p>
+              )}
+
+              <div
+                className={
+                  "grid gap-6 sm:grid-cols-[minmax(0,190px)_1fr] sm:items-start " +
+                  (progress.hasData ? "mt-6 border-t border-border pt-6" : "mt-4")
+                }
+                hidden={!progress.hasData}
+              >
                 {/* Donut */}
                 <div className="relative mx-auto h-40 w-40 shrink-0 sm:mx-0">
                   {donutHasData ? (
@@ -261,21 +334,8 @@ function Dashboard() {
 
                 {/* Module lists */}
                 <div className="min-w-0">
-                  <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
-                    {donut.map((d, i) => (
-                      <li key={d.name} className="flex items-center gap-2 text-muted-foreground">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full"
-                          style={{ background: CHART_COLORS[i] }}
-                        />
-                        <span>{d.name}</span>
-                        <span className="font-semibold text-foreground">{d.value}</span>
-                      </li>
-                    ))}
-                  </ul>
-
                   {moduleBreakdown.completed.length > 0 || moduleBreakdown.inProgress.length > 0 ? (
-                    <div className="mt-3 space-y-3 border-t border-border pt-3">
+                    <div className="space-y-3">
                       <ModuleStatusList
                         label="In Progress"
                         color={CHART_COLORS[1]}
@@ -288,7 +348,7 @@ function Dashboard() {
                       />
                     </div>
                   ) : (
-                    <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       Take a module quiz to see your completed and in-progress modules here.
                     </p>
                   )}
@@ -296,6 +356,46 @@ function Dashboard() {
               </div>
             </motion.div>
           </motion.div>
+
+          {/* Mastery score — reads the per-course mastery the hook already
+              computed (latest completed official module quiz). Nothing here
+              recalculates it, and practice / general quizzes never appear. */}
+          <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="mb-1 flex items-center justify-between">
+              <h2 className="font-display text-lg">Mastery score</h2>
+              <Award className="h-4 w-4 text-primary" />
+            </div>
+            <p className="text-xs text-muted-foreground">{mastery.note}</p>
+
+            {mastery.hasAny ? (
+              <ul className="mt-4 space-y-2.5">
+                {mastery.rows.map((r) => (
+                  <li
+                    key={r.courseId}
+                    className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{r.courseTitle}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {r.assessedModules} module quiz{r.assessedModules === 1 ? "" : "zes"}{" "}
+                        completed
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                      {r.score}% · {r.levelLabel}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-4 rounded-xl border border-dashed border-border p-4 text-center">
+                <p className="text-sm font-medium">No mastery score yet</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Complete your first official module quiz to see your mastery here.
+                </p>
+              </div>
+            )}
+          </section>
 
           {/* My courses */}
           <section>
@@ -331,7 +431,9 @@ function Dashboard() {
                       </div>
                       <h3 className="mt-3 line-clamp-1 font-display text-lg">{c.title}</h3>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {c.total > 0 ? `${c.total} lessons` : "Lessons coming soon"}
+                        {c.total > 0
+                          ? `${c.total} module${c.total === 1 ? "" : "s"}`
+                          : "Modules coming soon"}
                       </p>
                       <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
                         <motion.div
@@ -372,7 +474,10 @@ function Dashboard() {
             ) : dashLoading ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {[0, 1, 2].map((i) => (
-                  <div key={i} className="h-40 animate-pulse rounded-2xl border border-border bg-card" />
+                  <div
+                    key={i}
+                    className="h-40 animate-pulse rounded-2xl border border-border bg-card"
+                  />
                 ))}
               </div>
             ) : (
@@ -390,65 +495,90 @@ function Dashboard() {
             )}
           </section>
 
-          {/* Recent quiz attempts */}
+          {/* Recent quiz activity — official module quizzes and General Course
+              Quizzes only, each clearly labelled. AI practice quizzes are never
+              listed here and never affect these figures. */}
           <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display text-lg">Recent quiz attempts</h2>
+              <h2 className="font-display text-lg">Recent quiz activity</h2>
               <Trophy className="h-4 w-4 text-primary" />
             </div>
             {attempts && attempts.length > 0 ? (
-              <ul className="divide-y divide-border/70">
-                {attempts.map((a) => {
-                  const perfShape = {
-                    id: a.id,
-                    topic_id: null,
-                    score: a.score,
-                    total: a.total,
-                    finished_at: a.finished_at,
-                    answered_count: a.answered,
-                  };
-                  const answered = answeredCountOf(perfShape);
-                  const total = a.total ?? 0;
-                  const partial = total > 0 && answered < total;
-                  const sufficient = isSufficientAttempt(perfShape);
-                  // Score over ALL questions (the meaningful figure); the of-answered
-                  // figure is only surfaced for a partial attempt so a "answered 4,
-                  // got 4" attempt can't masquerade as full performance.
-                  const pct = total ? Math.round(((a.score ?? 0) / total) * 100) : 0;
-                  return (
-                    <li key={a.id} className="flex items-center justify-between gap-3 py-2.5">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          {a.title}
-                          {a.kind === "general" && (
-                            <span className="ml-1 text-xs font-normal text-muted-foreground">
-                              · General
-                            </span>
-                          )}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {a.courseTitle}
-                          {partial && !sufficient ? " · Not enough evidence" : ""}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          partial && !sufficient
-                            ? "bg-muted text-muted-foreground"
-                            : pct >= 70
-                              ? "bg-success/15 text-success"
-                              : "bg-primary/10 text-primary"
-                        }`}
-                      >
-                        {partial ? `${answered}/${total} answered · ${pct}%` : `${a.score ?? 0}/${total} · ${pct}%`}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                <ul className="divide-y divide-border/70">
+                  {attempts.map((a) => {
+                    const perfShape = {
+                      id: a.id,
+                      topic_id: null,
+                      score: a.score,
+                      total: a.total,
+                      finished_at: a.finished_at,
+                      answered_count: a.answered,
+                    };
+                    const answered = answeredCountOf(perfShape);
+                    const total = a.total ?? 0;
+                    const partial = total > 0 && answered < total;
+                    const sufficient = isSufficientAttempt(perfShape);
+                    // Score over ALL questions (the meaningful figure); the of-answered
+                    // figure is only surfaced for a partial attempt so a "answered 4,
+                    // got 4" attempt can't masquerade as full performance.
+                    const pct = total ? Math.round(((a.score ?? 0) / total) * 100) : 0;
+                    const when = a.finished_at
+                      ? new Date(a.finished_at).toLocaleDateString(undefined, {
+                          day: "numeric",
+                          month: "short",
+                        })
+                      : null;
+                    return (
+                      <li key={a.id}>
+                        <Link
+                          to="/result/$attemptId"
+                          params={{ attemptId: a.id }}
+                          className="flex items-center justify-between gap-3 rounded-lg py-2.5 transition-colors hover:bg-secondary/60"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{a.title}</p>
+                            <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+                              <span className="rounded bg-muted px-1.5 py-0.5 font-medium">
+                                {a.kind === "general"
+                                  ? "General course quiz"
+                                  : "Official module quiz"}
+                              </span>
+                              {a.courseTitle && <span className="truncate">{a.courseTitle}</span>}
+                              {when && (
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarDays className="h-3 w-3" aria-hidden /> {when}
+                                </span>
+                              )}
+                              {partial && !sufficient && <span>· Not enough evidence</span>}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              partial && !sufficient
+                                ? "bg-muted text-muted-foreground"
+                                : pct >= 70
+                                  ? "bg-success/15 text-success"
+                                  : "bg-primary/10 text-primary"
+                            }`}
+                          >
+                            {partial
+                              ? `${answered}/${total} answered · ${pct}%`
+                              : `${a.score ?? 0}/${total} · ${pct}%`}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Tap a quiz to review your results. AI practice quizzes aren&apos;t shown here.
+                </p>
+              </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No quizzes yet — take one to see your scores here.
+                You haven&apos;t taken an official module quiz yet — take one to see your scores and
+                mastery here.
               </p>
             )}
           </section>
@@ -511,30 +641,52 @@ function Dashboard() {
             </motion.div>
           )}
 
-          {/* Recommended */}
-          {recommended.length > 0 && (
+          {/* Recommended next steps — plain guidance from the student's own
+              course/module state (started-not-finished, then not-yet-started).
+              No scores, no algorithm, no AI text. */}
+          {(nextSteps.length > 0 || enrolledCourses.length > 0) && (
             <motion.div
               variants={staggerItem}
               className="rounded-2xl border border-border bg-card p-5 shadow-sm"
             >
               <div className="mb-2 flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-primary" />
-                <h3 className="font-display text-base">Pick up next</h3>
+                <h3 className="font-display text-base">
+                  {nextSteps.length > 1 ? "Recommended next steps" : "Recommended next step"}
+                </h3>
               </div>
-              <ul className="space-y-1">
-                {recommended.map((c) => (
-                  <li key={c.id}>
-                    <Link
-                      to="/courses/$slug"
-                      params={{ slug: c.slug }}
-                      className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-secondary"
-                    >
-                      <span className="truncate">{c.title}</span>
-                      <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              {nextSteps.length > 0 ? (
+                <ul className="space-y-2">
+                  {nextSteps.map((s) => (
+                    <li key={`${s.kind}-${s.courseSlug}-${s.title}`}>
+                      <Link
+                        to="/courses/$slug"
+                        params={{ slug: s.courseSlug }}
+                        className="block rounded-lg px-2 py-2 transition-colors hover:bg-secondary"
+                      >
+                        <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                          <span className="truncate">
+                            {s.kind === "finish-module"
+                              ? `Finish ${s.title}`
+                              : s.kind === "review-course"
+                                ? `Review ${s.title}`
+                                : `Start ${s.title}`}
+                          </span>
+                          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {s.reason}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  You&apos;re all caught up on your enrolled courses — nice work. Browse the catalog
+                  when you&apos;re ready for something new.
+                </p>
+              )}
             </motion.div>
           )}
         </motion.aside>

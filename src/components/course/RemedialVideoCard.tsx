@@ -31,11 +31,11 @@ export function RemedialVideoCard({
 }) {
   if (loading) {
     return (
-      <section aria-label="Recommended video" className="mt-6 border-t border-border pt-5">
-        <h3 className="font-display text-lg">Recommended video</h3>
+      <section aria-label="Additional video resource" className="mt-6 border-t border-border pt-5">
+        <h3 className="font-display text-lg">Additional video resource</h3>
         <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Finding a relevant video…
+          Looking for a video that matches your weak areas…
         </div>
       </section>
     );
@@ -45,12 +45,12 @@ export function RemedialVideoCard({
 
   if (!recommendation || !validId) {
     return (
-      <section aria-label="Recommended video" className="mt-6 border-t border-border pt-5">
-        <h3 className="font-display text-lg">Recommended video</h3>
+      <section aria-label="Additional video resource" className="mt-6 border-t border-border pt-5">
+        <h3 className="font-display text-lg">Additional video resource</h3>
         <p className="mt-2 text-sm text-muted-foreground">
           {searchUnavailable
-            ? "No video recommendation is available right now. Your text, audio and visual explanations are unaffected."
-            : "We didn't find a video that clearly matches your weak areas. Your text, audio and visual explanations cover them."}
+            ? "No video is available right now. This is only an optional extra — your text, audio and visual explanations already cover these concepts."
+            : "We didn't find a video that clearly matches your weak areas. That's fine — your text, audio and visual explanations cover them."}
         </p>
         <button
           type="button"
@@ -74,9 +74,9 @@ export function RemedialVideoCard({
   const embedUrl = buildYouTubeEmbedUrl(recommendation.videoId);
 
   return (
-    <section aria-label="Recommended video" className="mt-6 border-t border-border pt-5">
+    <section aria-label="Additional video resource" className="mt-6 border-t border-border pt-5">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="font-display text-lg">Recommended video</h3>
+        <h3 className="font-display text-lg">Additional video resource</h3>
         <Button variant="ghost" size="sm" onClick={onRefresh} disabled={refreshing}>
           {refreshing ? (
             <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -86,6 +86,11 @@ export function RemedialVideoCard({
           Suggest another
         </Button>
       </div>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {isCourse
+          ? "From your course material — it covers the concepts you're reviewing. An optional extra alongside your explanation."
+          : "An optional extra that matches the concepts you're reviewing, alongside your text, audio and visual explanations."}
+      </p>
 
       <div className="mt-3 aspect-video w-full overflow-hidden rounded-xl border border-border bg-black shadow-sm">
         <iframe

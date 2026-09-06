@@ -2,11 +2,12 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowRight, BookOpen, HelpCircle, Layers, Users } from "lucide-react";
+import { ArrowRight, BookOpen, HelpCircle, Layers, Sparkles, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
+import { WEAK_THRESHOLD } from "@/lib/quiz-performance";
 import { fadeUp } from "@/lib/motion";
 
 export const Route = createFileRoute("/lecturer/")({
@@ -77,7 +78,9 @@ function StatTile({
 }
 
 function SectionFallback() {
-  return <p className="text-sm text-muted-foreground">Couldn&apos;t load this section right now.</p>;
+  return (
+    <p className="text-sm text-muted-foreground">Couldn&apos;t load this section right now.</p>
+  );
 }
 
 function SkeletonLines({ rows = 4 }: { rows?: number }) {
@@ -200,6 +203,13 @@ function LecturerDashboard() {
       .sort((a, b) => b.avg - a.avg);
   }, [perf]);
 
+  // "Needs attention" — the SAME per-module averages, filtered to the shared
+  // weak threshold the rest of the app uses. No new figure is computed.
+  const strugglingModules = useMemo(
+    () => avgByModule.filter((m) => m.avg < WEAK_THRESHOLD).sort((a, b) => a.avg - b.avg),
+    [avgByModule],
+  );
+
   // A student "completes the module" only on their FIRST finished attempt of
   // that module quiz — any later finished attempt is just another go at the
   // quiz. Determined from the full completed-attempt history (every `perf` row),
@@ -248,18 +258,15 @@ function LecturerDashboard() {
       {courseQuery.isLoading ? (
         <div className="mt-1 h-10 w-72 max-w-full animate-pulse rounded bg-muted" />
       ) : (
-        <h1 className="mt-1 font-display text-4xl">
-          {courseQuery.data?.title ?? "Your course"}
-        </h1>
+        <h1 className="mt-1 font-display text-4xl">{courseQuery.data?.title ?? "Your course"}</h1>
       )}
       {!courseQuery.isLoading && courseQuery.data?.summary && (
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          {courseQuery.data.summary}
-        </p>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{courseQuery.data.summary}</p>
       )}
 
-      {/* Stat tiles */}
-      <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+      {/* A — Course overview */}
+      <h2 className="mt-8 font-display text-lg">Course overview</h2>
+      <div className="mt-3 grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatTile
           icon={Users}
           label="Enrolled students"
@@ -305,7 +312,55 @@ function LecturerDashboard() {
           </p>
         )}
 
-      <div className="mt-8 grid gap-6 lg:grid-cols-2">
+      {/* B — Course health */}
+      <div className="mt-10 flex items-center justify-between gap-3">
+        <h2 className="font-display text-lg">Course health</h2>
+        <Link
+          to="/lecturer/performance"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Full analytics <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        All figures below are based on completed official module quizzes only — AI practice quizzes
+        and the General Course Quiz are excluded.
+      </p>
+
+      {!perfQuery.isLoading && !perfQuery.isError && (
+        <Card className="mt-4">
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">Modules that may need attention</CardTitle>
+            <Badge variant="secondary">avg &lt; {WEAK_THRESHOLD}%</Badge>
+          </CardHeader>
+          <CardContent>
+            {avgByModule.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No completed module quizzes yet — this list appears once students start finishing
+                them.
+              </p>
+            ) : strugglingModules.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Every assessed module is averaging at or above {WEAK_THRESHOLD}%. Nothing needs
+                attention right now.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {strugglingModules.map((m) => (
+                  <li key={m.topic} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="min-w-0 truncate">{m.topic}</span>
+                    <span className="shrink-0 font-semibold tabular-nums text-amber-600 dark:text-amber-500">
+                      {m.avg}%
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
         {/* Recent quiz performance */}
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
@@ -323,7 +378,10 @@ function LecturerDashboard() {
             ) : perfQuery.isError ? (
               <SectionFallback />
             ) : recent.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No quiz performance data yet.</p>
+              <p className="text-sm text-muted-foreground">
+                No quiz results yet. Students need to open and complete quizzes before results show
+                here.
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -354,7 +412,9 @@ function LecturerDashboard() {
                         </td>
                         <td className="py-2 pl-3">
                           {row.completed ? (
-                            <Badge variant={row.pct >= 70 ? "default" : "secondary"}>Completed</Badge>
+                            <Badge variant={row.pct >= 70 ? "default" : "secondary"}>
+                              Completed
+                            </Badge>
                           ) : (
                             <Badge variant="secondary">In progress</Badge>
                           )}
@@ -371,7 +431,10 @@ function LecturerDashboard() {
         {/* Average score per module */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Average score per module</CardTitle>
+            <CardTitle className="text-lg">Average module quiz score</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Mean % across every completed official module quiz attempt, highest first.
+            </p>
           </CardHeader>
           <CardContent>
             {perfQuery.isLoading ? (
@@ -380,15 +443,13 @@ function LecturerDashboard() {
               <SectionFallback />
             ) : avgByModule.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No completed quiz attempts yet.
+                No quiz results yet — students need to complete official module quizzes before
+                averages appear.
               </p>
             ) : (
               <ul className="space-y-2">
                 {avgByModule.map((m) => (
-                  <li
-                    key={m.topic}
-                    className="flex items-center justify-between gap-3 text-sm"
-                  >
+                  <li key={m.topic} className="flex items-center justify-between gap-3 text-sm">
                     <span className="min-w-0 truncate">{m.topic}</span>
                     <span className="shrink-0 font-semibold tabular-nums">{m.avg}%</span>
                   </li>
@@ -415,10 +476,7 @@ function LecturerDashboard() {
           ) : (
             <ul className="divide-y divide-border/70">
               {activity.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center justify-between gap-3 py-2.5 text-sm"
-                >
+                <li key={a.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                   <span className="min-w-0 truncate">{a.text}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">{a.when}</span>
                 </li>
@@ -430,9 +488,42 @@ function LecturerDashboard() {
 
       {studentsQuery.isSuccess && studentCount === 0 && (
         <p className="mt-6 text-sm text-muted-foreground">
-          No students are currently enrolled in this course.
+          No students are enrolled yet. Once students enroll and start quizzes, their progress and
+          performance appear across these pages.
         </p>
       )}
+
+      {/* Deeper analytics */}
+      <div className="mt-10 grid gap-4 sm:grid-cols-2">
+        <Link
+          to="/lecturer/students"
+          className="group flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-5 transition-colors hover:border-primary/40"
+        >
+          <div>
+            <p className="flex items-center gap-2 font-medium">
+              <Users className="h-4 w-4 text-primary" /> Student progress
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Per-student completion, mastery and recent activity.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </Link>
+        <Link
+          to="/lecturer/remedial-evaluation"
+          className="group flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-5 transition-colors hover:border-primary/40"
+        >
+          <div>
+            <p className="flex items-center gap-2 font-medium">
+              <Sparkles className="h-4 w-4 text-primary" /> Remedial intelligence
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Whether personal remedial recommendations are helping — observational only.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </Link>
+      </div>
     </motion.main>
   );
 }

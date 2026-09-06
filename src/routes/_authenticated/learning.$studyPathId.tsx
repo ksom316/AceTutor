@@ -101,6 +101,23 @@ function StudyPathLearningPage() {
     },
   });
 
+  // P1.1 — the score on the quiz attempt that triggered this path, for the
+  // "Why this study path?" summary. Existing stored data only, RLS-scoped to
+  // the student's own attempt; no AI.
+  const { data: anchorScorePercent } = useQuery({
+    queryKey: ["study-path-anchor-score", sp.studyPath?.attempt_id],
+    enabled: !!sp.studyPath?.attempt_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("quiz_attempts")
+        .select("score, total")
+        .eq("id", sp.studyPath!.attempt_id)
+        .maybeSingle();
+      if (!data || !data.total || data.total <= 0) return null;
+      return Math.round(((data.score ?? 0) / data.total) * 100);
+    },
+  });
+
   const courseSlug = context?.courseSlug ?? null;
   const courseTitle = context?.courseTitle ?? "course";
   const backLabel = `Back to ${courseTitle}`;
@@ -119,9 +136,10 @@ function StudyPathLearningPage() {
   if (!studyPath) {
     return (
       <main className="container mx-auto max-w-3xl px-4 py-16 text-center">
-        <h1 className="font-display text-3xl">Study path not available</h1>
+        <h1 className="font-display text-3xl">We couldn&apos;t open this study path</h1>
         <p className="mt-2 text-muted-foreground">
-          This study path doesn&apos;t exist, or it isn&apos;t part of your learning.
+          It may have been removed, or it isn&apos;t part of your learning. Your quiz results and
+          course progress are unaffected.
         </p>
         <Button asChild className="mt-6">
           <Link to="/dashboard">Back to dashboard</Link>
@@ -281,6 +299,36 @@ function StudyPathLearningPage() {
           )}
         </div>
       </motion.div>
+
+      {/* P1.1 — "Why this study path?" — built entirely from data already
+          stored (the anchoring attempt score + the path's weak areas). No AI. */}
+      <div className="mt-5 rounded-xl border border-border bg-card p-4">
+        <p className="text-sm font-semibold">Why this study path?</p>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          {anchorScorePercent != null && (
+            <>
+              You scored {anchorScorePercent}% on{" "}
+              {isCourseLevel
+                ? (context?.courseTitle ?? "this course")
+                : (context?.topicTitle ?? "this module")}
+              .{" "}
+            </>
+          )}
+          This review focuses on the {areas.length} area{areas.length === 1 ? "" : "s"} you found
+          hardest:
+        </p>
+        <ul className="mt-2 space-y-1">
+          {areas.map((a, i) => (
+            <li key={`${i}-${a.title}`} className="flex items-start gap-2 text-sm text-foreground">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+              <span>{a.title}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-xs text-muted-foreground">
+          This does not affect your official course or module progress.
+        </p>
+      </div>
 
       {/* Learning Preferences callout — informational, always visible before the
           student starts the path. Not a warning. */}

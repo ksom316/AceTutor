@@ -3,7 +3,7 @@
  * purely from the course's official progress percentage.
  *
  *   0%      → "start"   ("Start course")
- *   1–99%   → "resume"  ("Resume course")
+ *   1–99%   → "resume"  ("Continue learning")
  *   100%    → "review"  ("Review course")
  *
  * This is NOT a progress calculation — callers pass the percentage from the
@@ -22,6 +22,6 @@ export function courseCtaState(pct: number): CourseCtaState {
 
 export const COURSE_CTA_LABEL: Record<CourseCtaState, string> = {
   start: "Start course",
-  resume: "Resume course",
+  resume: "Continue learning",
   review: "Review course",
 };
