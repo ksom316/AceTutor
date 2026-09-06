@@ -30,6 +30,7 @@ import { useVarkProfile } from "@/hooks/use-vark-profile";
 import { computeModuleMastery } from "@/lib/mastery";
 import type { PerfAttempt } from "@/lib/quiz-performance";
 import { splitLessonIntoSections } from "@/lib/reading-sections";
+import { isAllowedLessonMediaUrl } from "@/lib/lesson-shared";
 import { fadeUp } from "@/lib/motion";
 import { VARK_CATEGORY_LABEL } from "@/lib/vark";
 import {
@@ -731,11 +732,33 @@ function TrackedMedia({
   );
 }
 
+/** Shown when a stored `media_url` predates the media allowlist (migration
+ *  20260917120000) and is not a shape we will embed. Historical data is left
+ *  untouched — the lecturer is asked to re-add the lesson media. */
+function UnsupportedMediaNotice({ url }: { url: string }) {
+  const safeHref = /^https?:\/\//i.test(url.trim()) ? url.trim() : null;
+  return (
+    <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+      <p>This lesson&rsquo;s media can&rsquo;t be shown here.</p>
+      {safeHref && (
+        <a
+          href={safeHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1 inline-flex items-center gap-1.5 font-medium text-primary hover:underline"
+        >
+          Open the original link <ArrowRight className="h-3.5 w-3.5" />
+        </a>
+      )}
+    </div>
+  );
+}
+
 /** Renders one lesson's body for its modality. Rendering is unchanged from
  *  Phase 7 — direct/uploaded video & audio use native elements (now wrapped by
- *  <TrackedMedia> to report verified playback time), provider links use an
- *  <iframe>, slides use the PDF iframe + open-in-new-tab link, text uses the
- *  Markdown renderer, and a non-text lesson's body_md is a caption. */
+ *  <TrackedMedia> to report verified playback time), provider links use a
+ *  sandboxed <iframe>, slides use the PDF iframe + open-in-new-tab link, text
+ *  uses the Markdown renderer, and a non-text lesson's body_md is a caption. */
 function LessonBody({
   lesson,
   quizCta,
@@ -762,16 +785,19 @@ function LessonBody({
               onPlayedSeconds={onPlayback}
             />
           </div>
-        ) : (
+        ) : isAllowedLessonMediaUrl(lesson.media_url) ? (
           <div className="aspect-video w-full overflow-hidden rounded-xl shadow-sm">
             <iframe
               src={lesson.media_url}
               title={lesson.title}
               className="h-full w-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
               allowFullScreen
             />
           </div>
+        ) : (
+          <UnsupportedMediaNotice url={lesson.media_url} />
         ))}
       {lesson.modality === "audio" && lesson.media_url && (
         <TrackedMedia
@@ -781,21 +807,30 @@ function LessonBody({
           onPlayedSeconds={onPlayback}
         />
       )}
-      {lesson.modality === "slides" && lesson.media_url && (
-        <div className="space-y-3">
-          <div className="aspect-[4/3] w-full overflow-hidden rounded-xl border border-border shadow-sm">
-            <iframe src={lesson.media_url} title={lesson.title} className="h-full w-full" />
+      {lesson.modality === "slides" &&
+        lesson.media_url &&
+        (isAllowedLessonMediaUrl(lesson.media_url) ? (
+          <div className="space-y-3">
+            <div className="aspect-[4/3] w-full overflow-hidden rounded-xl border border-border shadow-sm">
+              <iframe
+                src={lesson.media_url}
+                title={lesson.title}
+                className="h-full w-full"
+                sandbox="allow-scripts allow-same-origin allow-popups"
+              />
+            </div>
+            <a
+              href={lesson.media_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+            >
+              Open slides in a new tab <ArrowRight className="h-3.5 w-3.5" />
+            </a>
           </div>
-          <a
-            href={lesson.media_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-          >
-            Open slides in a new tab <ArrowRight className="h-3.5 w-3.5" />
-          </a>
-        </div>
-      )}
+        ) : (
+          <UnsupportedMediaNotice url={lesson.media_url} />
+        ))}
       {lesson.modality !== "text" && lesson.body_md && (
         <p className="mt-4 text-sm text-muted-foreground">{lesson.body_md}</p>
       )}

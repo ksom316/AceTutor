@@ -1861,6 +1861,41 @@ end;
 $$;
 
 
+-- SEC-04: lesson media allowlist. lessons.media_url is lecturer-controlled and
+-- is rendered into a sandboxed <iframe src> (provider embeds) or a native
+-- <video>/<audio> element. Restrict every write path (client insert/update AND
+-- create_module_with_quiz) to the shapes AceTutor actually renders:
+--   1. a Supabase Storage public object   (uploaded lesson media / slides PDF)
+--   2. a direct https media file by extension
+--   3. a YouTube or Vimeo embed URL
+-- Rejects other iframe hosts and every non-https / javascript: / data: / file:
+-- URL. IMMUTABLE + touches no table, so it is valid in a CHECK constraint.
+-- Mirror in src/lib/lesson-shared.ts (isAllowedLessonMediaUrl).
+create or replace function public.is_allowed_lesson_media_url(_url text)
+returns boolean
+language sql
+immutable
+set search_path = public
+as $$
+  select
+    _url is null
+    or _url = ''
+    or _url ~* '^https://[a-z0-9][a-z0-9.-]*\.supabase\.co/storage/v1/object/public/[^\s]+$'
+    or _url ~* '^https://[^\s?#]+\.(mp4|webm|ogv|ogg|mov|m4v|m4a|mp3|wav|aac)([?#][^\s]*)?$'
+    or _url ~* '^https://(www\.)?youtube(-nocookie)?\.com/embed/[a-z0-9_\-]{6,}([?&][^\s]*)?$'
+    or _url ~* '^https://player\.vimeo\.com/video/[0-9]+([?&/][^\s]*)?$'
+    or _url ~* '^https://(www\.)?vimeo\.com/[0-9]+([?&/][^\s]*)?$';
+$$;
+
+-- NOT VALID: enforced on every new/updated row; the historical table is not
+-- re-scanned (a pre-existing non-conforming URL keeps working and is reported,
+-- never rewritten). Run `validate constraint` after any manual cleanup.
+alter table public.lessons drop constraint if exists lessons_media_url_allowed;
+alter table public.lessons
+  add constraint lessons_media_url_allowed
+  check (public.is_allowed_lesson_media_url(media_url)) not valid;
+
+
 -- 3.11 trigger functions: quiz-attempt guards --------------------------
 
 -- BEFORE INSERT: stamp expires_at from the topic's / course quiz's duration.
@@ -2797,11 +2832,13 @@ create policy "answers_select_own" on public.attempt_answers for select to authe
     where a.id = attempt_id and a.user_id = auth.uid() and a.finished_at is not null
   ));
 
--- progress: own rows
+-- progress: SELECT only (SEC-05). completed_at is server-owned lesson-completion
+-- state — a client INSERT/UPDATE with `auth.uid() = user_id` could forge it.
+-- There is no standalone "mark lesson complete" action; the only writer is
+-- grade_quiz() (SECURITY DEFINER, marks the module's first lesson complete on a
+-- finished module quiz) and reset_my_learning_data() deletes the caller's rows.
+-- ALL client writes are revoked in section 6 (after the blanket `grant all`).
 create policy "progress_select_own" on public.progress for select to authenticated using (auth.uid() = user_id);
-create policy "progress_insert_own" on public.progress for insert to authenticated with check (auth.uid() = user_id);
-create policy "progress_update_own" on public.progress for update to authenticated using (auth.uid() = user_id);
-create policy "progress_delete_own" on public.progress for delete to authenticated using (auth.uid() = user_id);
 
 -- enrollments: own rows
 create policy "enrollments_select_own" on public.enrollments for select to authenticated using (auth.uid() = user_id);
@@ -2910,6 +2947,12 @@ grant select on public.questions to authenticated;
 revoke insert, update, delete on public.attempt_answers from anon, authenticated;
 revoke update, delete          on public.quiz_attempts   from anon, authenticated;
 
+-- SEC-05: no client write access to public.progress. completed_at is
+-- server-owned; the only writer is grade_quiz() (SECURITY DEFINER) and
+-- reset_my_learning_data() deletes the caller's rows — both run as owner and
+-- are unaffected. Students keep SELECT (progress_select_own).
+revoke insert, update, delete on public.progress from anon, authenticated;
+
 -- 6.2 Function EXECUTE. Supabase auto-grants EXECUTE on new functions to
 --     anon+authenticated via default privileges, so every function is first
 --     REVOKEd and then GRANTed exactly where it belongs.
@@ -2930,6 +2973,9 @@ revoke execute on function public.notify_quiz_completed()              from publ
 revoke execute on function public.notify_lesson_updated()              from public, anon, authenticated;
 revoke execute on function public.notify_module_updated()              from public, anon, authenticated;
 revoke execute on function public.notify_quiz_updated()                from public, anon, authenticated;
+
+-- CHECK-constraint helper (pure, IMMUTABLE); execed implicitly on lessons writes.
+grant  execute on function public.is_allowed_lesson_media_url(text)                                to public;
 
 -- callable RPCs
 revoke execute on function public.current_lecturer_course()                                        from public;

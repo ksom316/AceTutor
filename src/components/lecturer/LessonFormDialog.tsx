@@ -33,6 +33,7 @@ import {
   type LessonFormValue,
   type LessonModality,
   type LessonSource,
+  isAllowedLessonMediaUrl,
   looksLikeUrl,
 } from "@/lib/lesson-shared";
 
@@ -90,7 +91,9 @@ export function LessonFormDialog({
   const titleInvalid = title.trim().length === 0 || title.length > LESSON_TITLE_MAX;
   const bodyInvalid = modality === "text" && body.trim().length === 0;
   const needFile = isFileMode && !file && !keepsExistingFile;
-  const urlInvalid = isUrlMode && !looksLikeUrl(url);
+  const urlMalformed = isUrlMode && !looksLikeUrl(url);
+  const urlNotAllowed = isUrlMode && looksLikeUrl(url) && !isAllowedLessonMediaUrl(url);
+  const urlInvalid = urlMalformed || urlNotAllowed;
   const invalid = titleInvalid || bodyInvalid || needFile || urlInvalid || !!fileError;
 
   const rule = modality === "text" ? null : MATERIAL_RULES[modality as UploadKind];
@@ -233,8 +236,15 @@ export function LessonFormDialog({
                     : "https://example.com/audio.mp3"
                 }
               />
-              {touched && urlInvalid && (
+              {touched && urlMalformed && (
                 <p className="text-xs text-destructive">Enter a valid URL (starting with http).</p>
+              )}
+              {touched && urlNotAllowed && (
+                <p className="text-xs text-destructive">
+                  {modality === "video"
+                    ? "Only YouTube or Vimeo embed links, or a direct video file, are allowed."
+                    : "Only a direct https audio file (.mp3, .wav, …) is allowed."}
+                </p>
               )}
               {modality === "video" && (
                 <p className="text-xs text-muted-foreground">
