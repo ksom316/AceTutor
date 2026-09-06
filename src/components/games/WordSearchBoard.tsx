@@ -45,10 +45,12 @@ export function WordSearchBoard({
   const reportedRef = useRef(false);
 
   // Cells size to the available board area so the whole grid fits the screen on
-  // start rather than pushing out a scrollbar. The generous upper bound lets the
-  // grid grow to fill a large desktop; the fit logic shrinks it on smaller ones.
+  // start rather than pushing out a scrollbar. On lg+ the board area is square
+  // (see gridBox below), so the fit is driven by the available width and the
+  // grid grows to fill it; the fit logic shrinks it on smaller screens. The
+  // upper bound just stops cells getting cartoonishly large on wide monitors.
   const gridBox = useRef<HTMLDivElement>(null);
-  const cell = useFitSquare(gridBox, puzzle.size, puzzle.size, 2, { max: 88 });
+  const cell = useFitSquare(gridBox, puzzle.size, puzzle.size, 2, { max: 120 });
   const cellPx = cell || 32;
 
   const total = puzzle.words.length;
@@ -192,7 +194,7 @@ export function WordSearchBoard({
   }
 
   return (
-    <div className="flex flex-col gap-4 lg:h-full">
+    <div className="flex flex-col gap-4 lg:min-h-full">
       {/* Toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
         <span className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
@@ -240,12 +242,12 @@ export function WordSearchBoard({
         </motion.div>
       )}
 
-      <div className="flex flex-col gap-4 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="flex flex-col gap-4 lg:grid lg:items-start lg:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
         {/* Letter grid */}
-        <div className="flex flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:min-h-0 lg:flex-none">
+        <div className="flex flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4">
           <div
             ref={gridBox}
-            className="flex max-h-[75svh] w-full items-center justify-center overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1"
+            className="flex max-h-[75svh] w-full items-center justify-center overflow-auto lg:max-h-none lg:aspect-square lg:overflow-visible"
           >
             <motion.div
               animate={rejected ? { x: [0, -6, 6, -4, 0] } : { x: 0 }}
@@ -300,8 +302,10 @@ export function WordSearchBoard({
           </p>
         </div>
 
-        {/* Word list — beside the grid on desktop, stacked below it on narrow screens. */}
-        <div className="rounded-3xl border border-border bg-card p-4 shadow-sm lg:h-full lg:shrink lg:overflow-y-auto">
+        {/* Word list — beside the grid on desktop, stacked below it on narrow
+            screens. Sticky + viewport-capped so it stays usable while a large
+            board scrolls past it. */}
+        <div className="rounded-3xl border border-border bg-card p-4 shadow-sm lg:sticky lg:top-0 lg:max-h-[calc(100svh-8rem)] lg:overflow-y-auto">
           <div className="flex items-baseline justify-between">
             <h3 className="font-display text-base">Words to find</h3>
             <span className="text-xs text-muted-foreground">{remaining} left</span>

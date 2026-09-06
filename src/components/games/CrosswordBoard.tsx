@@ -49,11 +49,13 @@ export function CrosswordBoard({
   const reportedRef = useRef(false);
 
   // The grid sizes its cells to whatever space the board area has, so the whole
-  // puzzle fits the screen on start instead of pushing out a scrollbar. The
-  // upper bound is generous so the board grows to fill a large desktop instead
-  // of sitting small in the middle; on laptops/phones the fit logic shrinks it.
+  // puzzle fits the screen on start instead of pushing out a scrollbar. On lg+
+  // the board area matches the puzzle's own aspect ratio (see gridBox below), so
+  // the fit is driven by the available width and the board grows to fill it; on
+  // laptops/phones the fit logic shrinks it. The upper bound just stops cells
+  // getting cartoonishly large on very wide monitors.
   const gridBox = useRef<HTMLDivElement>(null);
-  const cell = useFitSquare(gridBox, puzzle.cols, puzzle.rows, 2, { max: 88 });
+  const cell = useFitSquare(gridBox, puzzle.cols, puzzle.rows, 2, { max: 120 });
   const cellPx = cell || 32;
 
   const across = useMemo(
@@ -307,7 +309,7 @@ export function CrosswordBoard({
   }
 
   return (
-    <div className="flex flex-col gap-4 lg:h-full">
+    <div className="flex flex-col gap-4 lg:min-h-full">
       {/* Toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
         <span className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
@@ -397,12 +399,13 @@ export function CrosswordBoard({
         </motion.div>
       )}
 
-      <div className="flex flex-col gap-4 lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-[minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="flex flex-col gap-4 lg:grid lg:items-start lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
         {/* Grid */}
-        <div className="flex flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4 lg:h-full lg:min-h-0 lg:flex-none">
+        <div className="flex flex-col rounded-3xl border border-border bg-card p-3 shadow-sm sm:p-4">
           <div
             ref={gridBox}
-            className="flex max-h-[75svh] w-full items-center justify-center overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1"
+            style={{ "--puzzle-aspect": `${puzzle.cols} / ${puzzle.rows}` } as React.CSSProperties}
+            className="flex max-h-[75svh] w-full items-center justify-center overflow-auto lg:max-h-none lg:aspect-[var(--puzzle-aspect)] lg:overflow-visible"
           >
             {/* The board frames itself against the card: blocked squares are
                 filled with the foreground colour and open squares keep a solid
@@ -499,8 +502,10 @@ export function CrosswordBoard({
           )}
         </div>
 
-        {/* Clues — beside the grid on desktop, stacked below it on narrow screens. */}
-        <div className="space-y-4 lg:h-full lg:shrink lg:overflow-y-auto lg:pr-1">
+        {/* Clues — beside the grid on desktop, stacked below it on narrow screens.
+            Sticky + viewport-capped so the list stays usable while a large board
+            scrolls past it. */}
+        <div className="space-y-4 lg:sticky lg:top-0 lg:max-h-[calc(100svh-8rem)] lg:overflow-y-auto lg:pr-1">
           <ClueList
             title="Across"
             words={across}
