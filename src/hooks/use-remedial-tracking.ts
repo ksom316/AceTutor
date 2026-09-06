@@ -38,7 +38,8 @@ export function useRemedialTracking(input: {
   contentVersion: string | null;
   activeFormat: RemedialModality;
   recommendedFormat: RemedialModality | null;
-  recommendationSource: RemedialModalitySource | null;
+  // R8.3 — widened for the personal-history recommendation source.
+  recommendationSource: RemedialModalitySource | "history" | null;
   /** cumulative genuine spoken seconds for the current narration (audio only;
    *  measured by RemedialAudioPlayer while speaking, not paused, tab visible). */
   audioSpokenSeconds: number;

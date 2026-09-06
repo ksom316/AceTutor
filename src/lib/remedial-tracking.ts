@@ -19,7 +19,10 @@ export async function logRemedialInteraction(input: {
   eventType: "remedial_format_selected" | "remedial_meaningful_engagement";
   format: RemedialModality;
   recommendedFormat: RemedialModality | null;
-  recommendationSource: RemedialModalitySource | null;
+  // R8.3 — 'history' joins the existing sources once the personal remedial
+  // history engine drives the recommendation. The RPC + CHECK constraint
+  // accept it (20260915120000). A7 still only ever writes 'vark' / 'adaptive'.
+  recommendationSource: RemedialModalitySource | "history" | null;
 }): Promise<void> {
   try {
     const { error } = await supabase.rpc("log_remedial_interaction", {

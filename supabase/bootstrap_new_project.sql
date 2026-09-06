@@ -416,7 +416,8 @@ create table if not exists public.learning_interactions (
   recommendation_matched   boolean,
   -- Phase A7: which source drove the recommendation actually SHOWN
   -- ('vark' = A4 prior, 'adaptive' = A7 override). R4 also allows
-  -- 'preference' / 'default' for remedial events. Null when none shown.
+  -- 'preference' / 'default', and R8.3 adds 'history' (personal remedial
+  -- success history), for remedial events. Null when none shown.
   recommendation_source    text,
   quiz_attempt_id          uuid references public.quiz_attempts(id) on delete cascade,
   score_percent            int,
@@ -448,7 +449,7 @@ create table if not exists public.learning_interactions (
     check (difficulty is null or difficulty in ('easy', 'medium', 'hard')),
   constraint learning_interactions_recommendation_source_check
     check (recommendation_source is null
-      or recommendation_source in ('vark', 'adaptive', 'preference', 'default')),
+      or recommendation_source in ('vark', 'adaptive', 'preference', 'default', 'history')),
   constraint learning_interactions_remedial_format_check
     check (remedial_format is null or remedial_format in ('text', 'audio', 'visual')),
   constraint learning_interactions_recommended_remedial_format_check
@@ -1678,7 +1679,7 @@ begin
     raise exception 'INVALID_RECOMMENDED_FORMAT';
   end if;
   if _recommendation_source is not null
-     and _recommendation_source not in ('vark', 'adaptive', 'preference', 'default') then
+     and _recommendation_source not in ('vark', 'adaptive', 'preference', 'default', 'history') then
     raise exception 'INVALID_RECOMMENDATION_SOURCE';
   end if;
 
