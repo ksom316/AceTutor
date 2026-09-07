@@ -659,7 +659,7 @@ function TopicPage() {
 
       {/* Learning tip — highlight a passage to ask AceTutor. Shown once per
           browser, dismissible, never blocking. */}
-      {showHint && user && enrollment && activeLessons.length > 0 && (
+      {showHint && user && activeLessons.length > 0 && (
         <div className="mt-6 flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
           <p className="flex-1 text-muted-foreground">
@@ -723,9 +723,12 @@ function TopicPage() {
         </AnimatePresence>
       </div>
 
+      {/* Selection detection is a pure client-side affordance — available to any
+          signed-in reader. Enrollment is enforced server-side by `askCourse`
+          (and surfaced as the panel's generic error) when the request runs. */}
       <ExplainSelectionButton
         containerRef={lessonAreaRef}
-        enabled={!!user && !!enrollment && activeLessons.length > 0}
+        enabled={!!user && activeLessons.length > 0}
         onExplain={setExplainTarget}
       />
 
