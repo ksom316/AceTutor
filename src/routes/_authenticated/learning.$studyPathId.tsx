@@ -204,13 +204,14 @@ function StudyPathLearningPage() {
   const sections: ReaderSection[] = [
     {
       key: "overview",
-      heading: "What to focus on",
+      heading: "Your recovery roadmap",
       body: (
         <div className="space-y-4">
           <p className="text-muted-foreground">
-            This short review targets the {areas.length} area{areas.length === 1 ? "" : "s"} you
-            found hardest on the quiz. Read each one, try the self-check questions, then mark it
-            complete at the end. This does not affect your official course or module progress.
+            One step for each of the {areas.length} concept{areas.length === 1 ? "" : "s"} you found
+            hardest on the quiz. Work through them in order — each step explains the idea and gives
+            you a quick self-check — then mark the roadmap complete at the end. This review is
+            separate from your official course and module progress.
           </p>
           <ul className="space-y-2">
             {areas.map((a, i) => (
@@ -232,11 +233,17 @@ function StudyPathLearningPage() {
     ),
     {
       key: "wrap-up",
-      heading: completed ? "Study Path complete" : "You've reached the end",
+      heading: completed ? "Roadmap complete" : "You've reached the end of the roadmap",
       body: completed ? (
         <div className="space-y-4">
           <p className="flex items-center gap-2 font-medium text-success">
-            <CheckCircle2 className="h-4 w-4" /> You&apos;ve completed this Study Path.
+            <CheckCircle2 className="h-4 w-4" /> You&apos;ve worked through every concept in this
+            Study Path.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {topicId
+              ? "After reviewing these concepts, retake the official module quiz to update your Mastery Score."
+              : "When you're ready, revisit the course quizzes to update your Mastery Score."}
           </p>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {retakeButton}
@@ -246,9 +253,12 @@ function StudyPathLearningPage() {
       ) : (
         <div className="space-y-4">
           <p className="text-muted-foreground">
-            You&apos;ve been through {areas.length === 1 ? "the area" : `all ${areas.length} areas`}{" "}
-            in this Study Path. When you&apos;re ready, mark it as complete
-            {topicId ? " and retake the quiz to check your progress." : "."}
+            You&apos;ve been through{" "}
+            {areas.length === 1 ? "the concept" : `all ${areas.length} concepts`} in this Study
+            Path. When you&apos;re ready, mark the roadmap complete
+            {topicId
+              ? ", then retake the official module quiz — your Mastery Score updates from that quiz, not from this review."
+              : "."}
           </p>
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <Button disabled={sp.completing} onClick={() => sp.markCompleted(spId)}>
@@ -314,8 +324,10 @@ function StudyPathLearningPage() {
               .{" "}
             </>
           )}
-          This review focuses on the {areas.length} area{areas.length === 1 ? "" : "s"} you found
-          hardest:
+          AceTutor built this review around the {areas.length} concept
+          {areas.length === 1 ? "" : "s"} you missed most on the quiz — work through{" "}
+          {areas.length === 1 ? "it" : "them"} before you{" "}
+          {isCourseLevel ? "revisit the course" : "retake the official module quiz"}:
         </p>
         <ul className="mt-2 space-y-1">
           {areas.map((a, i) => (
@@ -326,21 +338,26 @@ function StudyPathLearningPage() {
           ))}
         </ul>
         <p className="mt-2 text-xs text-muted-foreground">
-          This does not affect your official course or module progress.
+          Working through this review is separate from your official course and module progress.
         </p>
       </div>
 
-      {/* Learning Preferences callout — informational, always visible before the
-          student starts the path. Not a warning. */}
+      {/* "How this Study Path was personalized" callout — informational, always
+          visible before the student starts the path. Not a warning. */}
       <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
         <div className="flex items-center gap-2">
           <Info className="h-4 w-4 shrink-0 text-primary" />
-          <p className="text-sm font-semibold">Learning Preferences</p>
+          <p className="text-sm font-semibold">How this Study Path was personalized</p>
         </div>
         <p className="mt-1.5 text-sm text-muted-foreground">
+          AceTutor built this from the questions you missed on the quiz, then used the Learning
+          Preferences you had saved at the time to shape how the explanation is written and which
+          format it recommends.
+        </p>
+        <p className="mt-1.5 text-sm text-muted-foreground">
           {prefsChangedAfter
-            ? "Your Learning Preferences changed after this Study Path was built. It stays as it was. Your current preferences apply when a new Study Path is generated — remove this one and build it again to use them."
-            : "This Study Path was built with your Learning Preferences at the time. Changing your preferences won't modify it. Your new preferences apply when a new Study Path is generated."}
+            ? "You've changed your Learning Preferences since then. This Study Path keeps the settings it was built with; your newer preferences apply the next time a Study Path is generated. Remove this one and build it again to use them."
+            : "Changing your Learning Preferences later won't modify this Study Path. Your current preferences apply whenever a new Study Path is generated."}
         </p>
       </div>
 

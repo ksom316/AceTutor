@@ -196,8 +196,8 @@ export function RemedialExplanationPanel({ studyPath }: { studyPath: ParsedStudy
         <div className="min-w-0 flex-1">
           <h2 className="font-display text-xl">Personalized explanation</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            A short, targeted explanation of the weak areas from your quiz — not a summary of the
-            whole {studyPath.topic_id ? "module" : "course"}.
+            A focused recap of just the concepts you missed on the quiz — not a summary of the whole{" "}
+            {studyPath.topic_id ? "module" : "course"}.
           </p>
 
           {/* Recommended format + observational explanation + format toggle */}

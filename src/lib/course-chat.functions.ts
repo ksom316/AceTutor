@@ -48,6 +48,24 @@ const schema = z.object({
 // Browse the current free roster at https://openrouter.ai/models?max_price=0
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+/**
+ * Read a server-side env var, tolerating a value that was accidentally pasted
+ * WITH surrounding quotes or padding — e.g. `OPENROUTER_API_KEY="sk-or-…"` in a
+ * .env file or a hosting dashboard. A quoted key reaches OpenRouter as
+ * `Bearer "sk-or-…"` and is rejected with 401 "Missing Authentication header",
+ * which is indistinguishable at the UI from any other AI outage. Trimming here
+ * removes that whole failure class. Returns undefined for missing/blank.
+ */
+export function cleanEnv(name: string): string | undefined {
+  const raw = process.env[name];
+  if (raw == null) return undefined;
+  let v = raw.trim();
+  if (v.length >= 2 && (v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) {
+    v = v.slice(1, -1).trim();
+  }
+  return v || undefined;
+}
+
 // Models are tried in order; if one is down, rate-limited, or delisted, the
 // next takes over. OpenRouter's free roster changes often, so the whole list
 // can be overridden from the environment without a code change:
@@ -65,14 +83,15 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 // returns null content when response_format:json_object is set.
 // Browse current free ids at https://openrouter.ai/models?max_price=0
 const MODELS = (
-  process.env.OPENROUTER_MODELS
-    ? process.env.OPENROUTER_MODELS.split(",")
+  cleanEnv("OPENROUTER_MODELS")
+    ? cleanEnv("OPENROUTER_MODELS")!
+        .split(",")
         .map((m) => m.trim())
         .filter(Boolean)
     : [
-        process.env.OPENROUTER_MODEL_GEMINI ?? "minimax/minimax-m3:free",
-        process.env.OPENROUTER_MODEL_GPT ?? "nvidia/nemotron-3-super-120b-a12b:free",
-        process.env.OPENROUTER_MODEL ?? "openrouter/free",
+        cleanEnv("OPENROUTER_MODEL_GEMINI") ?? "minimax/minimax-m3:free",
+        cleanEnv("OPENROUTER_MODEL_GPT") ?? "nvidia/nemotron-3-super-120b-a12b:free",
+        cleanEnv("OPENROUTER_MODEL") ?? "openrouter/free",
       ]
 ).filter(Boolean);
 
@@ -247,15 +266,26 @@ async function callModel(
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
       // Optional OpenRouter attribution headers (safe to leave as defaults).
-      "HTTP-Referer": process.env.OPENROUTER_SITE_URL ?? "https://acetutor.app",
+      "HTTP-Referer": cleanEnv("OPENROUTER_SITE_URL") ?? "https://acetutor.app",
       "X-Title": "AceTutor",
     },
     body: JSON.stringify(body),
     signal,
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`(${res.status}) ${text.slice(0, 300)}`);
+    // Diagnostic only: the HTTP status plus the provider's OWN short error
+    // message when the body is JSON (e.g. "User not found." for a dead key,
+    // "Rate limit exceeded"). A non-JSON body is dropped — it can echo the
+    // request, which carries course material and the student's question.
+    const bodyText = await res.text().catch(() => "");
+    let providerMsg = "";
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: { message?: unknown } };
+      if (typeof parsed?.error?.message === "string") providerMsg = parsed.error.message;
+    } catch {
+      /* non-JSON — omit */
+    }
+    throw new Error(`HTTP ${res.status}${providerMsg ? ` — ${providerMsg.slice(0, 140)}` : ""}`);
   }
   const json = await res.json();
   const content = (json.choices?.[0]?.message?.content ?? "") as string;
@@ -270,7 +300,7 @@ export async function callAI(
   messages: { role: string; content: string }[],
   opts?: CallOpts,
 ): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = cleanEnv("OPENROUTER_API_KEY");
   // Safe diagnostic — boolean only, plus the model IDs being attempted. Never
   // logs the key or any auth header.
   console.info(
@@ -327,7 +357,16 @@ export async function callAI(
     for (const c of controllers) c.abort();
   }
 
-  throw new Error(`AI tutor error: all models failed. ${errors.join(" | ")}`);
+  // Log the real reason ONCE, at the source, so it is diagnosable from the
+  // server logs (Vercel functions) without shipping provider internals to the
+  // browser. `errors` holds only "<model> → HTTP <status> — <provider msg>";
+  // it never contains the API key or an auth header.
+  console.error(
+    `[callAI] all ${MODELS.length} model attempt(s) failed — ${errors.join(" | ") || "no attempts ran"}`,
+  );
+  // Stable, generic message for the caller (and the browser payload): the
+  // chat UI already shows its own "Couldn't get a response" state.
+  throw new Error("The AI service is temporarily unavailable. Please try again in a moment.");
 }
 
 // Output caps per mode. Tutor answers are meant to be short and scannable, so
