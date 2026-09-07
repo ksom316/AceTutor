@@ -143,14 +143,13 @@ test("student 'has a quiz?' checks go through topics_with_questions (ids only)",
 });
 
 test("server functions no longer read the questions table with the student's RLS client", () => {
-  // study path needs the answer key → service client (attempt ownership already
-  // verified). It reads the caller's own wrong-answer ids with the RLS client.
-  assert.match(studyPathFns, /\.from\("attempt_answers"\)\s*\n\s*\.select\("question_id"\)/);
-  assert.match(
-    studyPathFns,
-    /import\("@\/integrations\/supabase\/client\.server"\)[\s\S]{0,220}supabaseAdmin\s*\n\s*\.from\("questions"\)/,
-  );
-  assert.doesNotMatch(studyPathFns, /\.from\("attempt_answers"\)[\s\S]{0,80}questions\(prompt/);
+  // study path needs the answer key → the SEC-01 get_attempt_review RPC
+  // (SECURITY DEFINER, own + FINISHED attempts only) — the same student-safe
+  // path the result page uses. No service-role client, no direct questions read
+  // (so it needs no SUPABASE_SERVICE_ROLE_KEY).
+  assert.match(studyPathFns, /supabase\.rpc\("get_attempt_review"/);
+  assert.doesNotMatch(studyPathFns, /supabaseAdmin|client\.server/);
+  assert.doesNotMatch(studyPathFns, /\.from\("questions"\)/);
   // remedial: prompts-only RPC via the RLS client — still no service-role client
   assert.match(remedialFns, /supabase\.rpc\("get_question_prompts"/);
   assert.doesNotMatch(remedialFns, /supabaseAdmin|client\.server/);

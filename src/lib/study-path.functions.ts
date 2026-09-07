@@ -429,21 +429,16 @@ export const generateStudyPath = createServerFn({ method: "POST" })
       if (sufficientIds.length > 0) wrongAttemptIds = sufficientIds;
     }
 
-    // The student's own wrong answers on their own (finished, verified) attempts
-    // — `attempt_answers` reads are RLS-scoped to the caller. The question
-    // details (correct answer + explanation) are then read with the service
-    // client: students have no direct read on `questions` (SEC-01), and the
-    // attempt ownership + `is_correct = false` filter above already bound the
-    // id set to this student's own missed questions.
-    const { data: wrongAnswerRows } = await supabase
-      .from("attempt_answers")
-      .select("question_id")
-      .in("attempt_id", wrongAttemptIds)
-      .eq("is_correct", false);
-    const wrongQuestionIds = [
-      ...new Set(((wrongAnswerRows ?? []) as { question_id: string }[]).map((r) => r.question_id)),
-    ];
-
+    // The student's own missed questions + the answer key, via the SEC-01
+    // review RPC. `get_attempt_review` is SECURITY DEFINER and returns
+    // prompt / choices / correct_index / explanation / is_correct for every
+    // question behind ONE of the caller's OWN FINISHED attempts. Every id in
+    // `wrongAttemptIds` was derived server-side from the caller's own
+    // quiz_attempts rows, so each is owned + finished. This is the same
+    // student-safe path the result page uses — and, unlike the previous
+    // service-role read of `questions`, it needs no SUPABASE_SERVICE_ROLE_KEY
+    // (a missing key was surfacing as the generic "couldn't build your study
+    // path" error).
     type WrongRow = {
       question_id: string;
       questions: {
@@ -453,25 +448,45 @@ export const generateStudyPath = createServerFn({ method: "POST" })
         explanation: string | null;
       } | null;
     };
-    let incorrect: WrongRow[] = [];
-    if (wrongQuestionIds.length > 0) {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-      const { data: qRows } = await supabaseAdmin
-        .from("questions")
-        .select("id, prompt, choices, correct_index, explanation")
-        .in("id", wrongQuestionIds.slice(0, 100));
-      incorrect = ((qRows ?? []) as unknown as (WrongRow["questions"] & { id: string })[])
-        .filter((q) => q && typeof q.prompt === "string" && q.prompt.trim())
-        .map((q) => ({
-          question_id: q.id,
+
+    const reviews = await Promise.all(
+      wrongAttemptIds.map(async (id) => {
+        try {
+          const { data, error } = await supabase.rpc("get_attempt_review", { _attempt_id: id });
+          // Server-side diagnostic only — no PII (attempt id is a uuid). One
+          // owned+finished attempt failing review shouldn't sink generation.
+          if (error)
+            console.error(`[generateStudyPath] get_attempt_review failed: ${error.message}`);
+          return data ?? [];
+        } catch (e) {
+          console.error(
+            `[generateStudyPath] get_attempt_review threw: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          return [];
+        }
+      }),
+    );
+
+    const byQuestion = new Map<string, WrongRow>();
+    for (const rows of reviews) {
+      for (const row of rows) {
+        // is_correct is null for an unanswered question — only an actual wrong
+        // answer is evidence of weakness.
+        if (row.is_correct !== false) continue;
+        if (!row.prompt?.trim()) continue;
+        if (byQuestion.has(row.question_id)) continue;
+        byQuestion.set(row.question_id, {
+          question_id: row.question_id,
           questions: {
-            prompt: q.prompt,
-            choices: q.choices,
-            correct_index: q.correct_index,
-            explanation: q.explanation,
+            prompt: row.prompt,
+            choices: row.choices,
+            correct_index: row.correct_index,
+            explanation: row.explanation,
           },
-        }));
+        });
+      }
     }
+    const incorrect: WrongRow[] = [...byQuestion.values()].slice(0, 100);
 
     // 12. No weakness evidence (from DB facts, not the AI) → no AI call. Covers
     // the "weak by average but every answered question was correct" edge too.
