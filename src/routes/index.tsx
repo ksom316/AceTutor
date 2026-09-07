@@ -187,7 +187,8 @@ function VisitorHome() {
               <p className="mx-auto mt-6 max-w-xl text-base text-muted-foreground md:text-lg lg:mx-0">
                 AceTutor brings course content, quizzes, AI-assisted help and performance insights
                 into one place — so students can learn and practise while lecturers manage their
-                courses and see progress.
+                course and see progress.
+              </p>
               <div className="mt-8 flex flex-wrap justify-center gap-3 lg:justify-start">
                 <Button asChild size="lg" className="h-12 rounded-full px-6 text-base">
                   <Link to="/signup">
