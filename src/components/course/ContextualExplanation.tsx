@@ -1,19 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import ReactMarkdown from "react-markdown";
 import { Lightbulb, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { askCourse } from "@/lib/course-chat.functions";
+import type { SelectionAnchor } from "@/components/course/ExplainSelectionButton";
 
 /**
- * The compact "AceTutor Explanation" panel shown next to a lesson after the
- * student highlights a passage and clicks "Explain with AceTutor".
+ * The compact "AceTutor Explanation" popup shown as a FLOATING card next to the
+ * passage the student highlighted — a contextual assistant, not the full
+ * chatbot. It portals to <body> and positions itself against the selection
+ * anchor from `ExplainSelectionButton`, flipping above/below and clamping to
+ * stay on-screen; on small screens it becomes a bottom sheet.
  *
- * It is NOT the full chatbot — no conversation, nothing persisted. Every
- * request goes through the SAME `askCourse` server function (same OpenRouter
- * path, same course-context + Learning-Preferences machinery, key stays
- * server-side). Only the selected text + lesson context are sent.
+ * Nothing about the AI request changed: every call still goes through the same
+ * `askCourse` server function (same modes, same course-context + Learning-
+ * Preferences machinery, key server-side). Only selected text + lesson context
+ * are sent. This file only changed how the result is *rendered*.
  */
 
 export type ExplainContext = {
@@ -36,14 +42,53 @@ const BLOCK_LABEL: Partial<Record<ExplainMode, string>> = {
 
 const GENERIC_ERROR = "Couldn't generate an explanation right now. Try again.";
 
+const CARD_MAX_W = 460;
+const VIEWPORT_MARGIN = 12;
+const ANCHOR_GAP = 8;
+const MOBILE_QUERY = "(max-width: 639px)";
+
+type Placement = { top: number; left: number; width: number };
+
+/** Fixed-position placement for the card, from the selection anchor. Prefers
+ *  below the selection, flips above when it doesn't fit, and always clamps into
+ *  the viewport. `cardHeight` is the measured card height (or an estimate). */
+function computePlacement(anchor: SelectionAnchor, cardHeight: number): Placement {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const width = Math.min(CARD_MAX_W, vw - 2 * VIEWPORT_MARGIN);
+  const h = Math.min(cardHeight || 320, vh - 2 * VIEWPORT_MARGIN);
+
+  // The selection may have scrolled since "Explain" was clicked — offset by the delta.
+  const dy = window.scrollY - anchor.scrollY;
+  const dx = window.scrollX - anchor.scrollX;
+  const selTop = anchor.top - dy;
+  const selBottom = anchor.bottom - dy;
+  const selCenterX = anchor.left - dx + anchor.width / 2;
+
+  let left = selCenterX - width / 2;
+  left = Math.min(Math.max(left, VIEWPORT_MARGIN), vw - width - VIEWPORT_MARGIN);
+
+  const fitsBelow = selBottom + ANCHOR_GAP + h <= vh - VIEWPORT_MARGIN;
+  const fitsAbove = selTop - ANCHOR_GAP - h >= VIEWPORT_MARGIN;
+  let top = fitsBelow || !fitsAbove ? selBottom + ANCHOR_GAP : selTop - ANCHOR_GAP - h;
+  top = Math.min(
+    Math.max(top, VIEWPORT_MARGIN),
+    Math.max(VIEWPORT_MARGIN, vh - h - VIEWPORT_MARGIN),
+  );
+
+  return { top, left, width };
+}
+
 export function ContextualExplanation({
   selectedText,
   lessonTitle,
+  anchor,
   context,
   onClose,
 }: {
   selectedText: string;
   lessonTitle: string | null;
+  anchor: SelectionAnchor;
   context: ExplainContext;
   onClose: () => void;
 }) {
@@ -79,7 +124,7 @@ export function ContextualExplanation({
     },
   });
 
-  // Fire the first explanation once, when the panel opens for this selection.
+  // Fire the first explanation once, when the popup opens for this selection.
   const started = useRef(false);
   useEffect(() => {
     if (started.current) return;
@@ -87,7 +132,6 @@ export function ContextualExplanation({
     request.mutate({ mode: "explain_selection", replace: true });
   }, [request]);
 
-  // The "main" explanation the follow-ups build on (latest full explanation).
   const mainExplanation = useMemo(
     () =>
       [...blocks]
@@ -98,110 +142,203 @@ export function ContextualExplanation({
 
   const retryLast = () => {
     const v = request.variables;
-    if (v) request.mutate(v);
-    else request.mutate({ mode: "explain_selection", replace: true });
+    request.mutate(v ?? { mode: "explain_selection", replace: true });
   };
 
   const busy = request.isPending;
   const hasContent = blocks.length > 0;
 
-  return (
-    <section
-      aria-label="AceTutor explanation"
-      className="mt-6 rounded-2xl border border-primary/25 bg-primary/5 p-5 md:p-6"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <h3 className="flex items-center gap-2 font-display text-lg">
-          <Sparkles className="h-4 w-4 text-primary" aria-hidden />
-          AceTutor Explanation
-        </h3>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close explanation"
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+  /* ---------------- floating placement ---------------- */
 
-      <p className="mt-2 rounded-lg border border-border bg-background/60 px-3 py-2 text-sm text-muted-foreground">
-        You highlighted:{" "}
-        <span className="font-medium text-foreground">
-          &ldquo;{selectedText.length > 180 ? `${selectedText.slice(0, 180)}…` : selectedText}
-          &rdquo;
-        </span>
-      </p>
+  const cardRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches,
+  );
+  const [placement, setPlacement] = useState<Placement>(() => computePlacement(anchor, 320));
 
-      <div className="mt-4 space-y-4">
-        {blocks.map((b) => (
-          <div key={b.id}>
-            {BLOCK_LABEL[b.mode] && (
-              <p className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                {b.mode === "quiz_selection" ? (
-                  <Lightbulb className="h-3 w-3" aria-hidden />
-                ) : (
-                  <Sparkles className="h-3 w-3" aria-hidden />
-                )}
-                {BLOCK_LABEL[b.mode]}
-              </p>
-            )}
-            <div className="prose-lesson max-w-none break-words text-sm text-foreground">
-              <ReactMarkdown>{b.content}</ReactMarkdown>
+  useEffect(() => {
+    const mq = window.matchMedia(MOBILE_QUERY);
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  // Reposition on mount, whenever the content (and therefore height) changes,
+  // and on scroll / resize. Mobile is a bottom sheet, so no placement math there.
+  useLayoutEffect(() => {
+    if (isMobile) return;
+    const update = () =>
+      setPlacement(
+        computePlacement(anchor, cardRef.current?.getBoundingClientRect().height ?? 320),
+      );
+    update();
+
+    let raf = 0;
+    const onScrollResize = () => {
+      window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", onScrollResize, true);
+    window.addEventListener("resize", onScrollResize);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScrollResize, true);
+      window.removeEventListener("resize", onScrollResize);
+    };
+  }, [anchor, isMobile, blocks.length, busy, request.isError]);
+
+  // Escape + click-outside close. The opening click is already finished by the
+  // time this mounts, so it never self-closes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (!cardRef.current?.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [onClose]);
+
+  // Keep the newest content in view.
+  const prevLen = useRef(0);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.scrollTop = blocks.length > prevLen.current ? el.scrollHeight : 0;
+    prevLen.current = blocks.length;
+  }, [blocks.length]);
+
+  return createPortal(
+    <>
+      {/* Dimmer for the mobile bottom sheet only. */}
+      <div
+        className="fixed inset-0 z-40 bg-foreground/10 sm:hidden"
+        aria-hidden
+        onClick={onClose}
+      />
+
+      <section
+        ref={cardRef}
+        role="dialog"
+        aria-label="AceTutor explanation"
+        tabIndex={-1}
+        style={
+          isMobile
+            ? undefined
+            : {
+                position: "fixed",
+                top: placement.top,
+                left: placement.left,
+                width: placement.width,
+                maxHeight: `min(500px, calc(100vh - ${2 * VIEWPORT_MARGIN}px))`,
+              }
+        }
+        className={cn(
+          "z-50 flex flex-col overflow-hidden rounded-2xl border border-primary/25 bg-background shadow-2xl outline-none",
+          isMobile && "fixed inset-x-4 bottom-4 max-h-[70vh]",
+        )}
+      >
+        {/* Sticky header — keeps the highlighted passage visible. */}
+        <header className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 font-display text-sm">
+              <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+              AceTutor Explanation
+            </p>
+            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+              &ldquo;{selectedText}&rdquo;
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close explanation"
+            className="-mr-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        {/* Scrollable body. */}
+        <div ref={bodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
+          {blocks.map((b) => (
+            <div key={b.id}>
+              {BLOCK_LABEL[b.mode] && (
+                <p className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                  {b.mode === "quiz_selection" ? (
+                    <Lightbulb className="h-3 w-3" aria-hidden />
+                  ) : (
+                    <Sparkles className="h-3 w-3" aria-hidden />
+                  )}
+                  {BLOCK_LABEL[b.mode]}
+                </p>
+              )}
+              <div className="prose-lesson max-w-none break-words text-sm text-foreground">
+                <ReactMarkdown>{b.content}</ReactMarkdown>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
 
-        {busy && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {hasContent ? "Thinking…" : "AceTutor is looking at this…"}
-          </p>
-        )}
+          {busy && (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {hasContent ? "Thinking…" : "AceTutor is looking at this…"}
+            </p>
+          )}
 
-        {request.isError && !busy && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-            <span>{GENERIC_ERROR}</span>
-            <Button type="button" size="sm" variant="outline" className="h-7" onClick={retryLast}>
-              <RotateCcw className="mr-1 h-3.5 w-3.5" />
-              Try again
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {hasContent && !busy && !request.isError && (
-        <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() =>
-              request.mutate({ mode: "explain_simpler", replace: true, prior: mainExplanation })
-            }
-          >
-            Explain differently
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() =>
-              request.mutate({ mode: "another_example", replace: false, prior: mainExplanation })
-            }
-          >
-            Give another example
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => request.mutate({ mode: "quiz_selection", replace: false })}
-          >
-            Quiz me on this
-          </Button>
+          {request.isError && !busy && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <span>{GENERIC_ERROR}</span>
+              <Button type="button" size="sm" variant="outline" className="h-7" onClick={retryLast}>
+                <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                Try again
+              </Button>
+            </div>
+          )}
         </div>
-      )}
-    </section>
+
+        {/* Sticky footer — follow-up actions. */}
+        {hasContent && !busy && !request.isError && (
+          <footer className="flex shrink-0 flex-wrap gap-2 border-t border-border px-4 py-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                request.mutate({ mode: "explain_simpler", replace: true, prior: mainExplanation })
+              }
+            >
+              Explain differently
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                request.mutate({ mode: "another_example", replace: false, prior: mainExplanation })
+              }
+            >
+              Give another example
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => request.mutate({ mode: "quiz_selection", replace: false })}
+            >
+              Quiz me on this
+            </Button>
+          </footer>
+        )}
+      </section>
+    </>,
+    document.body,
   );
 }

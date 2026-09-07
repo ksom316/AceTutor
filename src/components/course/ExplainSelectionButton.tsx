@@ -22,9 +22,35 @@ function isMeaningfulSelection(text: string): boolean {
   return /[\p{L}\p{N}]/u.test(text);
 }
 
-export type LessonSelection = { text: string; lessonTitle: string | null };
+/** Where the highlighted passage sits, captured when "Explain" is clicked, so
+ *  the explanation popup can anchor itself to it (and follow it on scroll). */
+export type SelectionAnchor = {
+  /** viewport-relative selection rect at click time */
+  top: number;
+  bottom: number;
+  left: number;
+  width: number;
+  /** page scroll at click time — the popup offsets by the delta while scrolling */
+  scrollX: number;
+  scrollY: number;
+};
 
-type Anchor = { x: number; y: number } & LessonSelection;
+export type LessonSelection = {
+  text: string;
+  lessonTitle: string | null;
+  anchor: SelectionAnchor;
+};
+
+type Anchor = {
+  x: number;
+  y: number;
+  selTop: number;
+  selBottom: number;
+  selLeft: number;
+  selWidth: number;
+  text: string;
+  lessonTitle: string | null;
+};
 
 export function ExplainSelectionButton({
   containerRef,
@@ -70,6 +96,10 @@ export function ExplainSelectionButton({
       setAnchor({
         x: Math.min(Math.max(rect.left + rect.width / 2, 88), window.innerWidth - 88),
         y: Math.max(rect.top - 8, 48),
+        selTop: rect.top,
+        selBottom: rect.bottom,
+        selLeft: rect.left,
+        selWidth: rect.width,
         text: text.slice(0, MAX_CHARS),
         lessonTitle,
       });
@@ -123,7 +153,18 @@ export function ExplainSelectionButton({
       // Keep the native selection alive while the click is processed.
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => {
-        onExplain({ text: anchor.text, lessonTitle: anchor.lessonTitle });
+        onExplain({
+          text: anchor.text,
+          lessonTitle: anchor.lessonTitle,
+          anchor: {
+            top: anchor.selTop,
+            bottom: anchor.selBottom,
+            left: anchor.selLeft,
+            width: anchor.selWidth,
+            scrollX: window.scrollX,
+            scrollY: window.scrollY,
+          },
+        });
         setAnchor(null);
         window.getSelection()?.removeAllRanges();
       }}

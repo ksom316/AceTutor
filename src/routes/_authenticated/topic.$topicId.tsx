@@ -737,6 +737,7 @@ function TopicPage() {
           key={`${explainTarget.lessonTitle ?? ""}:${explainTarget.text}`}
           selectedText={explainTarget.text}
           lessonTitle={explainTarget.lessonTitle}
+          anchor={explainTarget.anchor}
           context={{
             courseId: data.topic.course_id,
             courseTitle: course?.title || data.topic.title,
