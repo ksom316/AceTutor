@@ -306,9 +306,40 @@ async function callModel(
     throw new Error(`HTTP ${res.status}${providerMsg ? ` — ${providerMsg.slice(0, 140)}` : ""}`);
   }
   const json = await res.json();
-  const content = (json.choices?.[0]?.message?.content ?? "") as string;
-  if (!content.trim()) throw new Error("returned an empty response");
-  return content;
+  const choice = json.choices?.[0] ?? {};
+  const message = choice.message ?? {};
+  const rawContent = typeof message.content === "string" ? message.content : "";
+  // Reasoning-tuned models (several are on OpenRouter's current free roster)
+  // return their chain-of-thought either inline in `content` wrapped in
+  // <think>…</think>, or in a separate `reasoning` field. Callers want only the
+  // final answer / JSON — never the thinking.
+  const reasoning = typeof message.reasoning === "string" ? message.reasoning : "";
+  const answer = stripModelReasoning(rawContent, reasoning);
+
+  // Diagnostic (model output only — no user data): what came back and why a
+  // downstream JSON parse might choke.
+  console.info(
+    `[callModel] ${model} finish=${choice.finish_reason ?? "?"} contentLen=${rawContent.length} reasoningLen=${reasoning.length} answerLen=${answer.length} head=${JSON.stringify(answer.slice(0, 200))}`,
+  );
+
+  if (!answer.trim()) throw new Error("returned an empty response");
+  return answer;
+}
+
+/**
+ * Strip a reasoning model's chain-of-thought so callers see only the final
+ * answer. Removes complete <think>/<thinking>/<reasoning> blocks plus a
+ * dangling opener (a response truncated mid-thought) and any stray closing
+ * tag. If that leaves nothing but the model streamed its whole answer into the
+ * separate `reasoning` channel instead, fall back to that.
+ */
+export function stripModelReasoning(content: string, reasoning = ""): string {
+  const out = content
+    .replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<(think|thinking|reasoning)>[\s\S]*$/i, "")
+    .replace(/<\/?(think|thinking|reasoning)>/gi, "")
+    .trim();
+  return out || reasoning.trim();
 }
 
 // Exported so the lecturer quiz generator (src/lib/lecturer-quiz.functions.ts)
@@ -871,12 +902,20 @@ Respond ONLY with strict JSON in this shape, no prose:
         const jsonText = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
         const parsed = JSON.parse(jsonText);
         cleaned = sanitizeClues(parsed?.words, wordCount);
-      } catch {
+      } catch (e) {
+        console.error(
+          `[crossword_json] parse failed (${e instanceof Error ? e.message : String(e)}) — rawLen=${raw.length} head=${JSON.stringify(raw.slice(0, 200))}`,
+        );
         throw new Error("Could not generate a crossword. Please try again.");
       }
       // Too few words can't interlock into a puzzle worth solving; the caller
       // falls back to course-derived terms when this throws.
-      if (cleaned.length < 4) throw new Error("Could not generate a crossword. Please try again.");
+      if (cleaned.length < 4) {
+        console.error(
+          `[crossword_json] only ${cleaned.length} usable clue(s) after sanitize — rawLen=${raw.length} head=${JSON.stringify(raw.slice(0, 200))}`,
+        );
+        throw new Error("Could not generate a crossword. Please try again.");
+      }
       return { related: true as const, crossword: cleaned, answer: "" };
     }
 

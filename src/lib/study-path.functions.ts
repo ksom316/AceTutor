@@ -165,10 +165,16 @@ function parseStudyPath(
   let parsed: unknown;
   try {
     parsed = JSON.parse(extractJsonObject(raw));
-  } catch {
+  } catch (e) {
+    console.error(
+      `[parseStudyPath] JSON.parse failed (${e instanceof Error ? e.message : String(e)}) — rawLen=${raw.length} head=${JSON.stringify(raw.slice(0, 200))}`,
+    );
     return null;
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.error(`[parseStudyPath] top-level value is not a JSON object — got ${typeof parsed}`);
+    return null;
+  }
 
   const obj = parsed as Record<string, unknown>;
   const rawAreas = Array.isArray(obj.weakAreas)
@@ -187,7 +193,12 @@ function parseStudyPath(
     const r = weakAreaSchema.safeParse(a);
     if (r.success) areas.push(r.data);
   }
-  if (areas.length === 0) return null;
+  if (areas.length === 0) {
+    console.error(
+      `[parseStudyPath] parsed JSON but 0 valid weakAreas survived (rawAreas=${rawAreas.length})`,
+    );
+    return null;
+  }
 
   const title =
     typeof obj.title === "string" && obj.title.trim()
