@@ -122,7 +122,8 @@ function timeoutSignal(ms: number): AbortSignal {
   return controller.signal;
 }
 
-/** Cancellable sleep — used for the hedge timer, which usually gets torn down early. */
+/** Cancellable sleep — used as the Wikipedia lookup's soft deadline, which
+ *  usually gets torn down early. */
 function delay(ms: number) {
   let cancel = () => {};
   const promise = new Promise<void>((resolve) => {
@@ -250,19 +251,13 @@ const CROSSWORD_ANGLES = [
   "principles, patterns, and best practices",
 ];
 
-// Free-tier models are frequently slow or rate-limited, so attempts are hedged
-// rather than run strictly one after another: the primary model gets a head
-// start, and if it hasn't answered by the hedge deadline the next model is
-// started alongside it. The first usable answer wins and the rest are aborted.
-// A model that fails fast (a 429, say) hands over immediately — no waiting.
+// Models are tried STRICTLY ONE AT A TIME: the primary model runs to completion
+// (success or failure) before any fallback is contacted. There is never more
+// than one OpenRouter request in flight for a single user action, and a
+// successful action makes exactly one model request — this is what keeps the
+// free-tier daily request budget from draining several models deep per action.
+// Each individual attempt is still capped by REQUEST_TIMEOUT_MS.
 const REQUEST_TIMEOUT_MS = 25_000;
-const HEDGE_AFTER_MS = 2_500;
-
-/**
- * Race sentinel meaning "nobody has answered yet — widen the field". A real
- * answer is always a non-empty string, so null is unambiguous here.
- */
-const HEDGE = null;
 
 type CallOpts = { jsonObject?: boolean; maxTokens?: number };
 
@@ -361,57 +356,38 @@ export async function callAI(
     );
   }
 
+  // Sequential fallback — one model at a time. The primary model is awaited to
+  // completion; only if it fails (HTTP error, timeout, empty/invalid response)
+  // is the next model contacted. No Promise racing, no hedging: a single user
+  // action makes at most ONE successful model request, and never two requests
+  // at once.
   const errors: string[] = [];
-  const controllers: AbortController[] = [];
-  const live: Promise<string>[] = [];
 
-  const launch = (model: string) => {
+  for (let i = 0; i < MODELS.length; i++) {
+    const model = MODELS[i];
     const controller = new AbortController();
-    controllers.push(controller);
     const deadline = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    const attempt = callModel(model, messages, apiKey, opts, controller.signal)
-      .catch((e: unknown) => {
-        errors.push(`${model} → ${e instanceof Error ? e.message : String(e)}`);
-        throw e;
-      })
-      .finally(() => clearTimeout(deadline));
-    // Promise.any inspects this rejection later; mark it handled now so it
-    // can't surface as an unhandled rejection while the hedge timer runs.
-    attempt.catch(() => {});
-    live.push(attempt);
-  };
-
-  try {
-    for (let i = 0; i < MODELS.length; i++) {
-      launch(MODELS[i]);
-
-      // Last model: nothing left to hedge with, so just wait it out.
-      if (i === MODELS.length - 1) return await Promise.any(live);
-
-      const hedge = delay(HEDGE_AFTER_MS);
-      // Widen the field when the hedge timer fires, or as soon as every
-      // attempt so far has failed — whichever happens first.
-      const exhausted = Promise.allSettled(live).then(() => HEDGE);
-      try {
-        const winner = await Promise.any([...live, hedge.promise.then(() => HEDGE), exhausted]);
-        if (winner !== HEDGE) return winner;
-      } finally {
-        hedge.cancel();
-      }
+    try {
+      return await callModel(model, messages, apiKey, opts, controller.signal);
+    } catch (e: unknown) {
+      const reason = e instanceof Error ? e.message : String(e);
+      // `reason` is only "HTTP <status> — <provider msg>" / "returned an empty
+      // response" / an abort message — never the API key or user content.
+      errors.push(`${model} → ${reason}`);
+      const next = MODELS[i + 1];
+      console.warn(
+        `[callAI] model failed (${model}: ${reason})` +
+          (next ? ` → trying fallback (${next})` : ""),
+      );
+    } finally {
+      clearTimeout(deadline);
     }
-  } catch {
-    // Promise.any rejected — every model failed. Fall through to the throw.
-  } finally {
-    // Whether we won or lost, no attempt still in flight is of any use.
-    for (const c of controllers) c.abort();
   }
 
-  // Log the real reason ONCE, at the source, so it is diagnosable from the
-  // server logs (Vercel functions) without shipping provider internals to the
-  // browser. `errors` holds only "<model> → HTTP <status> — <provider msg>";
-  // it never contains the API key or an auth header.
+  // Every model failed. Log the reasons ONCE at the source so it is diagnosable
+  // from the server logs without shipping provider internals to the browser.
   console.error(
-    `[callAI] all ${MODELS.length} model attempt(s) failed — ${errors.join(" | ") || "no attempts ran"}`,
+    `[callAI] all ${MODELS.length} models failed — ${errors.join(" | ") || "no attempts ran"}`,
   );
   // Stable, generic message for the caller (and the browser payload): the
   // chat UI already shows its own "Couldn't get a response" state.
