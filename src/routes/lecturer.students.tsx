@@ -124,68 +124,78 @@ function StudentRow({
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <Avatar className="h-10 w-10">
-            <AvatarImage src={imageSrc} alt={name} />
-            <AvatarFallback className="text-xs">{initialsOf(name)}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{name}</p>
-            <p className="text-xs text-muted-foreground">
-              Enrolled {formatEnrolled(student.enrolled_at)}
-            </p>
-          </div>
+      {/* Identity */}
+      <div className="flex min-w-0 items-center gap-3">
+        <Avatar className="h-10 w-10 shrink-0">
+          <AvatarImage src={imageSrc} alt={name} />
+          <AvatarFallback className="text-xs">{initialsOf(name)}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{name}</p>
+          <p className="text-xs text-muted-foreground">
+            Enrolled {formatEnrolled(student.enrolled_at)}
+          </p>
         </div>
-        <dl className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-1 text-sm">
-          <div className="flex items-center gap-1.5">
-            <dt className="text-muted-foreground">Attempts</dt>
-            <dd className="font-medium tabular-nums">{student.attempts}</dd>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <dt className="text-muted-foreground">Avg score</dt>
-            <dd className="font-medium tabular-nums">
-              {student.attempts > 0 ? `${student.avg_pct}%` : "—"}
-            </dd>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <dt className="text-muted-foreground">Completion</dt>
-            <dd className="font-medium tabular-nums">
-              {masteryLoading ? "…" : completionPct !== null ? `${completionPct}%` : "—"}
-            </dd>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <dt className="text-muted-foreground">Course mastery</dt>
-            <dd className="font-medium tabular-nums">
-              {masteryLoading ? (
-                "…"
-              ) : courseMastery && courseMastery.score !== null ? (
-                <>
-                  {courseMastery.score}%{" "}
-                  <span className="font-normal text-muted-foreground">
-                    ({courseMastery.assessedModules} of {courseMastery.totalModules} modules)
-                  </span>
-                </>
-              ) : (
-                "Not assessed"
-              )}
-            </dd>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <dt className="text-muted-foreground">Status</dt>
-            <dd>
-              {masteryLoading || !courseMastery ? (
-                <span className="text-sm text-muted-foreground">…</span>
-              ) : (
-                <MasteryBadge level={courseMastery.level} />
-              )}
-            </dd>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <dt className="text-muted-foreground">Last activity</dt>
-            <dd className="font-medium">{lastActiveLabel(student.last_active)}</dd>
-          </div>
-        </dl>
+      </div>
+
+      {/* Metrics — 2 columns on mobile, 4 on desktop. Each cell stacks its
+          label over its value so long values wrap instead of overflowing. */}
+      <dl className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-2.5">
+          <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Attempts
+          </dt>
+          <dd className="mt-0.5 text-sm font-semibold tabular-nums">{student.attempts}</dd>
+        </div>
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-2.5">
+          <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Avg score
+          </dt>
+          <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+            {student.attempts > 0 ? `${student.avg_pct}%` : "—"}
+          </dd>
+        </div>
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-2.5">
+          <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Completion
+          </dt>
+          <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+            {masteryLoading ? "…" : completionPct !== null ? `${completionPct}%` : "—"}
+          </dd>
+        </div>
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-2.5">
+          <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Course mastery
+          </dt>
+          <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+            {masteryLoading
+              ? "…"
+              : courseMastery && courseMastery.score !== null
+                ? `${courseMastery.score}%`
+                : "Not assessed"}
+          </dd>
+          {!masteryLoading && courseMastery && courseMastery.score !== null && (
+            <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+              {courseMastery.assessedModules} of {courseMastery.totalModules} modules
+            </p>
+          )}
+        </div>
+      </dl>
+
+      {/* Status + last activity — wrap naturally below the grid. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">Status</span>
+          {masteryLoading || !courseMastery ? (
+            <span className="text-muted-foreground">…</span>
+          ) : (
+            <MasteryBadge level={courseMastery.level} />
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">Last activity</span>
+          <span className="font-medium">{lastActiveLabel(student.last_active)}</span>
+        </div>
       </div>
 
       {hasBreakdown && (
