@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), "utf8");
 
-const panelSrc = read("../components/course/RemedialExplanation.tsx");
+const panelSrc = read("../components/course/RecoveryRoadmap.tsx");
 const hookSrc = read("../hooks/use-remedial-tracking.ts");
 const loggerSrc = read("../lib/remedial-tracking.ts");
 const playerSrc = read("../components/course/RemedialAudioPlayer.tsx");

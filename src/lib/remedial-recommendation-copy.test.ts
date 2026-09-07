@@ -98,7 +98,7 @@ test("copy never exposes internal algorithm names", () => {
 /* -------------- 4. existing recommendation logic unchanged ------------- */
 
 const copySrc = read("./remedial-recommendation-copy.ts");
-const panelSrc = read("../components/course/RemedialExplanation.tsx");
+const panelSrc = read("../components/course/RecoveryRoadmap.tsx");
 const videoCardSrc = read("../components/course/RemedialVideoCard.tsx");
 const learningRouteSrc = read("../routes/_authenticated/learning.$studyPathId.tsx");
 

@@ -354,7 +354,7 @@ const specViewSrc = readFileSync(
   "utf8",
 );
 const panelSrc = readFileSync(
-  fileURLToPath(new URL("../components/course/RemedialExplanation.tsx", import.meta.url)),
+  fileURLToPath(new URL("../components/course/RecoveryRoadmap.tsx", import.meta.url)),
   "utf8",
 );
 const fnSrc = readFileSync(

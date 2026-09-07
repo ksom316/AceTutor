@@ -1,10 +1,10 @@
 /**
  * R1 — the structured remedial lesson contract + defensive parsing.
  *
- * ONE underlying lesson object, reusable across formats: R1 renders it as text;
- * R2 will speak the same `explanation` via browser SpeechSynthesis; R3 will
- * turn the same `weakConcepts` / `keyPoints` into a diagram. Generation is
- * never coupled to the text UI — see RemedialContentView.
+ * ONE underlying lesson object, reusable across formats: the Recovery Roadmap
+ * renders it as text, speaks the same `explanation` via browser SpeechSynthesis
+ * (R2), and turns the same `weakConcepts` / `keyPoints` into a diagram (R3/R5).
+ * Generation is never coupled to the rendering UI.
  *
  * Pure — no React, no Supabase, no AI client.
  */

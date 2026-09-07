@@ -8,9 +8,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyPathById } from "@/hooks/use-study-path";
-import { GuidedReader, type ReaderSection } from "@/components/course/GuidedReader";
-import { WeakAreaBody } from "@/components/course/StudyPathPanel";
-import { RemedialExplanationPanel } from "@/components/course/RemedialExplanation";
+import { RecoveryRoadmap } from "@/components/course/RecoveryRoadmap";
 
 export const Route = createFileRoute("/_authenticated/learning/$studyPathId")({
   component: StudyPathLearningPage,
@@ -160,7 +158,7 @@ function StudyPathLearningPage() {
       className="transition-transform hover:scale-[1.02] active:scale-95"
     >
       <Link to="/quiz/$topicId" params={{ topicId }} search={{ retake: true }}>
-        <RotateCcw className="mr-1.5 h-4 w-4" /> Retake quiz
+        <RotateCcw className="mr-1.5 h-4 w-4" /> Retake official quiz
       </Link>
     </Button>
   ) : null;
@@ -194,87 +192,44 @@ function StudyPathLearningPage() {
       className="text-muted-foreground hover:text-destructive"
       onClick={() => setConfirmRemove(true)}
     >
-      Remove Study Path
+      Remove from Learning
     </Button>
   );
 
-  // One guided page per weak area, wrapped by an overview page and a wrap-up
-  // page. Completion is ONLY ever the student's explicit "Mark as complete" —
-  // reaching the last page never completes the path.
-  const sections: ReaderSection[] = [
-    {
-      key: "overview",
-      heading: "Your recovery roadmap",
-      body: (
-        <div className="space-y-4">
-          <p className="text-muted-foreground">
-            One step for each of the {areas.length} concept{areas.length === 1 ? "" : "s"} you found
-            hardest on the quiz. Work through them in order — each step explains the idea and gives
-            you a quick self-check — then mark the roadmap complete at the end. This review is
-            separate from your official course and module progress.
-          </p>
-          <ul className="space-y-2">
-            {areas.map((a, i) => (
-              <li key={`${i}-${a.title}`} className="flex items-start gap-2.5">
-                <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                <span className="text-foreground">{a.title}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ),
-    },
-    ...areas.map(
-      (area, i): ReaderSection => ({
-        key: `area-${i}`,
-        heading: area.title,
-        body: <WeakAreaBody area={area} />,
-      }),
-    ),
-    {
-      key: "wrap-up",
-      heading: completed ? "Roadmap complete" : "You've reached the end of the roadmap",
-      body: completed ? (
-        <div className="space-y-4">
-          <p className="flex items-center gap-2 font-medium text-success">
-            <CheckCircle2 className="h-4 w-4" /> You&apos;ve worked through every concept in this
-            Study Path.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {topicId
-              ? "After reviewing these concepts, retake the official module quiz to update your Mastery Score."
-              : "When you're ready, revisit the course quizzes to update your Mastery Score."}
-          </p>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            {retakeButton}
-            {removeStudyPathControl}
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <p className="text-muted-foreground">
-            You&apos;ve been through{" "}
-            {areas.length === 1 ? "the concept" : `all ${areas.length} concepts`} in this Study
-            Path. When you&apos;re ready, mark the roadmap complete
-            {topicId
-              ? ", then retake the official module quiz — your Mastery Score updates from that quiz, not from this review."
-              : "."}
-          </p>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Button disabled={sp.completing} onClick={() => sp.markCompleted(spId)}>
-              {sp.completing ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="mr-1.5 h-4 w-4" />
-              )}
-              Mark as complete
-            </Button>
-            {retakeButton}
-          </div>
-        </div>
-      ),
-    },
-  ];
+  // The completion step of the Recovery Roadmap. Completion is ONLY ever the
+  // student's explicit "Mark as complete" — reaching the last step never
+  // completes the path, and it never touches Mastery.
+  const roadmapCompletion = (
+    <div className="space-y-4">
+      <p
+        className={
+          completed
+            ? "flex items-center gap-2 font-medium text-success"
+            : "text-sm text-muted-foreground"
+        }
+      >
+        {completed && <CheckCircle2 className="h-4 w-4 shrink-0" />}
+        You reviewed all your weak areas.{" "}
+        {topicId
+          ? "Retaking the official module quiz is what updates your Mastery Score — marking this complete does not."
+          : "Retaking the course quizzes is what updates your Mastery Score — marking this complete does not."}
+      </p>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        {retakeButton}
+        {!completed && (
+          <Button disabled={sp.completing} onClick={() => sp.markCompleted(spId)}>
+            {sp.completing ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-1.5 h-4 w-4" />
+            )}
+            Mark as complete
+          </Button>
+        )}
+        {removeStudyPathControl}
+      </div>
+    </div>
+  );
 
   return (
     <main className="container mx-auto max-w-3xl px-4 py-12">
@@ -343,16 +298,17 @@ function StudyPathLearningPage() {
       </div>
 
       {/* "How this Study Path was personalized" callout — informational, always
-          visible before the student starts the path. Not a warning. */}
+          visible before the student starts the roadmap. Not a warning. */}
       <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
         <div className="flex items-center gap-2">
           <Info className="h-4 w-4 shrink-0 text-primary" />
           <p className="text-sm font-semibold">How this Study Path was personalized</p>
         </div>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          AceTutor built this from the questions you missed on the quiz, then used the Learning
-          Preferences you had saved at the time to shape how the explanation is written and which
-          format it recommends.
+          AceTutor built this from the questions you missed on the quiz. Your Learning Preferences
+          shape how each step is written, and your recent learning activity and VARK results
+          influence which delivery format the roadmap recommends — you can still switch format at
+          any time.
         </p>
         <p className="mt-1.5 text-sm text-muted-foreground">
           {prefsChangedAfter
@@ -361,30 +317,12 @@ function StudyPathLearningPage() {
         </p>
       </div>
 
-      {/* R1 — personalized remedial explanation of this path's weak areas.
-          Generated on demand, cached, and never affects course/module progress
-          or the A7 learning algorithm. */}
+      {/* The ONE learning area: a step-by-step Recovery Roadmap over this path's
+          weak concepts, delivered in the recommended format. Generated on
+          demand, cached, and never affects course/module progress, Mastery, or
+          the A7 learning algorithm. */}
       <div className="mt-6">
-        <RemedialExplanationPanel studyPath={studyPath} />
-      </div>
-
-      <div className="mt-6">
-        <GuidedReader
-          sections={sections}
-          resetKey={spId}
-          ariaLabel={`${studyPath.content.title} — guided reading`}
-          finalCta={
-            <Button asChild>
-              {courseSlug ? (
-                <Link to="/courses/$slug" params={{ slug: courseSlug }}>
-                  Back to {courseTitle}
-                </Link>
-              ) : (
-                <Link to="/dashboard">Back to dashboard</Link>
-              )}
-            </Button>
-          }
-        />
+        <RecoveryRoadmap studyPath={studyPath} completion={roadmapCompletion} />
       </div>
     </main>
   );

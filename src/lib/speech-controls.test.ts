@@ -78,11 +78,13 @@ const playerSrc = readFileSync(
   "utf8",
 );
 const panelSrc = readFileSync(
-  fileURLToPath(new URL("../components/course/RemedialExplanation.tsx", import.meta.url)),
+  fileURLToPath(new URL("../components/course/RecoveryRoadmap.tsx", import.meta.url)),
   "utf8",
 );
 
 test("1. the spoken text is remedialContentToScript(content) — no separate audio lesson", () => {
+  // the roadmap narrates the SAME persisted RemedialContent it teaches from —
+  // there is no second, audio-only explanation.
   assert.match(
     panelSrc,
     /const script = useMemo\(\(\) => \(content \? remedialContentToScript\(content\) : ""\)/,
@@ -96,13 +98,13 @@ test("1. the spoken text is remedialContentToScript(content) — no separate aud
   assert.doesNotMatch(playerSrc, /callAI|askCourse|\.generate\(|createServerFn/);
 });
 
-test("2. Audio before content exists -> 'generate first', no player mounted", () => {
-  assert.match(
-    panelSrc,
-    /!hasContent \|\| !content[\s\S]{0,400}Generate the personalized explanation first, then you can listen to it here/,
-  );
-  // the player is only rendered in the audio+content branch
-  assert.match(panelSrc, /activeFormat === "audio" \? \(\s*<div[\s\S]{0,120}<RemedialAudioPlayer/);
+test("2. Audio needs the roadmap generated first; the player only mounts inside a step", () => {
+  // the whole roadmap (every format) is gated on the generated content — the
+  // `!hasContent` branch returns the "build" CTA before any step renders.
+  assert.match(panelSrc, /if \(!hasContent \|\| !content\) \{/);
+  assert.match(panelSrc, /Build my Recovery Roadmap/);
+  // the player is only rendered in the audio branch of a single roadmap step
+  assert.match(panelSrc, /activeFormat === "audio"[\s\S]{0,120}<RemedialAudioPlayer/);
 });
 
 test("3/11. no overlapping utterances: cancel() precedes speak(); no autoplay", () => {
@@ -139,10 +141,13 @@ test("4/5/6. pause / resume / stop map to the browser speech API", () => {
 test("8/9. narration stops on content change AND on unmount", () => {
   // cleanup effect keyed on [text, stop] -> cancel on text change + unmount
   assert.match(hookSrc, /return \(\) => stop\(\);\s*\},\s*\[text, stop\]\)/);
-  // <RemedialAudioPlayer> is rendered in exactly one place — the audio+content
-  // branch — so switching to Text/Visual (or leaving the page) unmounts it.
+  // <RemedialAudioPlayer> is rendered in exactly one place — the audio branch
+  // of a roadmap step — so switching to Text/Visual, changing step, or leaving
+  // the page unmounts it. `key={audioKey}` also remounts it when the roadmap
+  // is rebuilt.
   assert.equal((panelSrc.match(/<RemedialAudioPlayer\s/g) ?? []).length, 1);
-  assert.match(panelSrc, /activeFormat === "audio" \? \([\s\S]{0,200}<RemedialAudioPlayer\s/);
+  assert.match(panelSrc, /activeFormat === "audio"[\s\S]{0,200}<RemedialAudioPlayer\s/);
+  assert.match(panelSrc, /key=\{audioKey\}/);
 });
 
 test("10. SSR-safe support detection + honest fallback text", () => {

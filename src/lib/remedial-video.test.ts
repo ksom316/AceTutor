@@ -284,7 +284,7 @@ const cardSrc = readFileSync(
   "utf8",
 );
 const panelSrc = readFileSync(
-  fileURLToPath(new URL("../components/course/RemedialExplanation.tsx", import.meta.url)),
+  fileURLToPath(new URL("../components/course/RecoveryRoadmap.tsx", import.meta.url)),
   "utf8",
 );
 const migration = readFileSync(
@@ -421,8 +421,13 @@ test("22. failure is graceful — the card is fail-safe and never blocks remedia
   // the card renders a calm empty state, never throws on a missing/invalid rec
   assert.match(cardSrc, /if \(!recommendation \|\| !validId\)/);
   assert.match(cardSrc, /text, audio and visual explanations/i);
-  // the panel only mounts the card when there IS remedial content, as a sibling
-  assert.match(panelSrc, /\{hasContent && \(\s*<RemedialVideoCard/);
+  // the roadmap only reaches <RemedialVideoCard> in its generated view (the
+  // `!hasContent` branch returns the "build" CTA first), it appears exactly
+  // once, and it sits AFTER the roadmap steps — a sibling resource, never its
+  // own lesson.
+  assert.match(panelSrc, /if \(!hasContent \|\| !content\) \{/);
+  assert.equal((panelSrc.match(/<RemedialVideoCard\s/g) ?? []).length, 1);
+  assert.ok(panelSrc.indexOf("<RemedialVideoCard") > panelSrc.indexOf("<GuidedReader"));
 });
 
 test("23. VARK / A7 / Learning Preferences / Mastery are untouched by R6", () => {
