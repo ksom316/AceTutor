@@ -99,7 +99,7 @@ export function FeatureCarousel() {
         transition={{ duration: 0.5, ease: EASE }}
         className="mb-8"
       >
-        <h2 className="text-4xl font-bold tracking-tight">A closer look at the student side</h2>
+        <h2 className="text-4xl font-bold tracking-tight">A closer look at the student's side</h2>
         <p className="mt-2 text-muted-foreground">
           Five parts of the day-to-day student experience — drag or scroll through.
         </p>
