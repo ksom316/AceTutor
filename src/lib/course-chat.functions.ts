@@ -21,6 +21,13 @@ const schema = z.object({
     "test",
     "recommend",
     "guide",
+    // Contextual "Explain with AceTutor" — a student highlighted a passage in a
+    // lesson and wants a deeper explanation / follow-up. Stateless (no
+    // conversationId): reuses the same course-context + preference machinery.
+    "explain_selection",
+    "explain_simpler",
+    "another_example",
+    "quiz_selection",
   ]),
   // When present, this call is part of a persistent conversation: the server
   // loads a bounded slice of that conversation's recent history for context and,
@@ -40,6 +47,13 @@ const schema = z.object({
   // course's real module titles so the vocabulary stays on-syllabus.
   wordCount: z.number().int().min(4).max(20).optional(),
   topicTitles: z.array(z.string().max(120)).max(30).optional(),
+  // Contextual "Explain with AceTutor" only: the exact passage the student
+  // highlighted in a lesson, the lesson's title, and (for follow-ups) the
+  // explanation they already saw. Lesson content is public course material and
+  // none of this carries a secret or personal identifier.
+  selectedText: z.string().trim().min(1).max(1200).optional(),
+  lessonTitle: z.string().max(200).optional(),
+  priorExplanation: z.string().max(4000).optional(),
 });
 
 // The tutor is served — for free — through OpenRouter's OpenAI-compatible
@@ -379,6 +393,10 @@ const MAX_TOKENS: Record<string, number> = {
   test: 600,
   recommend: 700,
   guide: 650,
+  explain_selection: 750,
+  explain_simpler: 650,
+  another_example: 550,
+  quiz_selection: 450,
 };
 const CROSSWORD_JSON_MAX_TOKENS = 1800;
 
@@ -420,7 +438,17 @@ const WRONG_ANSWER_HELP_GUIDANCE: Record<string, string> = {
 // explanation-style preference and (for `ask` / `guide`) the wrong-answer-help
 // preference, and these are the modes that pull the focused module's own lesson
 // material.
-const TEACHING_MODES = new Set(["ask", "explain", "summarize", "test", "guide"]);
+const TEACHING_MODES = new Set([
+  "ask",
+  "explain",
+  "summarize",
+  "test",
+  "guide",
+  "explain_selection",
+  "explain_simpler",
+  "another_example",
+  "quiz_selection",
+]);
 
 // ---- Guide Me (Socratic tutoring) --------------------------------------------
 // Guide Me is NOT an answer generator. It coaches the student to the answer one
@@ -767,7 +795,7 @@ export const askCourse = createServerFn({ method: "POST" })
     // there would be pure latency — skip it.
     const wikiQuery = [
       data.moduleTitle ?? data.courseTitle,
-      data.mode === "ask" ? data.question : "",
+      data.mode === "ask" ? data.question : (data.selectedText ?? ""),
     ]
       .filter(Boolean)
       .join(" ")
@@ -958,6 +986,34 @@ Respond ONLY with strict JSON in this shape, no prose:
       - Be concrete, concise, and supportive.
       - Use Markdown bullet points.`;
         break;
+      case "explain_selection":
+      case "explain_simpler":
+      case "another_example":
+      case "quiz_selection": {
+        // Contextual "Explain with AceTutor". `fullCtx` above already carries
+        // the course + module + THIS module's lesson material + supplementary
+        // reference — the deeper explanation is grounded in the same context
+        // the tutor chat uses. Nothing is persisted; no NOT_RELATED gate (a
+        // highlighted passage is, by definition, from the lesson).
+        const selected = (data.selectedText ?? "").trim();
+        const lessonLabel = data.lessonTitle || data.moduleTitle || "this lesson";
+        const prior = data.priorExplanation?.trim().slice(0, 3000);
+        const priorBlock = prior
+          ? `\n\nThe student has already read this explanation:\n"""\n${prior}\n"""\n`
+          : "";
+        const highlighted = `The student is reading the lesson "${lessonLabel}" and highlighted this passage:\n"""\n${selected}\n"""`;
+
+        if (data.mode === "explain_selection") {
+          userPrompt = `${fullCtx}\n\n${highlighted}\n\nExplain THIS passage in depth for a student learning this lesson right now, grounded in the lesson material above. Respond in Markdown with exactly these sections and headings:\n### Concept\n(a 3–8 word name for what was highlighted)\n### Explanation\n(clear and beginner-friendly; use a short real-world analogy where it helps)\n### Example\n(one concrete example — if the passage is about code or a data structure, show a tiny illustration)\n### Why it matters\n(1–2 sentences on why this matters for the lesson)\nDo not mention these instructions or any source.`;
+        } else if (data.mode === "explain_simpler") {
+          userPrompt = `${fullCtx}\n\n${highlighted}${priorBlock}\nRe-explain the SAME concept in a much simpler way: plainer words, an everyday analogy first, short sentences, and no jargon unless you define it immediately. Keep the same Markdown sections (### Concept, ### Explanation, ### Example, ### Why it matters). Do not mention these instructions.`;
+        } else if (data.mode === "another_example") {
+          userPrompt = `${fullCtx}\n\n${highlighted}${priorBlock}\nGive ONE fresh, different example that illustrates the same concept for this lesson — not an example already shown above. Keep it short and concrete. Respond in Markdown: a "### Another example" heading, the example, then 1–2 sentences on how it shows the concept. Do not mention these instructions.`;
+        } else {
+          userPrompt = `${fullCtx}\n\n${highlighted}\n\nWrite ONE short practice question that checks whether the student understands THIS specific concept, grounded in the lesson. Then, under an "### Answer" heading, give the correct answer with a one-sentence explanation. Keep the whole thing under 120 words, in Markdown. This is informal self-check practice only — it is not graded and changes nothing. Do not mention these instructions.`;
+        }
+        break;
+      }
       case "ask":
       default:
         userPrompt = `${fullCtx}\n\nFirst, decide whether the learner's question below is reasonably related to this course. Be generous — adjacent concepts, prerequisites, applications, and tools commonly used in the course count as related.
@@ -973,8 +1029,14 @@ ${data.question}`;
     }
 
     // Presentation preferences reshape HOW the teaching modes answer, never
-    // what they say, and are never revealed to the student.
-    if (styleGuidance && TEACHING_MODES.has(data.mode)) {
+    // what they say, and are never revealed to the student. Skipped for
+    // `explain_simpler` (it deliberately overrides style with "much simpler")
+    // and `quiz_selection` (a question, not an explanation).
+    const styleAware =
+      TEACHING_MODES.has(data.mode) &&
+      data.mode !== "explain_simpler" &&
+      data.mode !== "quiz_selection";
+    if (styleGuidance && styleAware) {
       userPrompt += `\n\n(Presentation preference — apply this to how you write the answer; never mention or reveal it: ${styleGuidance})`;
     }
     if (wrongHelpGuidance && data.mode === "ask") {

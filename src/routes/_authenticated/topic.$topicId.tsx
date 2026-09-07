@@ -11,12 +11,25 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
-import { ArrowRight, FileText, Headphones, PlayCircle, Presentation, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  FileText,
+  Headphones,
+  PlayCircle,
+  Presentation,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StartQuizButton } from "@/components/course/StartQuizButton";
 import { GuidedReader } from "@/components/course/GuidedReader";
 import { MasteryBadge, MasteryTrend } from "@/components/course/MasteryBadge";
+import {
+  ExplainSelectionButton,
+  type LessonSelection,
+} from "@/components/course/ExplainSelectionButton";
+import { ContextualExplanation } from "@/components/course/ContextualExplanation";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
@@ -92,6 +105,9 @@ const MODALITY_TABS: Record<
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
+// Dismissible "highlight to explain" learning tip — remembered per browser only.
+const EXPLAIN_HINT_KEY = "acetutor:explain-hint-dismissed";
+
 export const Route = createFileRoute("/_authenticated/topic/$topicId")({
   component: TopicPage,
 });
@@ -103,6 +119,28 @@ function TopicPage() {
   // The tab the student explicitly picked, if any. The active tab is derived
   // from this + the student's preferred lesson format + what is available.
   const [picked, setPicked] = useState<Modality | null>(null);
+
+  // Contextual "Explain with AceTutor" — additive. `lessonAreaRef` scopes the
+  // selection detection to the lesson content; `explainTarget` is the passage
+  // being explained in the compact panel; `showHint` is the one-time tip.
+  const lessonAreaRef = useRef<HTMLDivElement>(null);
+  const [explainTarget, setExplainTarget] = useState<LessonSelection | null>(null);
+  const [showHint, setShowHint] = useState(false);
+  useEffect(() => {
+    try {
+      setShowHint(localStorage.getItem(EXPLAIN_HINT_KEY) !== "1");
+    } catch {
+      /* storage unavailable — just don't show the tip */
+    }
+  }, []);
+  const dismissHint = () => {
+    setShowHint(false);
+    try {
+      localStorage.setItem(EXPLAIN_HINT_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["topic", topicId],
@@ -619,45 +657,93 @@ function TopicPage() {
           </p>
         ) : null)}
 
-      <AnimatePresence mode="wait">
-        <motion.section
-          key={activeModality ?? "empty"}
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.35, ease: EASE }}
-          className="mt-8 space-y-6"
-        >
-          {activeModality ? (
-            activeLessons.map((lesson, idx) => (
-              <div key={lesson.id} className="rounded-2xl border border-border bg-card p-6 md:p-8">
-                <h2 className="font-display text-2xl">{lesson.title}</h2>
-                <div className="mt-5">
-                  <LessonBody
-                    lesson={lesson}
-                    quizCta={
-                      textLessonReading && idx === activeLessons.length - 1 ? quizCta : undefined
-                    }
-                    onPlayback={(playedSeconds) =>
-                      playbackByLessonRef.current.set(lesson.id, playedSeconds)
-                    }
-                  />
+      {/* Learning tip — highlight a passage to ask AceTutor. Shown once per
+          browser, dismissible, never blocking. */}
+      {showHint && user && enrollment && activeLessons.length > 0 && (
+        <div className="mt-6 flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+          <p className="flex-1 text-muted-foreground">
+            <span className="font-medium text-foreground">Learning tip:</span> highlight any
+            confusing sentence or code snippet in a lesson and ask AceTutor to explain it.
+          </p>
+          <button
+            type="button"
+            onClick={dismissHint}
+            aria-label="Dismiss tip"
+            className="rounded-md p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      <div ref={lessonAreaRef}>
+        <AnimatePresence mode="wait">
+          <motion.section
+            key={activeModality ?? "empty"}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.35, ease: EASE }}
+            className="mt-8 space-y-6"
+          >
+            {activeModality ? (
+              activeLessons.map((lesson, idx) => (
+                <div
+                  key={lesson.id}
+                  data-lesson-title={lesson.title}
+                  className="rounded-2xl border border-border bg-card p-6 md:p-8"
+                >
+                  <h2 className="font-display text-2xl">{lesson.title}</h2>
+                  <div className="mt-5">
+                    <LessonBody
+                      lesson={lesson}
+                      quizCta={
+                        textLessonReading && idx === activeLessons.length - 1 ? quizCta : undefined
+                      }
+                      onPlayback={(playedSeconds) =>
+                        playbackByLessonRef.current.set(lesson.id, playedSeconds)
+                      }
+                    />
+                  </div>
                 </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border bg-card/60 p-10 text-center">
+                <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
+                  <FileText className="h-6 w-6" />
+                </span>
+                <p className="mx-auto mt-4 max-w-md text-sm text-muted-foreground">
+                  No learning materials have been added to this topic yet. You can still take the
+                  quiz below.
+                </p>
               </div>
-            ))
-          ) : (
-            <div className="rounded-2xl border border-dashed border-border bg-card/60 p-10 text-center">
-              <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-muted text-muted-foreground">
-                <FileText className="h-6 w-6" />
-              </span>
-              <p className="mx-auto mt-4 max-w-md text-sm text-muted-foreground">
-                No learning materials have been added to this topic yet. You can still take the quiz
-                below.
-              </p>
-            </div>
-          )}
-        </motion.section>
-      </AnimatePresence>
+            )}
+          </motion.section>
+        </AnimatePresence>
+      </div>
+
+      <ExplainSelectionButton
+        containerRef={lessonAreaRef}
+        enabled={!!user && !!enrollment && activeLessons.length > 0}
+        onExplain={setExplainTarget}
+      />
+
+      {explainTarget && (
+        <ContextualExplanation
+          key={`${explainTarget.lessonTitle ?? ""}:${explainTarget.text}`}
+          selectedText={explainTarget.text}
+          lessonTitle={explainTarget.lessonTitle}
+          context={{
+            courseId: data.topic.course_id,
+            courseTitle: course?.title || data.topic.title,
+            moduleTitle: data.topic.title,
+            moduleTopicId: topicId,
+            moduleSummary: data.topic.summary ?? undefined,
+          }}
+          onClose={() => setExplainTarget(null)}
+        />
+      )}
 
       {/* For a text lesson the quiz CTA lives at the end of the reading (handled
           by TextLessonBody); every other modality keeps it in its own block. */}
