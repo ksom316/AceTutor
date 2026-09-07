@@ -42,9 +42,10 @@ const BLOCK_LABEL: Partial<Record<ExplainMode, string>> = {
 
 const GENERIC_ERROR = "Couldn't generate an explanation right now. Try again.";
 
-const CARD_MAX_W = 460;
+const CARD_MAX_W = 560;
+const CARD_EST_H = 420; // pre-measure estimate for first placement
 const VIEWPORT_MARGIN = 12;
-const ANCHOR_GAP = 8;
+const ANCHOR_GAP = 10;
 const MOBILE_QUERY = "(max-width: 639px)";
 
 type Placement = { top: number; left: number; width: number };
@@ -56,7 +57,7 @@ function computePlacement(anchor: SelectionAnchor, cardHeight: number): Placemen
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const width = Math.min(CARD_MAX_W, vw - 2 * VIEWPORT_MARGIN);
-  const h = Math.min(cardHeight || 320, vh - 2 * VIEWPORT_MARGIN);
+  const h = Math.min(cardHeight || CARD_EST_H, vh - 2 * VIEWPORT_MARGIN);
 
   // The selection may have scrolled since "Explain" was clicked — offset by the delta.
   const dy = window.scrollY - anchor.scrollY;
@@ -155,7 +156,7 @@ export function ContextualExplanation({
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches,
   );
-  const [placement, setPlacement] = useState<Placement>(() => computePlacement(anchor, 320));
+  const [placement, setPlacement] = useState<Placement>(() => computePlacement(anchor, CARD_EST_H));
 
   useEffect(() => {
     const mq = window.matchMedia(MOBILE_QUERY);
@@ -171,7 +172,7 @@ export function ContextualExplanation({
     if (isMobile) return;
     const update = () =>
       setPlacement(
-        computePlacement(anchor, cardRef.current?.getBoundingClientRect().height ?? 320),
+        computePlacement(anchor, cardRef.current?.getBoundingClientRect().height ?? CARD_EST_H),
       );
     update();
 
@@ -237,22 +238,22 @@ export function ContextualExplanation({
                 top: placement.top,
                 left: placement.left,
                 width: placement.width,
-                maxHeight: `min(500px, calc(100vh - ${2 * VIEWPORT_MARGIN}px))`,
+                maxHeight: `min(620px, calc(100vh - ${2 * VIEWPORT_MARGIN}px))`,
               }
         }
         className={cn(
           "z-50 flex flex-col overflow-hidden rounded-2xl border border-primary/25 bg-background shadow-2xl outline-none",
-          isMobile && "fixed inset-x-4 bottom-4 max-h-[70vh]",
+          isMobile && "fixed inset-x-3 bottom-3 max-h-[85vh] rounded-3xl",
         )}
       >
         {/* Sticky header — keeps the highlighted passage visible. */}
-        <header className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div className="min-w-0">
-            <p className="flex items-center gap-1.5 font-display text-sm">
+            <p className="flex items-center gap-2 font-display text-base">
               <Sparkles className="h-4 w-4 shrink-0 text-primary" aria-hidden />
               AceTutor Explanation
             </p>
-            <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+            <p className="mt-1 line-clamp-2 text-[13px] leading-snug text-muted-foreground">
               &ldquo;{selectedText}&rdquo;
             </p>
           </div>
@@ -260,18 +261,18 @@ export function ContextualExplanation({
             type="button"
             onClick={onClose}
             aria-label="Close explanation"
-            className="-mr-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+            className="-mr-1.5 -mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
         </header>
 
         {/* Scrollable body. */}
-        <div ref={bodyRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
+        <div ref={bodyRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
           {blocks.map((b) => (
             <div key={b.id}>
               {BLOCK_LABEL[b.mode] && (
-                <p className="mb-1 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                <p className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
                   {b.mode === "quiz_selection" ? (
                     <Lightbulb className="h-3 w-3" aria-hidden />
                   ) : (
@@ -280,23 +281,23 @@ export function ContextualExplanation({
                   {BLOCK_LABEL[b.mode]}
                 </p>
               )}
-              <div className="prose-lesson max-w-none break-words text-sm text-foreground">
+              <div className="prose-lesson max-w-none break-words text-[15px] leading-relaxed text-foreground">
                 <ReactMarkdown>{b.content}</ReactMarkdown>
               </div>
             </div>
           ))}
 
           {busy && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <p className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {hasContent ? "Thinking…" : "AceTutor is looking at this…"}
             </p>
           )}
 
           {request.isError && !busy && (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 text-sm text-destructive">
               <span>{GENERIC_ERROR}</span>
-              <Button type="button" size="sm" variant="outline" className="h-7" onClick={retryLast}>
+              <Button type="button" size="sm" variant="outline" className="h-8" onClick={retryLast}>
                 <RotateCcw className="mr-1 h-3.5 w-3.5" />
                 Try again
               </Button>
@@ -306,11 +307,12 @@ export function ContextualExplanation({
 
         {/* Sticky footer — follow-up actions. */}
         {hasContent && !busy && !request.isError && (
-          <footer className="flex shrink-0 flex-wrap gap-2 border-t border-border px-4 py-3">
+          <footer className="flex shrink-0 flex-wrap gap-2 border-t border-border px-5 py-3">
             <Button
               type="button"
               size="sm"
               variant="outline"
+              className="h-9 px-3.5"
               onClick={() =>
                 request.mutate({ mode: "explain_simpler", replace: true, prior: mainExplanation })
               }
@@ -321,6 +323,7 @@ export function ContextualExplanation({
               type="button"
               size="sm"
               variant="outline"
+              className="h-9 px-3.5"
               onClick={() =>
                 request.mutate({ mode: "another_example", replace: false, prior: mainExplanation })
               }
@@ -331,6 +334,7 @@ export function ContextualExplanation({
               type="button"
               size="sm"
               variant="outline"
+              className="h-9 px-3.5"
               onClick={() => request.mutate({ mode: "quiz_selection", replace: false })}
             >
               Quiz me on this

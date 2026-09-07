@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 /**
  * "Explain with AceTutor" — a small floating action that appears next to a
@@ -14,6 +15,16 @@ import { Sparkles } from "lucide-react";
 
 const MIN_CHARS = 3;
 const MAX_CHARS = 800;
+
+/** Touch devices show a native selection toolbar (Copy / Share / Select All)
+ *  right above the selection. On those, keep the AceTutor action well clear of
+ *  it — below the selection when there's room, otherwise pushed far above. */
+const TOUCH_QUERY = "(max-width: 639px), (pointer: coarse)";
+const BUTTON_MIN_H = 44; // px — touch target
+const VIEWPORT_EDGE = 12; // px — keep the button inside the viewport
+const GAP_BELOW = 14; // px — selection → button, placing below
+const GAP_ABOVE_DESKTOP = 8; // px — selection → button, placing above (mouse)
+const TOOLBAR_CLEARANCE = 56; // px — extra offset above the selection on touch
 
 /** A selection worth explaining: not just whitespace/punctuation, not the
  *  whole page. */
@@ -44,6 +55,8 @@ export type LessonSelection = {
 type Anchor = {
   x: number;
   y: number;
+  /** true → the button sits BELOW `y`; false → above it (`-translate-y-full`). */
+  below: boolean;
   selTop: number;
   selBottom: number;
   selLeft: number;
@@ -63,6 +76,16 @@ export function ExplainSelectionButton({
 }) {
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+
+  const [isTouch, setIsTouch] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(TOUCH_QUERY).matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(TOUCH_QUERY);
+    const sync = () => setIsTouch(mq.matches);
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
@@ -93,9 +116,29 @@ export function ExplainSelectionButton({
       const lessonTitle =
         startEl?.closest("[data-lesson-title]")?.getAttribute("data-lesson-title") ?? null;
 
+      // Vertical placement. On touch, avoid the strip right above the selection
+      // where the native Copy / Share toolbar sits: go below when there's room,
+      // otherwise push well clear above it.
+      const roomBelow = window.innerHeight - rect.bottom - GAP_BELOW - BUTTON_MIN_H - VIEWPORT_EDGE;
+      let below: boolean;
+      let y: number;
+      if (isTouch) {
+        if (roomBelow >= 0) {
+          below = true;
+          y = rect.bottom + GAP_BELOW;
+        } else {
+          below = false;
+          y = Math.max(rect.top - TOOLBAR_CLEARANCE, VIEWPORT_EDGE);
+        }
+      } else {
+        below = false;
+        y = Math.max(rect.top - GAP_ABOVE_DESKTOP, 48);
+      }
+
       setAnchor({
-        x: Math.min(Math.max(rect.left + rect.width / 2, 88), window.innerWidth - 88),
-        y: Math.max(rect.top - 8, 48),
+        x: Math.min(Math.max(rect.left + rect.width / 2, 100), window.innerWidth - 100),
+        y,
+        below,
         selTop: rect.top,
         selBottom: rect.bottom,
         selLeft: rect.left,
@@ -142,7 +185,7 @@ export function ExplainSelectionButton({
       window.removeEventListener("scroll", onScrollOrResize, true);
       window.removeEventListener("resize", onScrollOrResize);
     };
-  }, [enabled, containerRef]);
+  }, [enabled, containerRef, isTouch]);
 
   if (!anchor) return null;
 
@@ -169,9 +212,12 @@ export function ExplainSelectionButton({
         window.getSelection()?.removeAllRanges();
       }}
       style={{ position: "fixed", left: anchor.x, top: anchor.y }}
-      className="z-50 inline-flex -translate-x-1/2 -translate-y-full items-center gap-1.5 rounded-full border border-primary/30 bg-background px-3 py-1.5 text-xs font-semibold text-primary shadow-lg transition-transform hover:scale-[1.03] active:scale-95"
+      className={cn(
+        "z-50 inline-flex min-h-11 -translate-x-1/2 items-center gap-2 rounded-full border border-primary/30 bg-background px-4 text-sm font-semibold text-primary shadow-lg transition-transform hover:scale-[1.03] active:scale-95",
+        anchor.below ? "" : "-translate-y-full",
+      )}
     >
-      <Sparkles className="h-3.5 w-3.5" aria-hidden />
+      <Sparkles className="h-4 w-4" aria-hidden />
       Explain with AceTutor
     </button>,
     document.body,
