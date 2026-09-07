@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Sparkles } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 /**
  * "Explain with AceTutor" — a small floating action that appears next to a
@@ -17,14 +16,17 @@ const MIN_CHARS = 3;
 const MAX_CHARS = 800;
 
 /** Touch devices show a native selection toolbar (Copy / Share / Select All)
- *  right above the selection. On those, keep the AceTutor action well clear of
- *  it — below the selection when there's room, otherwise pushed far above. */
+ *  hugging the selection ABOVE or BELOW it — never beside it. So on touch we
+ *  prefer a SIDE placement and only fall back to below / (last resort) above. */
 const TOUCH_QUERY = "(max-width: 639px), (pointer: coarse)";
-const BUTTON_MIN_H = 44; // px — touch target
-const VIEWPORT_EDGE = 12; // px — keep the button inside the viewport
-const GAP_BELOW = 14; // px — selection → button, placing below
-const GAP_ABOVE_DESKTOP = 8; // px — selection → button, placing above (mouse)
-const TOOLBAR_CLEARANCE = 56; // px — extra offset above the selection on touch
+
+const EDGE = 12; // px — keep the button this far inside the viewport
+const SEL_GAP = 16; // px — required minimum spacing from the selection
+const BELOW_GAP = 24; // px — a little more room below, to clear a toolbar shown there
+const ABOVE_CLEARANCE = 52; // px — last-resort above: clear the toolbar shown above
+/** Estimates for the first placement; corrected once the button is measured. */
+const BTN_W_EST = 196;
+const BTN_H_EST = 44;
 
 /** A selection worth explaining: not just whitespace/punctuation, not the
  *  whole page. */
@@ -52,18 +54,59 @@ export type LessonSelection = {
   anchor: SelectionAnchor;
 };
 
+type SelBox = { top: number; bottom: number; left: number; right: number };
+
 type Anchor = {
-  x: number;
-  y: number;
-  /** true → the button sits BELOW `y`; false → above it (`-translate-y-full`). */
-  below: boolean;
-  selTop: number;
-  selBottom: number;
-  selLeft: number;
-  selWidth: number;
+  /** button top-left corner in viewport coords */
+  left: number;
+  top: number;
+  /** the selection's bounding box (viewport coords) — kept so the button can be
+   *  re-placed against it once its real size is measured */
+  sel: SelBox;
   text: string;
   lessonTitle: string | null;
 };
+
+/**
+ * Pick the safest on-screen spot for the button given the selection box and the
+ * button's size. Desktop keeps the existing "pill just above the selection".
+ *
+ * Touch priority (the native selection toolbar sits above/below, never beside):
+ *   1. right of the selection   — if `btnW + 16px` fits
+ *   2. left  of the selection   — if `btnW + 16px` fits
+ *   3. below the selection      — if `btnH + 24px` fits
+ *   4. above the selection      — last resort, pushed clear of the toolbar
+ *
+ * Everything is clamped inside the viewport (12px margin).
+ */
+function placeButton(
+  sel: SelBox,
+  btnW: number,
+  btnH: number,
+  isTouch: boolean,
+): { left: number; top: number } {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const clampX = (x: number) => Math.min(Math.max(x, EDGE), Math.max(EDGE, vw - btnW - EDGE));
+  const clampY = (y: number) => Math.min(Math.max(y, EDGE), Math.max(EDGE, vh - btnH - EDGE));
+  const cx = (sel.left + sel.right) / 2;
+  const cy = (sel.top + sel.bottom) / 2;
+
+  if (!isTouch) {
+    return { left: clampX(cx - btnW / 2), top: clampY(Math.max(sel.top - 8, 48) - btnH) };
+  }
+
+  if (vw - EDGE - sel.right >= SEL_GAP + btnW) {
+    return { left: sel.right + SEL_GAP, top: clampY(cy - btnH / 2) };
+  }
+  if (sel.left - EDGE >= SEL_GAP + btnW) {
+    return { left: sel.left - SEL_GAP - btnW, top: clampY(cy - btnH / 2) };
+  }
+  if (vh - EDGE - sel.bottom >= BELOW_GAP + btnH) {
+    return { left: clampX(cx - btnW / 2), top: sel.bottom + BELOW_GAP };
+  }
+  return { left: clampX(cx - btnW / 2), top: clampY(sel.top - ABOVE_CLEARANCE - btnH) };
+}
 
 export function ExplainSelectionButton({
   containerRef,
@@ -116,33 +159,26 @@ export function ExplainSelectionButton({
       const lessonTitle =
         startEl?.closest("[data-lesson-title]")?.getAttribute("data-lesson-title") ?? null;
 
-      // Vertical placement. On touch, avoid the strip right above the selection
-      // where the native Copy / Share toolbar sits: go below when there's room,
-      // otherwise push well clear above it.
-      const roomBelow = window.innerHeight - rect.bottom - GAP_BELOW - BUTTON_MIN_H - VIEWPORT_EDGE;
-      let below: boolean;
-      let y: number;
-      if (isTouch) {
-        if (roomBelow >= 0) {
-          below = true;
-          y = rect.bottom + GAP_BELOW;
-        } else {
-          below = false;
-          y = Math.max(rect.top - TOOLBAR_CLEARANCE, VIEWPORT_EDGE);
-        }
-      } else {
-        below = false;
-        y = Math.max(rect.top - GAP_ABOVE_DESKTOP, 48);
-      }
+      const selBox: SelBox = {
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+      };
+      // First pass with the button-size estimate; a layout effect corrects it
+      // with the measured size before the browser paints.
+      const measured = btnRef.current?.getBoundingClientRect();
+      const p = placeButton(
+        selBox,
+        measured?.width || BTN_W_EST,
+        measured?.height || BTN_H_EST,
+        isTouch,
+      );
 
       setAnchor({
-        x: Math.min(Math.max(rect.left + rect.width / 2, 100), window.innerWidth - 100),
-        y,
-        below,
-        selTop: rect.top,
-        selBottom: rect.bottom,
-        selLeft: rect.left,
-        selWidth: rect.width,
+        left: p.left,
+        top: p.top,
+        sel: selBox,
         text: text.slice(0, MAX_CHARS),
         lessonTitle,
       });
@@ -187,6 +223,18 @@ export function ExplainSelectionButton({
     };
   }, [enabled, containerRef, isTouch]);
 
+  // Re-place with the button's REAL size, before paint, so it never jumps and
+  // the "does it fit on this side" checks use accurate dimensions.
+  useLayoutEffect(() => {
+    const el = btnRef.current;
+    if (!el || !anchor) return;
+    const r = el.getBoundingClientRect();
+    const p = placeButton(anchor.sel, r.width, r.height, isTouch);
+    if (Math.abs(p.left - anchor.left) > 0.5 || Math.abs(p.top - anchor.top) > 0.5) {
+      setAnchor((a) => (a ? { ...a, left: p.left, top: p.top } : a));
+    }
+  }, [anchor, isTouch]);
+
   if (!anchor) return null;
 
   return createPortal(
@@ -200,10 +248,10 @@ export function ExplainSelectionButton({
           text: anchor.text,
           lessonTitle: anchor.lessonTitle,
           anchor: {
-            top: anchor.selTop,
-            bottom: anchor.selBottom,
-            left: anchor.selLeft,
-            width: anchor.selWidth,
+            top: anchor.sel.top,
+            bottom: anchor.sel.bottom,
+            left: anchor.sel.left,
+            width: anchor.sel.right - anchor.sel.left,
             scrollX: window.scrollX,
             scrollY: window.scrollY,
           },
@@ -211,11 +259,8 @@ export function ExplainSelectionButton({
         setAnchor(null);
         window.getSelection()?.removeAllRanges();
       }}
-      style={{ position: "fixed", left: anchor.x, top: anchor.y }}
-      className={cn(
-        "z-50 inline-flex min-h-11 -translate-x-1/2 items-center gap-2 rounded-full border border-primary/30 bg-background px-4 text-sm font-semibold text-primary shadow-lg transition-transform hover:scale-[1.03] active:scale-95",
-        anchor.below ? "" : "-translate-y-full",
-      )}
+      style={{ position: "fixed", left: anchor.left, top: anchor.top }}
+      className="z-50 inline-flex min-h-11 items-center gap-2 rounded-full border border-primary/30 bg-background px-4 text-sm font-semibold text-primary shadow-lg transition-transform hover:scale-[1.03] active:scale-95"
     >
       <Sparkles className="h-4 w-4" aria-hidden />
       Explain with AceTutor
