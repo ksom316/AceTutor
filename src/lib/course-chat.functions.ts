@@ -89,12 +89,16 @@ export function cleanEnv(name: string): string | undefined {
 // or per-slot via OPENROUTER_MODEL_GEMINI / OPENROUTER_MODEL_GPT / OPENROUTER_MODEL
 // (kept for backward compat — they are just "slot 1/2/3" now).
 //
-// The defaults below were verified against OpenRouter's live catalogue and the
-// project's own key on 2026-08-31: `minimax/minimax-m3:free` returns clean
-// JSON in both response_format and plain mode. The previous defaults
-// (`google/gemma-3-27b-it:free`, `openai/gpt-oss-20b:free`) had lost their free
-// tier — OpenRouter answered 404 "unavailable for free" — and `openrouter/free`
-// returns null content when response_format:json_object is set.
+// The defaults below were re-verified against OpenRouter's live catalogue on
+// 2026-09-07 after the whole app's AI features started failing together:
+// `minimax/minimax-m3:free` had LOST its free tier (OpenRouter answered
+// 404 "This model is unavailable for free — use minimax/minimax-m3"), so every
+// request fell straight through to the two fallback slots and burned the free
+// account's daily request budget ~2x faster. Replaced slot 1 with
+// `google/gemma-4-31b-it:free` and slot 3's meta-router `openrouter/free`
+// (which returns null content under response_format:json_object) with
+// `nvidia/nemotron-3.5-lightning:free`. All three are :free in the live
+// catalogue and covered by the plain-mode retry if a model ignores json mode.
 // Browse current free ids at https://openrouter.ai/models?max_price=0
 const MODELS = (
   cleanEnv("OPENROUTER_MODELS")
@@ -103,9 +107,9 @@ const MODELS = (
         .map((m) => m.trim())
         .filter(Boolean)
     : [
-        cleanEnv("OPENROUTER_MODEL_GEMINI") ?? "minimax/minimax-m3:free",
+        cleanEnv("OPENROUTER_MODEL_GEMINI") ?? "google/gemma-4-31b-it:free",
         cleanEnv("OPENROUTER_MODEL_GPT") ?? "nvidia/nemotron-3-super-120b-a12b:free",
-        cleanEnv("OPENROUTER_MODEL") ?? "openrouter/free",
+        cleanEnv("OPENROUTER_MODEL") ?? "nvidia/nemotron-3.5-lightning:free",
       ]
 ).filter(Boolean);
 
@@ -504,7 +508,13 @@ function buildLessonMaterial(lessons: { title: string; body_md: string | null }[
     if (!body) continue;
     parts.push(`## ${l.title}\n\n${body}`);
   }
-  return parts.join("\n\n---\n\n").slice(0, TUTOR_MATERIAL_TOTAL_CAP);
+  const material = parts.join("\n\n---\n\n").slice(0, TUTOR_MATERIAL_TOTAL_CAP);
+  // Diagnostic (no content, no PII): rules out "missing content / broken
+  // extraction" vs. an OpenRouter-side failure.
+  console.info(
+    `[buildLessonMaterial] lessons=${lessons.length} withText=${parts.length} chars=${material.length}`,
+  );
+  return material;
 }
 
 /**
@@ -835,6 +845,12 @@ Rules for every entry:
 
 Respond ONLY with strict JSON in this shape, no prose:
 { "words": [ { "answer": string, "clue": string, "hint": string } ] }`;
+
+      // Diagnostic (no content, no PII): rules out "not enough course material"
+      // as the cause when a puzzle build fails.
+      console.info(
+        `[crossword_json] modules=${data.topicTitles?.length ?? 0} ctxChars=${fullCtx.length} promptChars=${prompt.length} requested=${requested}`,
+      );
 
       const raw = await callAI(
         [

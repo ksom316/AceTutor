@@ -132,7 +132,13 @@ export function buildModuleMaterial(lessons: LessonForCapability[]): string {
     if (!body) continue;
     parts.push(`## ${info.title}\n\n${body}`);
   }
-  return parts.join("\n\n---\n\n").slice(0, MATERIAL_CHAR_CAP);
+  const material = parts.join("\n\n---\n\n").slice(0, MATERIAL_CHAR_CAP);
+  // Diagnostic (no content, no PII): distinguishes "no analysable lesson
+  // material" from an OpenRouter-side generation failure.
+  console.info(
+    `[buildModuleMaterial] lessons=${lessons.length} analysable=${parts.length} chars=${material.length}`,
+  );
+  return material;
 }
 
 /* ---- defensive JSON extraction + validation ---- */
@@ -292,6 +298,11 @@ async function runGeneration(payload: AiPayload): Promise<StudyPathContent> {
     { role: "system", content: system },
     { role: "user", content: user },
   ];
+
+  // Diagnostic (no content, no PII): the payload size actually sent to the model.
+  console.info(
+    `[generateStudyPath] scope=${payload.scope} materialChars=${payload.material.length} incorrectQs=${payload.incorrectQuestions.length} promptChars=${system.length + user.length}`,
+  );
 
   const attempt = async (jsonMode: boolean): Promise<StudyPathContent | null> => {
     const raw = await callAI(
