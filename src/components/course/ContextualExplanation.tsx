@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import ReactMarkdown from "react-markdown";
 import { Lightbulb, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AIContentRenderer } from "@/components/course/AIContentRenderer";
 import { cn } from "@/lib/utils";
 import { askCourse } from "@/lib/course-chat.functions";
 import type { SelectionAnchor } from "@/components/course/ExplainSelectionButton";
@@ -282,7 +282,7 @@ export function ContextualExplanation({
                 </p>
               )}
               <div className="prose-lesson max-w-none break-words text-[15px] leading-relaxed text-foreground">
-                <ReactMarkdown>{b.content}</ReactMarkdown>
+                <AIContentRenderer content={b.content} />
               </div>
             </div>
           ))}

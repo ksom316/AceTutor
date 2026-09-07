@@ -1,10 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { motion } from "framer-motion";
-import ReactMarkdown from "react-markdown";
 import { ArrowRight, CheckCircle2, ChevronDown, Loader2, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AIContentRenderer } from "@/components/course/AIContentRenderer";
 import { cn } from "@/lib/utils";
 import type { GenerateStudyPathResult, WeakArea } from "@/lib/study-path.functions";
 import type { ParsedStudyPath } from "@/hooks/use-study-path";
@@ -27,7 +27,7 @@ export function WeakAreaBody({ area }: { area: WeakArea }) {
           Explanation
         </p>
         <div className="prose-lesson mt-1.5 max-w-none break-words text-foreground">
-          <ReactMarkdown>{area.explanation}</ReactMarkdown>
+          <AIContentRenderer content={area.explanation} />
         </div>
       </div>
 
@@ -36,7 +36,7 @@ export function WeakAreaBody({ area }: { area: WeakArea }) {
           Worked example
         </p>
         <div className="prose-lesson mt-1.5 max-w-none break-words rounded-lg bg-muted/60 p-4 text-foreground">
-          <ReactMarkdown>{area.example}</ReactMarkdown>
+          <AIContentRenderer content={area.example} />
         </div>
       </div>
 

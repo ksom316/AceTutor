@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import {
   AlertTriangle,
   ArrowUp,
@@ -27,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useAiConversation, type SendVars, type TutorMode } from "@/hooks/use-ai-conversation";
+import { AIContentRenderer } from "@/components/course/AIContentRenderer";
 import { QuizMeDialog } from "@/components/course/QuizMeDialog";
 
 type FocusModule = { id: string; title: string; summary: string | null } | null;
@@ -456,7 +456,7 @@ function MessageBubble({
           <p className="whitespace-pre-wrap">{content}</p>
         ) : (
           <div className="prose-lesson max-w-none">
-            <ReactMarkdown>{content}</ReactMarkdown>
+            <AIContentRenderer content={content} />
           </div>
         )}
       </div>

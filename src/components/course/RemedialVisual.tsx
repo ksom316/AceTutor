@@ -1,5 +1,5 @@
-import ReactMarkdown from "react-markdown";
 import { ChevronDown, Lightbulb, Rocket, ScrollText, Target } from "lucide-react";
+import { AIContentRenderer } from "@/components/course/AIContentRenderer";
 import type { RemedialVisualModel } from "@/lib/remedial-visual";
 
 /**
@@ -85,7 +85,7 @@ export function RemedialVisual({ model }: { model: RemedialVisualModel }) {
               Worked example
             </h4>
             <div className="prose-lesson mt-2 max-w-none break-words rounded-lg border border-border bg-muted/60 p-4 text-foreground">
-              <ReactMarkdown>{model.example}</ReactMarkdown>
+              <AIContentRenderer content={model.example} />
             </div>
           </div>
         </>

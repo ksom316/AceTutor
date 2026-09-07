@@ -3,7 +3,6 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { motion } from "framer-motion";
-import ReactMarkdown from "react-markdown";
 import {
   Bar,
   CartesianGrid,
@@ -28,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AIContentRenderer } from "@/components/course/AIContentRenderer";
 import { supabase } from "@/integrations/supabase/client";
 import { useRole } from "@/hooks/use-role";
 import { fadeUp } from "@/lib/motion";
@@ -846,7 +846,7 @@ function LecturerPerformance() {
                 </p>
               ) : assistant.data ? (
                 <div className="prose-lesson max-w-none border-t border-border pt-3 text-sm text-foreground">
-                  <ReactMarkdown>{assistant.data}</ReactMarkdown>
+                  <AIContentRenderer content={assistant.data} />
                 </div>
               ) : null}
             </CardContent>
@@ -975,7 +975,7 @@ function LecturerPerformance() {
                 </div>
               ) : analyse.data ? (
                 <div className="prose-lesson max-w-none text-sm text-foreground">
-                  <ReactMarkdown>{analyse.data}</ReactMarkdown>
+                  <AIContentRenderer content={analyse.data} />
                 </div>
               ) : (
                 <div className="space-y-3">

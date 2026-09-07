@@ -2,7 +2,6 @@ import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-ro
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import ReactMarkdown from "react-markdown";
 import {
   BookOpen,
   Brain,
@@ -20,6 +19,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { PageShell } from "@/components/site/PageShell";
+import { AIContentRenderer } from "@/components/course/AIContentRenderer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -726,7 +726,7 @@ function CourseDetail() {
                     </div>
                   ) : recommendations.data ? (
                     <div className="prose-lesson max-w-none text-foreground">
-                      <ReactMarkdown>{recommendations.data}</ReactMarkdown>
+                      <AIContentRenderer content={recommendations.data} />
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">No recommendations yet.</p>

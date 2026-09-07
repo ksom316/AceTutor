@@ -252,6 +252,9 @@ async function runGeneration(payload: AiPayload): Promise<StudyPathContent> {
     "never invent a weakness they do not show, and never claim the student is weak in an area not " +
     `shown by those questions. Do not write a full replacement ${unit}. Prefer the supplied ` +
     "material; use general knowledge of the subject only to fill gaps. Keep every section concise. " +
+    "In the explanation and worked-example text, use short bullet lists, labelled comparisons, or " +
+    "step-by-step lines rather than Markdown pipe tables; only use a small table when a grid of " +
+    "values is genuinely the clearest format. " +
     "Respond with strict JSON only — no prose, no code fences.";
 
   const defaultTitle =

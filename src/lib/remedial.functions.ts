@@ -271,7 +271,8 @@ async function runRemedialGeneration(
     `side-by-side comparison, table, indexed array, or linked structure). Base it ONLY on what the ` +
     `material and weak concepts support; never invent technical relationships just to draw something; ` +
     `keep it short. If no specialised structure genuinely fits, use { "type": "concept-map" } or omit ` +
-    `"visual". Respond with strict JSON only — no prose, no code fences.`;
+    `"visual". In the "explanation" and "workedExample" prose, use short bullet lists or ` +
+    `step-by-step lines rather than Markdown pipe tables. Respond with strict JSON only — no prose, no code fences.`;
 
   const user = [
     `${payload.scope === "course" ? "COURSE" : "MODULE"}: ${payload.contextTitle}`,

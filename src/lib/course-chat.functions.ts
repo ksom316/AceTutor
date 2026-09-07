@@ -543,7 +543,7 @@ export const askCourse = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => schema.parse(input))
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
-    
+
     // Check enrollment if courseId is provided
     if (data.courseId) {
       const { data: enrollment } = await supabase
@@ -552,7 +552,7 @@ export const askCourse = createServerFn({ method: "POST" })
         .eq("user_id", userId)
         .eq("course_id", data.courseId)
         .maybeSingle();
-      
+
       if (!enrollment) {
         throw new Error("You must be enrolled in this course to use the AI tutor.");
       }
@@ -716,8 +716,7 @@ export const askCourse = createServerFn({ method: "POST" })
     const wrongHelpGuidance =
       (wrongAnswerHelp && WRONG_ANSWER_HELP_GUIDANCE[wrongAnswerHelp]) || null;
     // Guide Me maps the same saved preferences to Socratic-specific behaviour.
-    const guideStyleGuidance =
-      (explanationStyle && GUIDE_STYLE_GUIDANCE[explanationStyle]) || null;
+    const guideStyleGuidance = (explanationStyle && GUIDE_STYLE_GUIDANCE[explanationStyle]) || null;
     const guideFormatGuidance = (lessonFormat && GUIDE_FORMAT_GUIDANCE[lessonFormat]) || null;
 
     // The focused module's standing, derived through the shared performance
@@ -740,7 +739,8 @@ export const askCourse = createServerFn({ method: "POST" })
       "You are AceTutor, an AI course tutor embedded in a learning dashboard. You help with the specific course the student is currently studying — its modules, prerequisites, adjacent concepts, tools, and real-world applications.\n\n" +
       "Use information in this priority order: (1) COURSE MATERIAL provided below (the student's own lessons) — authoritative for anything specific to this course; (2) SUPPLEMENTARY REFERENCE material below — to fill gaps; (3) your own knowledge of the subject — for anything the material doesn't cover. Never fabricate course-specific details (module names, the exact definitions the course uses, etc.); if the material doesn't say, answer from general subject knowledge and keep it general.\n\n" +
       "Any learning context or presentation preference below affects only HOW you respond — your focus, tone, depth and formatting — never the facts. Only mention quiz performance or scores when it genuinely helps the student right now; never repeat scores in every answer.\n\n" +
-      "NEVER mention, cite, name, or hint at where any material comes from; present everything as course knowledge in your own words, with no citations, source names, or article titles. Use Markdown with short paragraphs, bullet points, and concrete examples.";
+      "NEVER mention, cite, name, or hint at where any material comes from; present everything as course knowledge in your own words, with no citations, source names, or article titles.\n\n" +
+      "FORMATTING: Use Markdown with short paragraphs, concrete examples, and step-by-step layouts. For comparisons, relationships, classifications, and processes, prefer visual learning formats — bullet comparisons (a short bulleted list per option), labelled cards, numbered steps, or a small ASCII / arrow flow diagram (e.g. `Input -> Process -> Output`) — over a Markdown table. Only use a Markdown pipe table when a genuine grid of values is the clearest way to show the information; if you do, keep it small (2–4 columns) with a proper `| --- |` divider row, never a table drawn with hyphens or spaces.";
 
     // Prevent recommendations when there is no quiz performance data.
     if (data.mode === "recommend" && !data.performanceSummary?.trim()) {
@@ -756,17 +756,17 @@ export const askCourse = createServerFn({ method: "POST" })
     // A conversation turn is unique (it carries history) so it is never cached.
     const cacheKey =
       !data.conversationId && CACHEABLE_MODES.has(data.mode)
-      ? JSON.stringify([
-          data.mode,
-          data.courseTitle,
-          data.moduleTitle ?? "",
-          data.moduleTopicId ?? "",
-          data.question ?? "",
-          hasFocusedModule ? (moduleState ?? "") : (data.performanceSummary ?? ""),
-          explanationStyle ?? "",
-          wrongAnswerHelp ?? "",
-        ])
-      : null;
+        ? JSON.stringify([
+            data.mode,
+            data.courseTitle,
+            data.moduleTitle ?? "",
+            data.moduleTopicId ?? "",
+            data.question ?? "",
+            hasFocusedModule ? (moduleState ?? "") : (data.performanceSummary ?? ""),
+            explanationStyle ?? "",
+            wrongAnswerHelp ?? "",
+          ])
+        : null;
     if (cacheKey) {
       const cached = answerCache.get(cacheKey);
       if (cached !== undefined) return formatAnswer(cached);

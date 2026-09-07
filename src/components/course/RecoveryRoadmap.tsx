@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,6 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AIContentRenderer } from "@/components/course/AIContentRenderer";
 import { cn } from "@/lib/utils";
 import { remedialContentToScript, type RemedialContent } from "@/lib/remedial-content";
 import {
@@ -127,11 +127,11 @@ function RoadmapConceptStep({
             Transcript
           </p>
           <div className="prose-lesson mt-1.5 max-w-none break-words text-foreground">
-            <ReactMarkdown>{content.explanation}</ReactMarkdown>
+            <AIContentRenderer content={content.explanation} />
           </div>
           {content.workedExample && (
             <div className="prose-lesson mt-3 max-w-none break-words rounded-lg bg-muted/60 p-4 text-foreground">
-              <ReactMarkdown>{content.workedExample}</ReactMarkdown>
+              <AIContentRenderer content={content.workedExample} />
             </div>
           )}
         </div>
@@ -165,7 +165,7 @@ function RoadmapConceptStep({
               Explanation
             </p>
             <div className="prose-lesson mt-1.5 max-w-none break-words text-foreground">
-              <ReactMarkdown>{content.explanation}</ReactMarkdown>
+              <AIContentRenderer content={content.explanation} />
             </div>
           </div>
           {content.workedExample && (
@@ -174,7 +174,7 @@ function RoadmapConceptStep({
                 Worked example
               </p>
               <div className="prose-lesson mt-1.5 max-w-none break-words rounded-lg bg-muted/60 p-4 text-foreground">
-                <ReactMarkdown>{content.workedExample}</ReactMarkdown>
+                <AIContentRenderer content={content.workedExample} />
               </div>
             </div>
           )}

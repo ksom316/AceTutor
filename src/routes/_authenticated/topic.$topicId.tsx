@@ -1,16 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type SyntheticEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AnimatePresence, motion } from "framer-motion";
-import ReactMarkdown from "react-markdown";
 import {
   ArrowRight,
   FileText,
@@ -30,6 +22,7 @@ import {
   type LessonSelection,
 } from "@/components/course/ExplainSelectionButton";
 import { ContextualExplanation } from "@/components/course/ContextualExplanation";
+import { AIContentRenderer } from "@/components/course/AIContentRenderer";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useStudyCourse } from "@/hooks/use-study-time";
@@ -251,7 +244,10 @@ function TopicPage() {
   // activeModality/preferredModality (Learning Preferences' own, separate
   // default-tab mechanism, untouched) and never reorders or hides lessons.
   const { profile: varkProfile } = useVarkProfile();
-  const effectiveVarkCategory = useMemo(() => resolveEffectiveVarkCategory(varkProfile), [varkProfile]);
+  const effectiveVarkCategory = useMemo(
+    () => resolveEffectiveVarkCategory(varkProfile),
+    [varkProfile],
+  );
   const varkRecommendation = useMemo(
     () => resolveVarkContentRecommendation(effectiveVarkCategory, availableModalities),
     [effectiveVarkCategory, availableModalities],
@@ -337,7 +333,14 @@ function TopicPage() {
       preferredModality: preferredModality ?? null,
       availableModalities,
     });
-  }, [availableModalities, picked, frozenInitial, overrideModality, varkRecModality, preferredModality]);
+  }, [
+    availableModalities,
+    picked,
+    frozenInitial,
+    overrideModality,
+    varkRecModality,
+    preferredModality,
+  ]);
 
   const activeLessons = activeModality ? groups[activeModality] : [];
 
@@ -652,8 +655,8 @@ function TopicPage() {
           </p>
         ) : displayedRecommendation.category ? (
           <p className="mt-2 text-xs text-muted-foreground">
-            Recommended based on your {VARK_CATEGORY_LABEL[displayedRecommendation.category]} learning
-            profile — every format above is still available.
+            Recommended based on your {VARK_CATEGORY_LABEL[displayedRecommendation.category]}{" "}
+            learning profile — every format above is still available.
           </p>
         ) : null)}
 
@@ -957,7 +960,7 @@ function TextLessonBody({
     return (
       <>
         <div className="prose-lesson max-w-none text-foreground">
-          <ReactMarkdown>{markdown}</ReactMarkdown>
+          <AIContentRenderer content={markdown} />
         </div>
         {endCta}
       </>
@@ -982,7 +985,7 @@ function TextLessonBody({
         body: (
           <>
             <div className="prose-lesson max-w-none text-foreground">
-              <ReactMarkdown>{s.body}</ReactMarkdown>
+              <AIContentRenderer content={s.body} />
             </div>
             {i === lastIndex && endCta}
           </>
