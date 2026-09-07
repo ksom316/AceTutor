@@ -94,6 +94,10 @@ test("buildMasteryCardModel projects only courses that have a score, best first"
   assert.equal(m.assessedModuleCount, 3);
   assert.equal(m.hasAny, true);
   assert.equal(m.note, MASTERY_BASIS_NOTE);
+  // headline mastery = mean of the assessed courses' (latest-attempt) scores,
+  // never a lifetime quiz average
+  assert.equal(m.overallScore, 75);
+  assert.equal(m.overallLevel, "proficient");
 });
 
 test("buildMasteryCardModel: nothing assessed => hasAny false, empty rows", () => {
@@ -101,6 +105,8 @@ test("buildMasteryCardModel: nothing assessed => hasAny false, empty rows", () =
   assert.deepEqual(m.rows, []);
   assert.equal(m.assessedModuleCount, 0);
   assert.equal(m.hasAny, false);
+  assert.equal(m.overallScore, null);
+  assert.equal(m.overallLevel, "not-assessed");
 });
 
 test("the mastery note explicitly excludes practice / general / unfinished", () => {

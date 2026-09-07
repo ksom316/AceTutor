@@ -619,7 +619,7 @@ function AnalyticsPage() {
       fmt: (n: number) => `${Math.round(n)}`,
     },
     {
-      label: "Average score",
+      label: "Average quiz score",
       icon: Target,
       value: avgScore,
       fmt: (n: number) => `${Math.round(n)}%`,

@@ -3,7 +3,6 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, BookOpen, Sparkles, Target, TrendingUp } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
@@ -170,9 +169,9 @@ function MyPerformancePage() {
         <p className="text-xs uppercase tracking-widest text-muted-foreground">My Performance</p>
         <h1 className="mt-2 font-display text-4xl">{course.title}</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Your standing in each module — the average score across the quiz attempts that covered
-          enough of the quiz to be reliable, so retaking after studying updates it. Each module is
-          assessed on its own.
+          Your current mastery in each module — based on your most recent completed module quiz, not
+          an average of old attempts, so retaking after studying updates it right away. Each module
+          is assessed on its own.
         </p>
       </motion.div>
 
@@ -197,22 +196,10 @@ function MyPerformancePage() {
         </section>
       ) : (
         <>
-          <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <section className="mt-8 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-border bg-card p-6">
               <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                Course average
-              </p>
-              <p className="mt-1 font-display text-4xl">
-                {perf.overall !== null ? `${perf.overall}%` : "—"}
-              </p>
-              <Progress value={perf.overall ?? 0} className="mt-3" />
-              <p className="mt-2 text-xs text-muted-foreground">
-                Averaged across your reliable attempts.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border bg-card p-6">
-              <p className="text-xs uppercase tracking-widest text-muted-foreground">
-                Course mastery
+                Current mastery
               </p>
               <p className="mt-1 font-display text-4xl">
                 {mastery.score !== null ? `${mastery.score}%` : "—"}
@@ -228,7 +215,7 @@ function MyPerformancePage() {
                 <p className="mt-3 text-sm text-muted-foreground">Not assessed</p>
               )}
               <p className="mt-2 text-xs text-muted-foreground">
-                From your most recent quiz per module · {mastery.assessedModules} of{" "}
+                Based on your latest assessment in each module · {mastery.assessedModules} of{" "}
                 {topics.length} modules assessed.
               </p>
             </div>
@@ -242,7 +229,9 @@ function MyPerformancePage() {
               </p>
               <p className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                 <span className="text-success">{counts.strong} strong</span>
-                <span>{counts.weak} need{counts.weak === 1 ? "s" : ""} strengthening</span>
+                <span>
+                  {counts.weak} need{counts.weak === 1 ? "s" : ""} strengthening
+                </span>
                 {counts.insufficient > 0 && <span>{counts.insufficient} not enough evidence</span>}
                 {counts.noData > 0 && <span>{counts.noData} not assessed</span>}
               </p>
@@ -306,163 +295,156 @@ function MyPerformancePage() {
 
           <section className="mt-6 space-y-3">
             <h2 className="font-display text-lg">By module</h2>
-            {perf.modules.map((m) => (
-              <div key={m.topic.id} className="rounded-2xl border border-border bg-card p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="flex items-center gap-2 font-medium">
-                    <span
-                      aria-hidden
-                      className={
-                        m.state === "strong"
-                          ? "text-success"
+            {perf.modules.map((m) => {
+              const mm = mastery.modules.find((x) => x.topic.id === m.topic.id) ?? null;
+              return (
+                <div key={m.topic.id} className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="flex items-center gap-2 font-medium">
+                      <span
+                        aria-hidden
+                        className={
+                          m.state === "strong"
+                            ? "text-success"
+                            : m.state === "weak"
+                              ? "text-primary"
+                              : "text-muted-foreground"
+                        }
+                      >
+                        {m.state === "strong"
+                          ? "✓"
                           : m.state === "weak"
-                            ? "text-primary"
-                            : "text-muted-foreground"
-                      }
-                    >
-                      {m.state === "strong"
-                        ? "✓"
-                        : m.state === "weak"
-                          ? "⚠"
-                          : m.state === "insufficient"
-                            ? "•"
-                            : "–"}
+                            ? "⚠"
+                            : m.state === "insufficient"
+                              ? "•"
+                              : "–"}
+                      </span>
+                      {m.topic.title}
                     </span>
-                    {m.topic.title}
-                  </span>
-                  {m.state === "no-data" ? (
-                    <span className="text-xs text-muted-foreground">Not attempted</span>
-                  ) : m.state === "insufficient" ? (
-                    <span className="text-xs text-muted-foreground">
-                      Last quiz: {m.lastUsableScore ?? 0}% · {m.answeredCount ?? 0}/
-                      {m.totalQuestions ?? 0} answered
-                    </span>
-                  ) : (
-                    <Badge
-                      variant={m.state === "strong" ? "default" : "secondary"}
-                      className={
-                        m.state === "strong"
-                          ? "border-success/40 bg-success/10 text-success"
-                          : undefined
-                      }
-                    >
-                      Average {m.averageScore}%
-                    </Badge>
-                  )}
-                </div>
-                {(() => {
-                  const mm = mastery.modules.find((x) => x.topic.id === m.topic.id);
-                  if (!mm) return null;
-                  return (
+                    {m.state === "no-data" ? (
+                      <span className="text-xs text-muted-foreground">Not attempted</span>
+                    ) : m.state === "insufficient" ? (
+                      <span className="text-xs text-muted-foreground">
+                        Last quiz: {m.lastUsableScore ?? 0}% · {m.answeredCount ?? 0}/
+                        {m.totalQuestions ?? 0} answered
+                      </span>
+                    ) : mm ? (
+                      <MasteryBadge level={mm.level} score={mm.score} />
+                    ) : null}
+                  </div>
+                  {mm && (mm.trend || m.state === "weak" || m.state === "strong") && (
                     <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
                       <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         Mastery
                       </span>
-                      <MasteryBadge level={mm.level} score={mm.score} />
+                      <span className="text-xs text-muted-foreground">
+                        Based on your latest assessment
+                      </span>
                       <MasteryTrend mastery={mm} />
                     </div>
-                  );
-                })()}
-                {(m.state === "weak" || m.state === "strong") && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Latest quiz: {m.lastUsableScore ?? 0}%
-                    {m.coveragePercent !== null &&
-                    m.coveragePercent < 100 &&
-                    m.answeredCount !== null &&
-                    m.totalQuestions !== null
-                      ? ` · ${m.answeredCount}/${m.totalQuestions} answered`
-                      : ""}
-                    {improvementLabel(m) ? (
-                      <span
-                        className={
-                          (m.improvementPoints ?? 0) > 0
-                            ? "ml-1.5 font-medium text-success"
-                            : "ml-1.5 font-medium text-muted-foreground"
-                        }
-                      >
-                        · {improvementLabel(m)}
-                      </span>
-                    ) : null}
-                  </p>
-                )}
-                {sufficientTrendLabel(m) && (
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Recent quizzes: {sufficientTrendLabel(m)}
-                  </p>
-                )}
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {m.state === "weak" &&
-                    (() => {
-                      const cta = moduleStudyPathCta(m.currentStudyPathAttemptId, pathsByAttempt);
-                      return (
-                        <>
-                          <p className="text-xs text-muted-foreground">
-                            {cta.kind === "build"
-                              ? "Below par on your quiz average — a Study Path can target it."
-                              : cta.kind === "review"
-                                ? "Below par — you have a Study Path for it (reviewed)."
-                                : "Below par — you have a Study Path in progress for it."}
-                          </p>
-                          {cta.kind === "build" ? (
-                            <Button asChild size="sm" variant="outline" className="ml-auto">
-                              <Link
-                                to="/study-path/$courseId"
-                                params={{ courseId }}
-                                search={{ module: m.topic.id }}
-                              >
-                                <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Build Study Path
-                              </Link>
-                            </Button>
-                          ) : (
-                            <Button asChild size="sm" variant="outline" className="ml-auto">
-                              <Link
-                                to="/learning/$studyPathId"
-                                params={{ studyPathId: cta.studyPathId }}
-                              >
-                                <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
-                                {cta.kind === "review"
-                                  ? "Review Study Path"
-                                  : "Continue Study Path"}
-                              </Link>
-                            </Button>
-                          )}
-                        </>
-                      );
-                    })()}
-                  {m.state === "strong" && (
-                    <p className="text-xs text-muted-foreground">
-                      <TrendingUp className="mr-1 inline h-3.5 w-3.5 text-success" />
-                      {justReachedStrong(m)
-                        ? "Your recent quiz performance has brought this module up to a strong level."
-                        : "You're doing well in this module."}
+                  )}
+                  {(m.state === "weak" || m.state === "strong") && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Latest quiz: {m.lastUsableScore ?? 0}%
+                      {m.coveragePercent !== null &&
+                      m.coveragePercent < 100 &&
+                      m.answeredCount !== null &&
+                      m.totalQuestions !== null
+                        ? ` · ${m.answeredCount}/${m.totalQuestions} answered`
+                        : ""}
+                      {improvementLabel(m) ? (
+                        <span
+                          className={
+                            (m.improvementPoints ?? 0) > 0
+                              ? "ml-1.5 font-medium text-success"
+                              : "ml-1.5 font-medium text-muted-foreground"
+                          }
+                        >
+                          · {improvementLabel(m)}
+                        </span>
+                      ) : null}
                     </p>
                   )}
-                  {m.state === "insufficient" && (
-                    <>
+                  {sufficientTrendLabel(m) && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Recent quizzes: {sufficientTrendLabel(m)}
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {m.state === "weak" &&
+                      (() => {
+                        const cta = moduleStudyPathCta(m.currentStudyPathAttemptId, pathsByAttempt);
+                        return (
+                          <>
+                            <p className="text-xs text-muted-foreground">
+                              {cta.kind === "build"
+                                ? "Below par on this module — a Study Path can target it."
+                                : cta.kind === "review"
+                                  ? "Below par — you have a Study Path for it (reviewed)."
+                                  : "Below par — you have a Study Path in progress for it."}
+                            </p>
+                            {cta.kind === "build" ? (
+                              <Button asChild size="sm" variant="outline" className="ml-auto">
+                                <Link
+                                  to="/study-path/$courseId"
+                                  params={{ courseId }}
+                                  search={{ module: m.topic.id }}
+                                >
+                                  <Sparkles className="mr-1.5 h-3.5 w-3.5" /> Build Study Path
+                                </Link>
+                              </Button>
+                            ) : (
+                              <Button asChild size="sm" variant="outline" className="ml-auto">
+                                <Link
+                                  to="/learning/$studyPathId"
+                                  params={{ studyPathId: cta.studyPathId }}
+                                >
+                                  <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
+                                  {cta.kind === "review"
+                                    ? "Review Study Path"
+                                    : "Continue Study Path"}
+                                </Link>
+                              </Button>
+                            )}
+                          </>
+                        );
+                      })()}
+                    {m.state === "strong" && (
                       <p className="text-xs text-muted-foreground">
-                        Not enough evidence yet — answer more of the quiz for a reliable assessment.
+                        <TrendingUp className="mr-1 inline h-3.5 w-3.5 text-success" />
+                        {justReachedStrong(m)
+                          ? "Your recent quiz performance has brought this module up to a strong level."
+                          : "You're doing well in this module."}
                       </p>
-                      <Button asChild size="sm" variant="outline" className="ml-auto">
-                        <Link
-                          to="/quiz/$topicId"
-                          params={{ topicId: m.topic.id }}
-                          search={{ retake: true }}
-                        >
-                          Take the quiz
+                    )}
+                    {m.state === "insufficient" && (
+                      <>
+                        <p className="text-xs text-muted-foreground">
+                          Not enough evidence yet — answer more of the quiz for a reliable
+                          assessment.
+                        </p>
+                        <Button asChild size="sm" variant="outline" className="ml-auto">
+                          <Link
+                            to="/quiz/$topicId"
+                            params={{ topicId: m.topic.id }}
+                            search={{ retake: true }}
+                          >
+                            Take the quiz
+                          </Link>
+                        </Button>
+                      </>
+                    )}
+                    {m.state === "no-data" && (
+                      <Button asChild size="sm" variant="ghost">
+                        <Link to="/quizzes/$courseId" params={{ courseId }}>
+                          Take this module&apos;s quiz
                         </Link>
                       </Button>
-                    </>
-                  )}
-                  {m.state === "no-data" && (
-                    <Button asChild size="sm" variant="ghost">
-                      <Link to="/quizzes/$courseId" params={{ courseId }}>
-                        Take this module&apos;s quiz
-                      </Link>
-                    </Button>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
 
           {perf.state === "strong" && (

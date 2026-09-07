@@ -545,10 +545,15 @@ function CourseDetail() {
                     <div className="grid gap-6 md:grid-cols-3">
                       <div className="rounded-xl border border-border p-4">
                         <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                          Course average
+                          Current mastery
                         </p>
-                        <p className="mt-1 font-display text-3xl">{perf.overall ?? 0}%</p>
-                        <Progress value={perf.overall ?? 0} className="mt-3" />
+                        <p className="mt-1 font-display text-3xl">
+                          {mastery.score !== null ? `${mastery.score}%` : "—"}
+                        </p>
+                        <Progress value={mastery.score ?? 0} className="mt-3" />
+                        <p className="mt-2 text-[11px] text-muted-foreground">
+                          Based on your latest assessment in each module.
+                        </p>
                       </div>
                       <div className="rounded-xl border border-border p-4">
                         <p className="flex items-center gap-1 text-xs uppercase tracking-wider text-muted-foreground">
@@ -789,23 +794,26 @@ function CourseDetail() {
                 </CardHeader>
                 <CardContent>
                   <ul className="space-y-2 text-sm">
-                    {perf.perTopic.map((p) => (
-                      <li key={p.topic.id} className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-2 truncate">
-                          {p.attempts > 0 ? (
-                            <Check className="h-3.5 w-3.5 text-primary" />
-                          ) : (
-                            <span className="h-3.5 w-3.5 rounded-full border border-border" />
-                          )}
-                          <span className="truncate">{p.topic.title}</span>
-                        </span>
-                        {p.accuracy !== null && (
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {p.accuracy}%
+                    {perf.perTopic.map((p) => {
+                      const mm = mastery.modules.find((m) => m.topic.id === p.topic.id) ?? null;
+                      return (
+                        <li key={p.topic.id} className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-2 truncate">
+                            {p.attempts > 0 ? (
+                              <Check className="h-3.5 w-3.5 text-primary" />
+                            ) : (
+                              <span className="h-3.5 w-3.5 rounded-full border border-border" />
+                            )}
+                            <span className="truncate">{p.topic.title}</span>
                           </span>
-                        )}
-                      </li>
-                    ))}
+                          {mm && mm.score !== null && (
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {mm.score}%
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </CardContent>
               </Card>

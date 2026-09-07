@@ -259,14 +259,18 @@ function MyCoursesPage() {
     });
 
     const att = attempts ?? [];
-    const avgScore = att.length
-      ? Math.round(
-          att.reduce((s, a) => s + (a.total ? ((a.score ?? 0) / a.total) * 100 : 0), 0) /
-            att.length,
-        )
-      : 0;
 
-    return { perCourse, totalSeconds, completedLessons, avgScore, quizzes: att.length };
+    // Headline Mastery — mean of the assessed courses' mastery scores (each
+    // already the student's most-recent module-quiz result, never a lifetime
+    // average). null until at least one course is assessed.
+    const assessedMastery = perCourse
+      .map((c) => c.masteryScore)
+      .filter((s): s is number => s !== null);
+    const overallMastery = assessedMastery.length
+      ? Math.round(assessedMastery.reduce((s, v) => s + v, 0) / assessedMastery.length)
+      : null;
+
+    return { perCourse, totalSeconds, completedLessons, overallMastery, quizzes: att.length };
   }, [
     courseLessons,
     progressRows,
@@ -490,8 +494,8 @@ function MyCoursesPage() {
               <StatTile icon={Clock} label="Hours" value={formatHours(stats.totalSeconds)} />
               <StatTile
                 icon={Target}
-                label="Avg score"
-                value={stats.quizzes ? `${stats.avgScore}%` : "—"}
+                label="Mastery"
+                value={stats.overallMastery !== null ? `${stats.overallMastery}%` : "—"}
               />
             </div>
           </motion.div>

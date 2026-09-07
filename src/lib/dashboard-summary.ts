@@ -10,7 +10,7 @@
  * No AI, no new metrics, no Supabase, no React. Deterministic.
  */
 
-import { masteryLabel, type MasteryLevel } from "@/lib/mastery";
+import { masteryLabel, masteryLevel, type MasteryLevel } from "@/lib/mastery";
 
 /** The per-course row the dashboard hook already exposes (subset used here). */
 export type DashCourse = {
@@ -94,6 +94,13 @@ export type MasteryCardModel = {
   rows: CourseMasteryRow[];
   /** total modules across the student's courses with a completed module quiz. */
   assessedModuleCount: number;
+  /** One headline mastery number for the student — the mean of the assessed
+   *  courses' mastery scores (each of which is already latest-attempt based, not
+   *  a lifetime average). null when no course is assessed yet. This is what the
+   *  dashboard / My Courses "Mastery" stat tile shows in place of the old
+   *  "Average score". */
+  overallScore: number | null;
+  overallLevel: MasteryLevel;
   hasAny: boolean;
   note: string;
 };
@@ -112,9 +119,14 @@ export function buildMasteryCardModel(perCourse: readonly DashCourse[]): Mastery
     }))
     .sort((a, b) => b.score - a.score || a.courseTitle.localeCompare(b.courseTitle));
 
+  const overallScore =
+    rows.length > 0 ? Math.round(rows.reduce((s, r) => s + r.score, 0) / rows.length) : null;
+
   return {
     rows,
     assessedModuleCount: rows.reduce((s, r) => s + r.assessedModules, 0),
+    overallScore,
+    overallLevel: masteryLevel(overallScore),
     hasAny: rows.length > 0,
     note: MASTERY_BASIS_NOTE,
   };

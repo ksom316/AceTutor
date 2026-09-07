@@ -99,7 +99,6 @@ function Dashboard() {
     recommended,
     recentAttempts: attempts,
     quizzes,
-    avgScore,
     totalSeconds,
     isLoading: dashLoading,
     isError: dashError,
@@ -618,7 +617,13 @@ function Dashboard() {
             <StatTile icon={BookOpen} label="Courses" value={String(enrolledCourses.length)} />
             <StatTile icon={Trophy} label="Quizzes" value={String(quizzes)} />
             {/* <StatTile icon={Clock} label="Hours" value={formatHours(totalSeconds)} /> */}
-            <StatTile icon={Target} label="Avg score" value={quizzes ? `${avgScore}%` : "—"} />
+            {/* Mastery, not a lifetime quiz average — the mean of the assessed
+                courses' latest-assessment scores. */}
+            <StatTile
+              icon={Target}
+              label="Mastery"
+              value={mastery.overallScore !== null ? `${mastery.overallScore}%` : "—"}
+            />
           </motion.div>
 
           {/* Learning preferences nudge */}

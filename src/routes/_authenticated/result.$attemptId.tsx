@@ -508,9 +508,10 @@ function ResultPage() {
               <p className="mt-1 max-w-prose text-sm text-muted-foreground">
                 {modulePerf && justReachedStrong(modulePerf)
                   ? "Your recent quiz performance has brought this module up to a strong level. No Study Path is needed right now — keep practising to hold it there."
-                  : "You're at or above par on your quiz average for this module, so there's no Study Path to build. Keep practising to hold it there."}
-                {modulePerf?.averageScore !== null && modulePerf?.averageScore !== undefined
-                  ? ` Current module average: ${modulePerf.averageScore}%.`
+                  : "You're at or above par in this module, so there's no Study Path to build. Keep practising to hold it there."}
+                {modulePerf?.latestSufficientScore !== null &&
+                modulePerf?.latestSufficientScore !== undefined
+                  ? ` Current mastery: ${modulePerf.latestSufficientScore}%.`
                   : ""}
               </p>
             </div>
