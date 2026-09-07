@@ -192,10 +192,28 @@ export function ExplainSelectionButton({
         window.setTimeout(evaluate, 0);
       }
     };
+    // Touch selection (long-press, drag handles, "Select All" from the native
+    // menu) does not reliably bubble a pointerup to document — the browser often
+    // fires pointercancel instead — so selectionchange is the only signal that
+    // always arrives. It streams while the handles move, so debounce a single
+    // evaluate() to the end of the gesture. Collapsing still hides immediately.
+    let selTimer = 0;
     const onSelectionChange = () => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) clear();
+      if (!sel || sel.isCollapsed) {
+        window.clearTimeout(selTimer);
+        clear();
+        return;
+      }
+      // Only touch needs this path; on desktop pointerup/keyup already cover it
+      // and a mid-drag evaluate would show the button before the mouse is up.
+      if (!isTouch) return;
+      window.clearTimeout(selTimer);
+      selTimer = window.setTimeout(evaluate, 120);
     };
+    // Immediate trigger the moment the finger lifts (covers the common case
+    // without waiting out the debounce).
+    const onTouchEnd = () => window.setTimeout(evaluate, 0);
     let raf = 0;
     const onScrollOrResize = () => {
       window.cancelAnimationFrame(raf);
@@ -207,6 +225,7 @@ export function ExplainSelectionButton({
 
     document.addEventListener("pointerup", onPointerUp);
     document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("touchend", onTouchEnd);
     document.addEventListener("selectionchange", onSelectionChange);
     document.addEventListener("pointerdown", onPointerDownOutside);
     window.addEventListener("scroll", onScrollOrResize, true);
@@ -214,8 +233,10 @@ export function ExplainSelectionButton({
 
     return () => {
       window.cancelAnimationFrame(raf);
+      window.clearTimeout(selTimer);
       document.removeEventListener("pointerup", onPointerUp);
       document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("touchend", onTouchEnd);
       document.removeEventListener("selectionchange", onSelectionChange);
       document.removeEventListener("pointerdown", onPointerDownOutside);
       window.removeEventListener("scroll", onScrollOrResize, true);
