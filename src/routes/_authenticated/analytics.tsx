@@ -276,7 +276,7 @@ function useAnalyticsData() {
 
   // Every quiz attempt (finished or not) per topic — the same data and query
   // key the dashboard uses, so react-query serves it from one cache. Drives the
-  // Lesson completion card: a topic is "completed" once it has a finished
+  // Learning Progress card: a module is "completed" once it has a finished
   // attempt, "started" once it has any attempt.
   const moduleAttemptsQuery = useQuery({
     queryKey: ["dash-module-attempts", user?.id],
@@ -313,8 +313,9 @@ function useAnalyticsData() {
     [enrollmentsQuery.data],
   );
 
-  // Topics belonging to the enrolled courses — the only ones the Lesson
-  // completion card is allowed to count. Same query pattern as the dashboard.
+  // Topics belonging to the enrolled courses — the denominator for the Learning
+  // Progress card, and the only ones it counts. Same query pattern as the
+  // dashboard.
   const enrolledTopicsQuery = useQuery({
     queryKey: ["dash-topics", enrolledCourseIds],
     enabled: enrolledCourseIds.length > 0,
@@ -540,14 +541,16 @@ function AnalyticsPage() {
     return Math.round(sum / attempts.length);
   }, [attempts]);
 
-  // Lesson completion — same topic/quiz-attempt classification the dashboard
-  // uses, restricted to topics of the student's ENROLLED courses. A topic is
-  // "completed" once it has a finished quiz attempt and "started" once it has
-  // any attempt (finished ones included), so completed can never exceed started.
-  // Multiple attempts on one topic count once (Set). The `progress` table is
-  // deliberately NOT used here. The ring and the centre percentage both read
-  // `pct`.
-  const lessonStats = useMemo(() => {
+  // Learning Progress — the student's overall progress through their enrolled
+  // courses: completed modules ÷ total modules. This is the same definition the
+  // dashboard, My Courses and every course page use — a module counts as
+  // complete once it has a finished official module-quiz attempt. AI practice
+  // quizzes and General Course Quizzes never carry a module `topic_id`, so they
+  // can never inflate this. Restricted to topics in the student's ENROLLED
+  // courses; the `progress` table is deliberately not used here. Multiple
+  // attempts on one topic count once (Set). The ring and the centre percentage
+  // both read `pct`.
+  const moduleProgress = useMemo(() => {
     const started = new Set<string>();
     const completed = new Set<string>();
     for (const a of moduleAttempts) {
@@ -555,10 +558,11 @@ function AnalyticsPage() {
       started.add(a.topic_id);
       if (a.finished_at) completed.add(a.topic_id);
     }
-    const pct = started.size > 0 ? Math.round((completed.size / started.size) * 100) : 0;
+    const total = enrolledTopicIds.size;
+    const pct = total > 0 ? Math.round((completed.size / total) * 100) : 0;
     // Name lists straight from the same sets that produce the counts, so the
-    // lists can never disagree with the donut. "In progress" is the started set
-    // minus the completed set (completed + inProgress === started).
+    // lists can never disagree with the donut. "In progress" is a started module
+    // that isn't completed yet.
     const nameOf = (id: string) => topicTitleById.get(id) ?? "Untitled module";
     const completedList = [...completed].map(nameOf).sort((a, b) => a.localeCompare(b));
     const inProgressList = [...started]
@@ -566,8 +570,9 @@ function AnalyticsPage() {
       .map(nameOf)
       .sort((a, b) => a.localeCompare(b));
     return {
-      started: started.size,
+      total,
       completed: completed.size,
+      inProgress: started.size - completed.size,
       pct,
       completedList,
       inProgressList,
@@ -575,8 +580,8 @@ function AnalyticsPage() {
   }, [moduleAttempts, enrolledTopicIds, topicTitleById]);
 
   const completionData = useMemo(
-    () => [{ name: "Completed", value: lessonStats.pct, fill: "var(--chart-1)" }],
-    [lessonStats.pct],
+    () => [{ name: "Completed", value: moduleProgress.pct, fill: "var(--chart-1)" }],
+    [moduleProgress.pct],
   );
 
   // Full attempt history — one row per quiz_attempts row, newest first.
@@ -727,72 +732,83 @@ function AnalyticsPage() {
             viewport={viewportOnce}
             className="mt-6 grid gap-6 md:grid-cols-2"
           >
-            {/* Overall completion — Radial */}
+            {/* Learning Progress — overall module completion across enrolled courses */}
             <ChartCard
-              title="Lesson completion"
-              subtitle="Lessons completed vs started"
+              title="Learning Progress"
+              subtitle="Modules completed across your enrolled courses"
               icon={Target}
             >
-              <div className="relative h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadialBarChart
-                    innerRadius="68%"
-                    outerRadius="100%"
-                    data={completionData}
-                    startAngle={90}
-                    endAngle={-270}
-                  >
-                    <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                    <RadialBar
-                      background
-                      dataKey="value"
-                      cornerRadius={20}
-                      animationDuration={1100}
-                    />
-                  </RadialBarChart>
-                </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                  <div className="text-center">
-                    <div className="font-display text-4xl">
-                      <Counter
-                        value={completionData[0].value}
-                        format={(n) => `${Math.round(n)}%`}
+              {moduleProgress.total === 0 ? (
+                <p className="py-12 text-center text-sm text-muted-foreground">
+                  Enroll in a course and take a module quiz to start tracking your learning progress
+                  here.
+                </p>
+              ) : (
+                <>
+                  <div className="relative h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadialBarChart
+                        innerRadius="68%"
+                        outerRadius="100%"
+                        data={completionData}
+                        startAngle={90}
+                        endAngle={-270}
+                      >
+                        <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                        <RadialBar
+                          background
+                          dataKey="value"
+                          cornerRadius={20}
+                          animationDuration={1100}
+                        />
+                      </RadialBarChart>
+                    </ResponsiveContainer>
+                    <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                      <div className="text-center">
+                        <div className="font-display text-4xl">
+                          <Counter
+                            value={completionData[0].value}
+                            format={(n) => `${Math.round(n)}%`}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">complete</p>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-center text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">
+                      {moduleProgress.completed} of {moduleProgress.total}
+                    </span>{" "}
+                    module{moduleProgress.total === 1 ? "" : "s"} completed
+                    {moduleProgress.inProgress > 0 && (
+                      <>
+                        {" · "}
+                        <span className="font-semibold text-foreground">
+                          {moduleProgress.inProgress}
+                        </span>{" "}
+                        in progress
+                      </>
+                    )}
+                  </p>
+
+                  {(moduleProgress.completedList.length > 0 ||
+                    moduleProgress.inProgressList.length > 0) && (
+                    <div className="mt-4 grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
+                      <NameList
+                        label="Completed"
+                        color="var(--chart-1)"
+                        names={moduleProgress.completedList}
+                        emptyHint="None completed yet"
+                      />
+                      <NameList
+                        label="In progress"
+                        color="var(--chart-2)"
+                        names={moduleProgress.inProgressList}
+                        emptyHint="Nothing in progress"
                       />
                     </div>
-                    <p className="text-xs text-muted-foreground">complete</p>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center justify-center gap-6 text-xs text-muted-foreground">
-                <span>
-                  Completed:{" "}
-                  <span className="font-semibold text-foreground">
-                    {lessonStats.completed} {lessonStats.completed === 1 ? "lesson" : "lessons"}
-                  </span>
-                </span>
-                <span>
-                  Started:{" "}
-                  <span className="font-semibold text-foreground">
-                    {lessonStats.started} {lessonStats.started === 1 ? "lesson" : "lessons"}
-                  </span>
-                </span>
-              </div>
-
-              {lessonStats.started > 0 && (
-                <div className="mt-4 grid gap-3 border-t border-border pt-3 sm:grid-cols-2">
-                  <NameList
-                    label="Completed"
-                    color="var(--chart-1)"
-                    names={lessonStats.completedList}
-                    emptyHint="None completed yet"
-                  />
-                  <NameList
-                    label="In progress"
-                    color="var(--chart-2)"
-                    names={lessonStats.inProgressList}
-                    emptyHint="Nothing in progress"
-                  />
-                </div>
+                  )}
+                </>
               )}
             </ChartCard>
 
