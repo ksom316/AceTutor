@@ -153,21 +153,73 @@ function extractJsonObject(raw: string): string {
   return start >= 0 && end > start ? s.slice(start, end + 1) : s;
 }
 
+/**
+ * Parse JSON that may have been cut off mid-structure because the model hit its
+ * output-token cap. A truncated object makes `JSON.parse` fail outright, which
+ * throws away every weak area — even the ones that came back complete. This
+ * walks the text (string-aware) tracking the open `{`/`[` stack and, at each
+ * point where a value has just closed, records a cut point; from the latest cut
+ * backwards it trims a trailing comma, appends the still-open closers, and
+ * returns the first candidate that parses. Returns `null` when nothing parses.
+ *
+ * Exported for regression tests.
+ */
+export function parseLenientJson(jsonish: string): unknown | null {
+  try {
+    return JSON.parse(jsonish);
+  } catch {
+    /* fall through to the truncation-repair path */
+  }
+
+  const stack: string[] = [];
+  let inStr = false;
+  let esc = false;
+  const cutIndex: number[] = [];
+  const cutClosers: string[] = [];
+  for (let i = 0; i < jsonish.length; i++) {
+    const c = jsonish[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") stack.push(c === "{" ? "}" : "]");
+    else if (c === "}" || c === "]") {
+      stack.pop();
+      cutIndex.push(i + 1);
+      cutClosers.push([...stack].reverse().join(""));
+    }
+  }
+
+  // Try the latest closed-value boundaries first; a handful is plenty (each is
+  // one more dropped weak area / practice item).
+  for (let k = cutIndex.length - 1; k >= 0 && k >= cutIndex.length - 40; k--) {
+    const candidate = jsonish.slice(0, cutIndex[k]).replace(/,\s*$/, "") + cutClosers[k];
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      /* try an earlier cut */
+    }
+  }
+  return null;
+}
+
 /** Parse a model reply into validated content, or null if nothing usable
  *  survives. Individually-malformed weak areas are dropped, like the quiz
- *  generator's parseQuestions(). */
-function parseStudyPath(
+ *  generator's parseQuestions(). Truncated JSON (model hit its output cap) is
+ *  repaired best-effort so the complete weak areas still survive. */
+export function parseStudyPath(
   raw: string,
   defaultTitle = "Personalized Study Path",
 ): StudyPathContent | null {
   if (!raw || !raw.trim()) return null;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(extractJsonObject(raw));
-  } catch (e) {
+  const parsed = parseLenientJson(extractJsonObject(raw));
+  if (parsed === null) {
     console.error(
-      `[parseStudyPath] JSON.parse failed (${e instanceof Error ? e.message : String(e)}) — rawLen=${raw.length} head=${JSON.stringify(raw.slice(0, 200))}`,
+      `[parseStudyPath] JSON.parse failed (even after truncation repair) — rawLen=${raw.length} head=${JSON.stringify(raw.slice(0, 200))}`,
     );
     return null;
   }
@@ -211,7 +263,11 @@ function parseStudyPath(
 
 /* ---- AI generation ---- */
 
-const STUDY_PATH_MAX_TOKENS = 1800;
+// Study Path only. 1800 was too tight: a 4-area path with worked examples and
+// practice regularly ran past it, so `anthropic/claude-sonnet-5` returned
+// `finish=length` with the JSON cut off mid-array and parsing failed. This
+// headroom fits a complete concise 4-area path; the prompt still caps length.
+const STUDY_PATH_MAX_TOKENS = 4000;
 
 type AiIncorrectQuestion = {
   question: string;
@@ -272,7 +328,11 @@ async function runGeneration(payload: AiPayload): Promise<StudyPathContent> {
     "In the explanation and worked-example text, use short bullet lists, labelled comparisons, or " +
     "step-by-step lines rather than Markdown pipe tables; only use a small table when a grid of " +
     "values is genuinely the clearest format. " +
-    "Respond with strict JSON only — no prose, no code fences.";
+    "If the incorrect questions touch more than 4 concepts, cover only the 4 MOST IMPORTANT and " +
+    "leave the rest out. " +
+    "Return ONLY valid JSON. Do not use markdown code fences. Do not write any explanation before " +
+    "or after the JSON. Keep every field short so the JSON always finishes: every object and array " +
+    "must be closed.";
 
   const defaultTitle =
     payload.scope === "course" ? "General Quiz Review" : "Personalized Study Path";
@@ -295,14 +355,21 @@ async function runGeneration(payload: AiPayload): Promise<StudyPathContent> {
     "INCORRECT QUESTIONS (the ONLY evidence of weakness — do not go beyond these):",
     JSON.stringify(payload.incorrectQuestions, null, 2),
     "",
-    "Respond ONLY with JSON of exactly this shape:",
+    "Respond ONLY with valid JSON of exactly this shape:",
     `{ "title": "${defaultTitle}", "weakAreas": [ { "title": string, "explanation": string, "example": string, "practice": [ { "question": string, "answer": string } ] } ] }`,
+    "",
+    "Output rules — follow every one:",
+    "- Return ONLY the JSON. No markdown fences. No text before or after it.",
+    "- Maximum 4 weakAreas. If the incorrect questions span more concepts, keep only the 4 most important.",
+    "- Prioritise the student's most important weaknesses.",
+    "- Keep each explanation brief — 2 to 4 sentences, under ~70 words.",
+    "- Keep each example brief — under ~70 words.",
     payload.wrongAnswerHelp === "similar_practice"
-      ? "- At most 4 weakAreas; 2 to 3 practice items each."
+      ? "- 2 to 3 practice items per weakArea."
       : payload.wrongAnswerHelp === "simple"
-        ? "- At most 4 weakAreas; exactly 1 practice item each."
-        : "- At most 4 weakAreas; 1 to 3 practice items each.",
-    "- Keep each explanation and example under about 120 words.",
+        ? "- Exactly 1 practice item per weakArea."
+        : "- 1 to 2 practice items per weakArea — only genuinely useful ones.",
+    "- Make sure the JSON is complete and valid: every object and array is closed.",
   ].join("\n");
 
   const messages = [
