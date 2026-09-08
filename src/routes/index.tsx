@@ -83,7 +83,7 @@ const courses = [
 ];
 
 const stats = [
-  { value: "5", label: "Courses" },
+  { value: "6", label: "Courses" },
   { value: "4", label: "Lesson formats" },
   { value: "2", label: "Assessment types" },
   { value: "24/7", label: "AI assistance" },
