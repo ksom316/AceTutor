@@ -1,0 +1,15 @@
+# Normalize text files to LF in the repository. Prettier's endOfLine:"auto"
+# tolerates whatever the working tree has after an autocrlf checkout, so this
+# does not force a re-checkout of existing files.
+* text=auto
+
+# Binary assets — never touch line endings or attempt diffs.
+*.jpg  binary
+*.jpeg binary
+*.png  binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.woff  binary
+*.woff2 binary
+*.pdf  binary

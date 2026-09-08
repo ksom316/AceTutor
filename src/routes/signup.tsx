@@ -95,9 +95,7 @@ function SignupPage() {
         setIdStatus("idle");
         return;
       }
-      setIdStatus(
-        data === "available" ? "available" : data === "claimed" ? "claimed" : "invalid",
-      );
+      setIdStatus(data === "available" ? "available" : data === "claimed" ? "claimed" : "invalid");
     }, 400);
     return () => clearTimeout(timer);
   }, [lecturerId, accountType]);
@@ -153,9 +151,7 @@ function SignupPage() {
         setLoading(false);
         if (result.status !== "claimed") {
           toast.error(
-            result.status === "failed"
-              ? result.message
-              : "Could not verify your Lecturer ID.",
+            result.status === "failed" ? result.message : "Could not verify your Lecturer ID.",
           );
           return; // account exists as a student; no lecturer privileges granted
         }
@@ -169,9 +165,7 @@ function SignupPage() {
       // Email confirmation required: keep the ID for the post-confirmation claim.
       stashPendingLecturerId(parsed.data.lecturerId);
       setLoading(false);
-      toast.success(
-        "Account created — confirm your email, then sign in to finish lecturer setup.",
-      );
+      toast.success("Account created — confirm your email, then sign in to finish lecturer setup.");
       navigate({ to: "/login" });
       return;
     }
@@ -479,7 +473,8 @@ function SignupPage() {
           {accountType === "student" && (
             <>
               <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
-                <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+                <span className="h-px flex-1 bg-border" /> or{" "}
+                <span className="h-px flex-1 bg-border" />
               </div>
               <GoogleAuthButton label="Sign up with Google" redirect={redirect} />
             </>

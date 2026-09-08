@@ -163,7 +163,9 @@ export function useStudentDashboard(userId: string | undefined) {
     queryFn: async () => {
       const { data } = await supabase
         .from("quiz_attempts")
-        .select("id, score, total, answered_count, finished_at, topics(title, courses(title, slug))")
+        .select(
+          "id, score, total, answered_count, finished_at, topics(title, courses(title, slug))",
+        )
         .not("finished_at", "is", null)
         // Module quizzes only — module-centric dashboard stats (donut, avg score,
         // quiz count) are derived from this set and must not change.

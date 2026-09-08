@@ -209,9 +209,7 @@ export function courseInsights(cohorts: ModuleCohort[], coverage: AssessmentCove
 
   if (coverage.meaningful === 0) {
     if (coverage.enrolled > 0) {
-      out.push(
-        "No student has enough answered quiz evidence yet to assess module performance.",
-      );
+      out.push("No student has enough answered quiz evidence yet to assess module performance.");
     }
     return out;
   }

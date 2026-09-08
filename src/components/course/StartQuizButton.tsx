@@ -36,8 +36,7 @@ export function StartQuizButton({
   // When the student already has an unfinished, non-expired attempt for THIS
   // module quiz, offer to resume it. The /quiz/$topicId runner resumes an
   // existing in-progress attempt, so this consumes no extra retry.
-  const isContinue =
-    !!topicId && activeQuiz?.kind === "module" && activeQuiz.paramId === topicId;
+  const isContinue = !!topicId && activeQuiz?.kind === "module" && activeQuiz.paramId === topicId;
 
   const start = async () => {
     if (loading) return;
@@ -78,7 +77,7 @@ export function StartQuizButton({
         .eq("course_id", courseId)
         .maybeSingle();
       setLoading(false);
-      
+
       if (!enrollment) {
         toast.error("You must be enrolled in this course to take a quiz");
         return;

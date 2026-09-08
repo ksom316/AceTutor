@@ -42,27 +42,37 @@ test("score 0% -> easy", () => {
 });
 
 test("score 49% -> easy", () => {
-  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [officialAttempt(49, "2026-01-01T00:00:00Z")]);
+  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [
+    officialAttempt(49, "2026-01-01T00:00:00Z"),
+  ]);
   assert.deepEqual(res, { difficulty: "easy", basis: "official_attempt" });
 });
 
 test("score 50% -> medium", () => {
-  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [officialAttempt(50, "2026-01-01T00:00:00Z")]);
+  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [
+    officialAttempt(50, "2026-01-01T00:00:00Z"),
+  ]);
   assert.deepEqual(res, { difficulty: "medium", basis: "official_attempt" });
 });
 
 test("score 79% -> medium", () => {
-  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [officialAttempt(79, "2026-01-01T00:00:00Z")]);
+  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [
+    officialAttempt(79, "2026-01-01T00:00:00Z"),
+  ]);
   assert.deepEqual(res, { difficulty: "medium", basis: "official_attempt" });
 });
 
 test("score 80% -> hard", () => {
-  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [officialAttempt(80, "2026-01-01T00:00:00Z")]);
+  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [
+    officialAttempt(80, "2026-01-01T00:00:00Z"),
+  ]);
   assert.deepEqual(res, { difficulty: "hard", basis: "official_attempt" });
 });
 
 test("score 100% -> hard", () => {
-  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [officialAttempt(100, "2026-01-01T00:00:00Z")]);
+  const res = resolvePracticeQuizDifficulty(TOPIC_ID, [
+    officialAttempt(100, "2026-01-01T00:00:00Z"),
+  ]);
   assert.deepEqual(res, { difficulty: "hard", basis: "official_attempt" });
 });
 

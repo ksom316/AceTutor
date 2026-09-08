@@ -68,7 +68,11 @@ export const predictVarkMlCategory = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<VarkMlInferenceResult> => {
     const { supabase, userId } = context;
 
-    const roleRes = await supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle();
+    const roleRes = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .maybeSingle();
     // TEMPORARY diagnostic — safe: logs only the role string and a Postgrest
     // error code, never a user id, token, or row contents. Remove once A3's
     // main-app integration is confirmed working end-to-end in production.

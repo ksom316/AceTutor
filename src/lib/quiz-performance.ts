@@ -342,7 +342,10 @@ export function improvementLabel(m: ModulePerformance): string | null {
  */
 export function sufficientTrendLabel(m: ModulePerformance, max = 5): string | null {
   if (m.sufficientScores.length < 2) return null;
-  return m.sufficientScores.slice(-max).map((s) => `${s}%`).join(" → ");
+  return m.sufficientScores
+    .slice(-max)
+    .map((s) => `${s}%`)
+    .join(" → ");
 }
 
 /**

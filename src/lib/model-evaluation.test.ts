@@ -422,11 +422,12 @@ test("course scoping: lecturer A's aggregation excludes lecturer B's course data
     varkRows,
     interactionRows,
   });
-  assert.deepEqual(scoped.varkRows.map((r) => r.userId), ["a1"]);
-  assert.equal(scoped.interactionRows.length, 4); // only a1 / T_VARK_CONFIRMED's rows
-  assert.ok(
-    scoped.interactionRows.every((r) => r.userId === "a1" && aTopics.includes(r.topicId!)),
+  assert.deepEqual(
+    scoped.varkRows.map((r) => r.userId),
+    ["a1"],
   );
+  assert.equal(scoped.interactionRows.length, 4); // only a1 / T_VARK_CONFIRMED's rows
+  assert.ok(scoped.interactionRows.every((r) => r.userId === "a1" && aTopics.includes(r.topicId!)));
 
   // and the aggregates built from the scoped rows carry only A's data
   const vark = aggregateVarkUsage(scoped.varkRows);
@@ -440,11 +441,7 @@ test("course scoping: lecturer A's aggregation excludes lecturer B's course data
 });
 
 test("course scoping: global vark_profiles are not aggregated when the student set is applied", () => {
-  const global = [
-    profile({ userId: "x" }),
-    profile({ userId: "y" }),
-    profile({ userId: "z" }),
-  ];
+  const global = [profile({ userId: "x" }), profile({ userId: "y" }), profile({ userId: "z" })];
   const scoped = scopeEvaluationInputs({
     studentIds: ["y"],
     courseTopicIds: ["t"],
@@ -455,8 +452,12 @@ test("course scoping: global vark_profiles are not aggregated when the student s
   assert.equal(aggregateVarkUsage(scoped.varkRows).completedAssessments, 1);
   // empty scope -> nothing survives
   assert.equal(
-    scopeEvaluationInputs({ studentIds: [], courseTopicIds: [], varkRows: global, interactionRows: [] })
-      .varkRows.length,
+    scopeEvaluationInputs({
+      studentIds: [],
+      courseTopicIds: [],
+      varkRows: global,
+      interactionRows: [],
+    }).varkRows.length,
     0,
   );
 });

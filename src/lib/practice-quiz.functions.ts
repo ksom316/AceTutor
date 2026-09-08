@@ -3,7 +3,10 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { callAI } from "@/lib/course-chat.functions";
 import { extractJson, pickCorrectIndex } from "@/lib/lecturer-quiz.functions";
-import { resolvePracticeQuizDifficulty, type DifficultyBasis } from "@/lib/practice-quiz-difficulty";
+import {
+  resolvePracticeQuizDifficulty,
+  type DifficultyBasis,
+} from "@/lib/practice-quiz-difficulty";
 import type { PerfAttempt } from "@/lib/quiz-performance";
 
 /**

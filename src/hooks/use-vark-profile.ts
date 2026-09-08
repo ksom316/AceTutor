@@ -110,7 +110,8 @@ export function useVarkProfile(options?: { enabled?: boolean }) {
           `[useVarkProfile] ML inference failed: ${mlErr instanceof Error ? mlErr.message : String(mlErr)}`,
         );
         toast.message("ML classification unavailable", {
-          description: "The ML classifier couldn't be reached — your assessment result was still saved.",
+          description:
+            "The ML classifier couldn't be reached — your assessment result was still saved.",
         });
       }
 

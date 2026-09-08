@@ -86,7 +86,9 @@ function serialiseContext(args: {
 
   lines.push("");
   lines.push("ASSESSMENT COVERAGE (of enrolled students):");
-  lines.push(`- Meaningful evidence (>=1 sufficient attempt): ${coverage.meaningful}/${coverage.enrolled}`);
+  lines.push(
+    `- Meaningful evidence (>=1 sufficient attempt): ${coverage.meaningful}/${coverage.enrolled}`,
+  );
   lines.push(`- Insufficient evidence only: ${coverage.insufficientOnly}/${coverage.enrolled}`);
   lines.push(`- Not assessed at all: ${coverage.notAssessed}/${coverage.enrolled}`);
 
@@ -136,9 +138,13 @@ function serialiseContext(args: {
   lines.push(
     "- 'insufficient evidence' means the student has answered some questions but not enough for a reliable assessment. This is NOT poor performance.",
   );
-  lines.push("- 'needs attention' = sufficiently-assessed average below 70%. 'strong' = 70% or above.");
+  lines.push(
+    "- 'needs attention' = sufficiently-assessed average below 70%. 'strong' = 70% or above.",
+  );
   lines.push("- 'not assessed' = no usable attempt for that module yet.");
-  lines.push("- Each module is assessed independently; course completion is a separate concept and is not in this data.");
+  lines.push(
+    "- Each module is assessed independently; course completion is a separate concept and is not in this data.",
+  );
 
   return lines.join("\n");
 }

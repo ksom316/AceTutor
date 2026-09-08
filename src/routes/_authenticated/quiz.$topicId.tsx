@@ -26,7 +26,8 @@ export const Route = createFileRoute("/_authenticated/quiz/$topicId")({
   // (browser Back, a bookmarked URL) redirects to that result instead of
   // starting a fresh attempt + timer.
   validateSearch: (search: Record<string, unknown>): { retake?: boolean } => ({
-    retake: search.retake === true || search.retake === "1" || search.retake === 1 ? true : undefined,
+    retake:
+      search.retake === true || search.retake === "1" || search.retake === 1 ? true : undefined,
   }),
 });
 
@@ -317,12 +318,10 @@ function ModuleQuizRoute() {
         <div className="rounded-2xl border border-dashed border-border bg-card/60 p-10 text-center">
           <h1 className="font-display text-2xl">Enroll to take this quiz</h1>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-            You must be enrolled in this course before you can take quizzes. Please enroll first to proceed.
+            You must be enrolled in this course before you can take quizzes. Please enroll first to
+            proceed.
           </p>
-          <Button
-            onClick={() => navigate({ to: "/courses" })}
-            className="mt-6 rounded-full"
-          >
+          <Button onClick={() => navigate({ to: "/courses" })} className="mt-6 rounded-full">
             View courses and enroll
           </Button>
         </div>

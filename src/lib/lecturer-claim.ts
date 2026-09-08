@@ -93,10 +93,7 @@ export async function finishPendingLecturerClaim(): Promise<ClaimResult> {
  * a first sign-in still verifies. `claim_lecturer_slot` is never invoked for an
  * arbitrary typed ID, so a student cannot acquire a slot from the login page.
  */
-export async function verifyLecturerLogin(
-  userId: string,
-  enteredId: string,
-): Promise<boolean> {
+export async function verifyLecturerLogin(userId: string, enteredId: string): Promise<boolean> {
   const key = enteredId.trim().toUpperCase();
 
   const pending = peekPendingLecturerId();

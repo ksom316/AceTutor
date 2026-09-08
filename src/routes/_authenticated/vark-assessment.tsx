@@ -2,7 +2,15 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import { ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Sparkles, FlaskConical } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Loader2,
+  RotateCcw,
+  Sparkles,
+  FlaskConical,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useVarkProfile } from "@/hooks/use-vark-profile";
@@ -218,8 +226,8 @@ function VarkAssessmentPage() {
                 </p>
                 <p className="mt-3 text-xs text-muted-foreground">
                   This is a prototype ML classification based on your VARK assessment scores. The
-                  current model was trained on synthetic development data and should not be
-                  treated as a definitive learning-style label.
+                  current model was trained on synthetic development data and should not be treated
+                  as a definitive learning-style label.
                 </p>
               </>
             ) : (

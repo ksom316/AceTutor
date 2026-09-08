@@ -319,15 +319,25 @@ export type VarkMlClassification = {
   predictedAt: string | null;
 };
 
-export function varkMlClassificationFromProfile(profile: VarkProfileRow | null): VarkMlClassification {
+export function varkMlClassificationFromProfile(
+  profile: VarkProfileRow | null,
+): VarkMlClassification {
   if (!profile?.ml_predicted_category) {
-    return { available: false, category: null, confidencePercent: null, modelVersion: null, predictedAt: null };
+    return {
+      available: false,
+      category: null,
+      confidencePercent: null,
+      modelVersion: null,
+      predictedAt: null,
+    };
   }
   return {
     available: true,
     category: profile.ml_predicted_category,
     confidencePercent:
-      profile.ml_prediction_confidence != null ? Math.round(profile.ml_prediction_confidence * 100) : null,
+      profile.ml_prediction_confidence != null
+        ? Math.round(profile.ml_prediction_confidence * 100)
+        : null,
     modelVersion: profile.ml_model_version,
     predictedAt: profile.ml_predicted_at,
   };
