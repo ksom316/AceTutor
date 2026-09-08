@@ -1,5 +1,5 @@
 {
-  "name": "tanstack_start_ts",
+  "name": "acetutor",
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -9,6 +9,8 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --import ./scripts/node-test-alias-loader.mjs --test \"src/lib/*.test.ts\"",
     "format": "prettier --write .",
     "gen:eval-offline": "node scripts/generate-model-evaluation-offline.mjs"
   },
