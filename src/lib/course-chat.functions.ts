@@ -56,10 +56,11 @@ const schema = z.object({
   priorExplanation: z.string().max(4000).optional(),
 });
 
-// The tutor is served — for free — through OpenRouter's OpenAI-compatible
-// /chat/completions endpoint with a single free OPENROUTER_API_KEY.
-// Free-tier model ids shift over time, so the roster is overridable via env.
-// Browse the current free roster at https://openrouter.ai/models?max_price=0
+// The tutor is served through OpenRouter's OpenAI-compatible /chat/completions
+// endpoint with a single OPENROUTER_API_KEY. The roster below is a paid,
+// production/presentation-ready set of models; ids shift over time, so the
+// whole roster stays overridable via env.
+// Browse the current catalogue at https://openrouter.ai/models
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 /**
@@ -80,26 +81,25 @@ export function cleanEnv(name: string): string | undefined {
   return v || undefined;
 }
 
-// Models are tried in order; if one is down, rate-limited, or delisted, the
-// next takes over. OpenRouter's free roster changes often, so the whole list
-// can be overridden from the environment without a code change:
+// Models are tried STRICTLY in order — try primary, then secondary, then the
+// emergency fallback; if one is down, rate-limited, or delisted, the next takes
+// over. The whole list can be overridden from the environment without a code
+// change:
 //
-//   OPENROUTER_MODELS="id1:free,id2:free,openrouter/free"   (comma-separated, whole list)
+//   OPENROUTER_MODELS="id1,id2,id3"   (comma-separated, whole list)
 //
 // or per-slot via OPENROUTER_MODEL_GEMINI / OPENROUTER_MODEL_GPT / OPENROUTER_MODEL
 // (kept for backward compat — they are just "slot 1/2/3" now).
 //
-// The defaults below were re-verified against OpenRouter's live catalogue on
-// 2026-09-07 after the whole app's AI features started failing together:
-// `minimax/minimax-m3:free` had LOST its free tier (OpenRouter answered
-// 404 "This model is unavailable for free — use minimax/minimax-m3"), so every
-// request fell straight through to the two fallback slots and burned the free
-// account's daily request budget ~2x faster. Replaced slot 1 with
-// `google/gemma-4-31b-it:free` and slot 3's meta-router `openrouter/free`
-// (which returns null content under response_format:json_object) with
-// `nvidia/nemotron-3.5-lightning:free`. All three are :free in the live
-// catalogue and covered by the plain-mode retry if a model ignores json mode.
-// Browse current free ids at https://openrouter.ai/models?max_price=0
+// Paid production/presentation roster, verified against OpenRouter's live
+// catalogue (https://openrouter.ai/api/v1/models) on 2026-09-08. Three
+// providers on purpose, so an outage at one does not take the tutor down:
+//   1. anthropic/claude-sonnet-5   — PRIMARY: strong reasoning model for
+//      tutoring, explanations, Study Paths and Guide Me.
+//   2. openai/gpt-4.1              — SECONDARY: reliable general-purpose fallback.
+//   3. google/gemini-2.5-flash     — EMERGENCY: reliable lower-cost fallback.
+// All three support response_format:json_object; the per-caller plain-mode
+// retry still covers any model that ignores json mode.
 const MODELS = (
   cleanEnv("OPENROUTER_MODELS")
     ? cleanEnv("OPENROUTER_MODELS")!
@@ -107,9 +107,9 @@ const MODELS = (
         .map((m) => m.trim())
         .filter(Boolean)
     : [
-        cleanEnv("OPENROUTER_MODEL_GEMINI") ?? "google/gemma-4-31b-it:free",
-        cleanEnv("OPENROUTER_MODEL_GPT") ?? "nvidia/nemotron-3-super-120b-a12b:free",
-        cleanEnv("OPENROUTER_MODEL") ?? "nvidia/nemotron-3.5-lightning:free",
+        cleanEnv("OPENROUTER_MODEL_GEMINI") ?? "anthropic/claude-sonnet-5",
+        cleanEnv("OPENROUTER_MODEL_GPT") ?? "openai/gpt-4.1",
+        cleanEnv("OPENROUTER_MODEL") ?? "google/gemini-2.5-flash",
       ]
 ).filter(Boolean);
 
