@@ -141,67 +141,103 @@ export function buildModuleMaterial(lessons: LessonForCapability[]): string {
   return material;
 }
 
-/* ---- defensive JSON extraction + validation ---- */
+/* ---- defensive JSON parsing + validation ---- */
 
-function extractJsonObject(raw: string): string {
-  const s = raw
-    .replace(/^\s*```(?:json)?\s*/i, "")
-    .replace(/\s*```\s*$/i, "")
+/** Strip a Markdown code fence a model sometimes wraps JSON in despite json
+ *  mode (`` ```json `` … `` ``` ``), including a fence with no closing side
+ *  because the reply was cut off. */
+function stripCodeFences(s: string): string {
+  return s
+    .replace(/^\s*```(?:json)?[ \t]*\r?\n?/i, "")
+    .replace(/\r?\n?[ \t]*```\s*$/i, "")
     .trim();
-  const start = s.indexOf("{");
-  const end = s.lastIndexOf("}");
-  return start >= 0 && end > start ? s.slice(start, end + 1) : s;
 }
 
 /**
- * Parse JSON that may have been cut off mid-structure because the model hit its
- * output-token cap. A truncated object makes `JSON.parse` fail outright, which
- * throws away every weak area — even the ones that came back complete. This
- * walks the text (string-aware) tracking the open `{`/`[` stack and, at each
- * point where a value has just closed, records a cut point; from the latest cut
- * backwards it trims a trailing comma, appends the still-open closers, and
- * returns the first candidate that parses. Returns `null` when nothing parses.
+ * Try to salvage a JSON value starting at `s[start]` (`start` points at a `{`).
+ * Returns the parsed value, or `undefined` if this start position does not
+ * yield anything parseable (so the caller can try a later `{`).
  *
- * Exported for regression tests.
+ * Two outcomes are handled:
+ *  - the object/array closes cleanly (depth back to 0): parse exactly that span
+ *    and ignore any trailing prose the model added after the JSON;
+ *  - it never closes because the reply was cut off at the output-token cap
+ *    (`finish=length`): from the latest point a value closed, walk backwards,
+ *    append the still-open closers, and return the first candidate that parses
+ *    — so weak areas (and practice items) that arrived complete survive even
+ *    though the last one was truncated, INCLUDING a cut inside `practice: [ … ]`.
+ * The scan is string-aware, so `{`, `}`, `[`, `]` inside string values (and a
+ * string left unterminated by the cut) never move the bracket depth.
  */
-export function parseLenientJson(jsonish: string): unknown | null {
-  try {
-    return JSON.parse(jsonish);
-  } catch {
-    /* fall through to the truncation-repair path */
-  }
-
+function salvageJsonFrom(s: string, start: number): unknown | undefined {
   const stack: string[] = [];
   let inStr = false;
   let esc = false;
   const cutIndex: number[] = [];
   const cutClosers: string[] = [];
-  for (let i = 0; i < jsonish.length; i++) {
-    const c = jsonish[i];
+
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
     if (inStr) {
       if (esc) esc = false;
       else if (c === "\\") esc = true;
       else if (c === '"') inStr = false;
       continue;
     }
-    if (c === '"') inStr = true;
-    else if (c === "{" || c === "[") stack.push(c === "{" ? "}" : "]");
-    else if (c === "}" || c === "]") {
+    if (c === '"') {
+      inStr = true;
+    } else if (c === "{" || c === "[") {
+      stack.push(c === "{" ? "}" : "]");
+    } else if (c === "}" || c === "]") {
       stack.pop();
+      if (stack.length === 0) {
+        try {
+          return JSON.parse(s.slice(start, i + 1));
+        } catch {
+          return undefined; // false start (e.g. a `{` inside leading prose)
+        }
+      }
       cutIndex.push(i + 1);
       cutClosers.push([...stack].reverse().join(""));
     }
   }
 
-  // Try the latest closed-value boundaries first; a handful is plenty (each is
-  // one more dropped weak area / practice item).
-  for (let k = cutIndex.length - 1; k >= 0 && k >= cutIndex.length - 40; k--) {
-    const candidate = jsonish.slice(0, cutIndex[k]).replace(/,\s*$/, "") + cutClosers[k];
+  // Never balanced → truncated. Rebuild from each closed-value boundary,
+  // latest first (each earlier one just drops one more trailing item).
+  for (let k = cutIndex.length - 1; k >= 0 && k >= cutIndex.length - 200; k--) {
+    const candidate = s.slice(start, cutIndex[k]).replace(/,\s*$/, "") + cutClosers[k];
     try {
       return JSON.parse(candidate);
     } catch {
       /* try an earlier cut */
     }
+  }
+  return undefined;
+}
+
+/**
+ * Best-effort parse of a model reply that may be wrapped in code fences / prose
+ * and/or cut off mid-structure at the output-token cap. Returns `null` when
+ * nothing parseable can be salvaged. Never throws. Exported for regression
+ * tests.
+ */
+export function parseLenientJson(input: string): unknown | null {
+  if (!input || !input.trim()) return null;
+  const s = stripCodeFences(input);
+
+  // Fast path: the whole thing is already valid JSON.
+  try {
+    return JSON.parse(s);
+  } catch {
+    /* fall through to salvage */
+  }
+
+  // Walk each `{` that could begin the object. Normally the first one is the
+  // real start; occasionally leading prose carries a stray `{` (e.g.
+  // "shaped like {title, weakAreas}:") and we skip past that false start.
+  for (let b = s.indexOf("{"); b !== -1; b = s.indexOf("{", b + 1)) {
+    const salvaged = salvageJsonFrom(s, b);
+    if (salvaged !== undefined) return salvaged;
   }
   return null;
 }
@@ -214,15 +250,36 @@ export function parseStudyPath(
   raw: string,
   defaultTitle = "Personalized Study Path",
 ): StudyPathContent | null {
-  if (!raw || !raw.trim()) return null;
-
-  const parsed = parseLenientJson(extractJsonObject(raw));
-  if (parsed === null) {
-    console.error(
-      `[parseStudyPath] JSON.parse failed (even after truncation repair) — rawLen=${raw.length} head=${JSON.stringify(raw.slice(0, 200))}`,
-    );
+  if (!raw || !raw.trim()) {
+    console.error("[parseStudyPath] empty model reply");
     return null;
   }
+
+  // 1. Strict parse. 2. On failure, lenient truncation/wrapper recovery. Every
+  //    branch is logged so a production failure is diagnosable from the logs
+  //    alone: raw length, whether recovery ran, and whether it worked.
+  let parsed: unknown;
+  let recovered = false;
+  try {
+    parsed = JSON.parse(raw.trim());
+    console.info(`[parseStudyPath] strict JSON.parse ok — rawLen=${raw.length}`);
+  } catch (e) {
+    const strictErr = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[parseStudyPath] strict JSON.parse failed (${strictErr}) — rawLen=${raw.length}; attempting lenient recovery`,
+    );
+    parsed = parseLenientJson(raw);
+    if (parsed === null) {
+      console.error(
+        `[parseStudyPath] lenient recovery FAILED — rawLen=${raw.length} ` +
+          `head=${JSON.stringify(raw.slice(0, 160))} tail=${JSON.stringify(raw.slice(-160))}`,
+      );
+      return null;
+    }
+    recovered = true;
+    console.info(`[parseStudyPath] lenient recovery SUCCEEDED — rawLen=${raw.length}`);
+  }
+
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     console.error(`[parseStudyPath] top-level value is not a JSON object — got ${typeof parsed}`);
     return null;
@@ -258,7 +315,14 @@ export function parseStudyPath(
       : defaultTitle;
 
   const final = studyPathContentSchema.safeParse({ title, weakAreas: areas });
-  return final.success ? final.data : null;
+  if (!final.success) {
+    console.error(`[parseStudyPath] assembled content failed schema — ${final.error.message}`);
+    return null;
+  }
+  console.info(
+    `[parseStudyPath] ok — ${areas.length} weak area(s)${recovered ? " (recovered from a truncated/wrapped reply)" : ""}`,
+  );
+  return final.data;
 }
 
 /* ---- AI generation ---- */

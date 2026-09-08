@@ -132,20 +132,106 @@ test("returns null on an empty or whitespace reply", () => {
   assert.equal(parseStudyPath("   \n  "), null);
 });
 
+/* ---- the exact production failure: fenced + pretty-printed + cut inside a
+ *      weakArea.practice array (anthropic/claude-sonnet-5, finish=length) ---- */
+
+// Faithful reproduction of a captured live truncation: ```json fence, pretty-
+// printed, two complete weak areas, then a third whose `practice` array is cut
+// off part-way through the SECOND practice item's answer string.
+const FENCED_TRUNCATED_MID_PRACTICE = [
+  "```json",
+  "{",
+  '  "title": "Personalized Study Path",',
+  '  "weakAreas": [',
+  "    {",
+  '      "title": "Balance Factor Calculation",',
+  '      "explanation": "The balance factor is height(left) minus height(right); a valid AVL node keeps it in {-1, 0, 1}.",',
+  '      "example": "A node with left height 2 and right height 0 has balance factor 2, so it is unbalanced.",',
+  '      "practice": [',
+  '        { "question": "Left height 3, right height 1 — balance factor?", "answer": "2, left-heavy, needs a rotation." }',
+  "      ]",
+  "    },",
+  "    {",
+  '      "title": "Choosing the Rotation Case",',
+  '      "explanation": "LL and RR need one rotation; LR and RL need two.",',
+  '      "example": "Insert into the left subtree of the left child -> LL -> single right rotation.",',
+  '      "practice": [',
+  '        { "question": "Insert into right subtree of right child — which case?", "answer": "RR, single left rotation." }',
+  "      ]",
+  "    },",
+  "    {",
+  '      "title": "Performing the Rotation",',
+  '      "explanation": "Reassign child pointers without dropping subtrees, then recompute heights.",',
+  '      "example": "On a right rotation, the left child becomes the new root of the subtree.",',
+  '      "practice": [',
+  '        { "question": "After a right rotation, whose height do you update first?", "answer": "The old root, then the new root." },',
+  '        { "question": "What property must still hold after the rotation is complete for the tree to remain a valid search structure, and why does an in-order tra',
+].join("\n");
+
+test("recovers 3 complete weak areas from the exact fenced/pretty-printed mid-practice truncation", () => {
+  const content = parseStudyPath(FENCED_TRUNCATED_MID_PRACTICE);
+  assert.ok(content, "expected the complete weak areas to survive");
+  // 3rd area keeps its one complete practice item; the half-written 2nd is dropped.
+  assert.equal(content!.weakAreas.length, 3);
+  assert.equal(content!.weakAreas[2].practice.length, 1);
+  assert.equal(studyPathContentSchema.safeParse(content).success, true);
+});
+
+test("parseLenientJson: array cut inside weakArea.practice keeps the finished practice items", () => {
+  const raw =
+    '{"weakAreas":[{"title":"A","explanation":"e","example":"x","practice":[' +
+    '{"question":"q1","answer":"a1"},{"question":"q2","answer":"a2"},{"question":"q3","answer":"a3 but then it cuts o';
+  const out = parseLenientJson(raw) as { weakAreas: { practice: unknown[] }[] } | null;
+  assert.ok(out);
+  assert.equal(out!.weakAreas.length, 1);
+  assert.equal(out!.weakAreas[0].practice.length, 2); // q1, q2 kept; q3 truncated
+});
+
+test("ignores trailing prose after a complete JSON object", () => {
+  const raw =
+    JSON.stringify(fullPath(2)) + "\n\nLet me know if you'd like more detail on any area!";
+  const content = parseStudyPath(raw);
+  assert.ok(content);
+  assert.equal(content!.weakAreas.length, 2);
+});
+
+test("skips a stray '{' in leading prose", () => {
+  const raw = "Sure — the JSON is shaped like {title, weakAreas}:\n" + JSON.stringify(fullPath(2));
+  const content = parseStudyPath(raw);
+  assert.ok(content);
+  assert.equal(content!.weakAreas.length, 2);
+});
+
+test("recovers when a comma between two weak areas is missing then truncated", () => {
+  // 'Expected ,' or ']' after array element' — the element before the missing
+  // comma still parses via an earlier cut point.
+  const a = JSON.stringify(weakArea(1));
+  const b = JSON.stringify(weakArea(2));
+  const raw = `{"title":"P","weakAreas":[${a} ${b.slice(0, 40)}`;
+  const content = parseStudyPath(raw);
+  assert.ok(content);
+  assert.equal(content!.weakAreas.length, 1);
+});
+
 /* ---- fuzz: a long response can never yield invalid/throwing output ------ */
 
 test("truncating a long response at every offset yields only valid content or null", () => {
-  const raw = JSON.stringify(fullPath(8), null, 2); // large, pretty-printed
-  for (let cut = 0; cut <= raw.length; cut += 7) {
-    const sliced = raw.slice(0, cut);
-    let content: ReturnType<typeof parseStudyPath>;
-    assert.doesNotThrow(() => {
-      content = parseStudyPath(sliced);
-    }, `threw at cut=${cut}`);
-    if (content!) {
-      const check = studyPathContentSchema.safeParse(content);
-      assert.equal(check.success, true, `invalid content at cut=${cut}`);
-      assert.ok(content!.weakAreas.length >= 1 && content!.weakAreas.length <= 4);
+  // Both compact and fenced/pretty-printed, since real replies come both ways.
+  for (const raw of [
+    JSON.stringify(fullPath(8)),
+    "```json\n" + JSON.stringify(fullPath(6), null, 2) + "\n```",
+  ]) {
+    for (let cut = 0; cut <= raw.length; cut++) {
+      const sliced = raw.slice(0, cut);
+      let content: ReturnType<typeof parseStudyPath>;
+      assert.doesNotThrow(() => {
+        content = parseStudyPath(sliced);
+      }, `threw at cut=${cut}`);
+      if (content!) {
+        const check = studyPathContentSchema.safeParse(content);
+        assert.equal(check.success, true, `invalid content at cut=${cut}`);
+        assert.ok(content!.weakAreas.length >= 1 && content!.weakAreas.length <= 4);
+      }
     }
   }
 });
