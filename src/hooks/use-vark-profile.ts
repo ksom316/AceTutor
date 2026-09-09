@@ -15,7 +15,7 @@ import { predictVarkMlCategory } from "@/lib/vark-inference.functions";
 const VARK_PROFILE_KEY = "vark-profile";
 
 const SELECT_COLUMNS =
-  "user_id, responses, visual_score, auditory_score, read_write_score, kinesthetic_score, predicted_category, prediction_source, prediction_confidence, model_version, assessment_completed_at, ml_predicted_category, ml_prediction_confidence, ml_class_probabilities, ml_model_version, ml_predicted_at, updated_at";
+  "user_id, responses, visual_score, auditory_score, read_write_score, kinesthetic_score, predicted_category, prediction_source, prediction_confidence, model_version, assessment_completed_at, onboarding_skipped_at, ml_predicted_category, ml_prediction_confidence, ml_class_probabilities, ml_model_version, ml_predicted_at, updated_at";
 
 /**
  * The signed-in student's VARK profile — the other half of the "learner

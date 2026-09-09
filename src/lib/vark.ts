@@ -298,6 +298,10 @@ export type VarkProfileRow = {
   prediction_confidence: number | null;
   model_version: string | null;
   assessment_completed_at: string | null;
+  /** Set when the student explicitly skipped the optional VARK onboarding step
+   *  (src/routes/_authenticated/onboarding.vark.tsx). Never blocks anything —
+   *  it only stops the one-time onboarding prompt from reappearing. */
+  onboarding_skipped_at: string | null;
   ml_predicted_category: VarkCategory | null;
   ml_prediction_confidence: number | null;
   ml_class_probabilities: Record<string, number> | null;
@@ -347,6 +351,30 @@ export type VarkAssessmentStatus = "not-started" | "completed";
 
 export function varkAssessmentStatus(profile: VarkProfileRow | null): VarkAssessmentStatus {
   return profile?.assessment_completed_at ? "completed" : "not-started";
+}
+
+/**
+ * Where the student stands on the OPTIONAL VARK onboarding step (offered once,
+ * right after Learning Preferences):
+ *   - "completed" — the questionnaire has been submitted (this always wins, even
+ *     over a prior skip: a student who skipped and later took it from Profile is
+ *     completed);
+ *   - "skipped"   — the student explicitly pressed "Skip for now";
+ *   - "pending"   — neither has happened (no row, or a row with both timestamps
+ *     null) → the onboarding gate shows the prompt.
+ *
+ * The ONE place this rule lives — used by post-auth-redirect.ts, the onboarding
+ * routes, and the Profile page. Accepts just the two timestamp fields so a
+ * lightweight `select` is enough.
+ */
+export type VarkOnboardingStatus = "pending" | "completed" | "skipped";
+
+export function varkOnboardingStatus(
+  row: Pick<VarkProfileRow, "assessment_completed_at" | "onboarding_skipped_at"> | null,
+): VarkOnboardingStatus {
+  if (row?.assessment_completed_at) return "completed";
+  if (row?.onboarding_skipped_at) return "skipped";
+  return "pending";
 }
 
 /** `profile.*_score` -> the plain VarkScores shape scoring/breakdown helpers

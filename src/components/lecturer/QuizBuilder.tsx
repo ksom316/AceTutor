@@ -105,6 +105,9 @@ export type QuizBuilderScope =
   | { kind: "course"; courseQuizId: string }
   | { kind: "course-new" };
 
+/** Stable reference so the `data` memo / capability don't churn each render. */
+const EMPTY_LESSONS: LessonForCapability[] = [];
+
 const NEW_QUIZ_DATA = {
   available: true,
   containerId: undefined as string | undefined,
@@ -326,7 +329,35 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
     },
   });
 
-  const data = isNew ? NEW_QUIZ_DATA : quizQuery.data;
+  // New General Course Quiz: nothing is persisted yet, so `quizQuery` (which
+  // loads the quiz + its lessons) is disabled. AI generation still needs the
+  // course's lessons to report capability, so fetch them separately here — same
+  // course-wide lesson select as the persisted `scope.kind === "course"` branch.
+  const courseNewLessonsQuery = useQuery({
+    queryKey: ["lecturer-quiz", "course-new-lessons", lecturerCourseId] as const,
+    enabled: enabled && isNew,
+    queryFn: async (): Promise<LessonForCapability[]> => {
+      const { data: ls, error } = await supabase
+        .from("lessons")
+        .select("title, modality, body_md, order_index, topics!inner(course_id)")
+        .eq("topics.course_id", lecturerCourseId!)
+        .order("order_index");
+      if (error) throw error;
+      return (ls ?? []).map((r) => ({
+        title: r.title,
+        modality: r.modality,
+        body_md: r.body_md,
+      }));
+    },
+  });
+
+  const data = useMemo(
+    () =>
+      isNew
+        ? { ...NEW_QUIZ_DATA, lessons: courseNewLessonsQuery.data ?? EMPTY_LESSONS }
+        : quizQuery.data,
+    [isNew, courseNewLessonsQuery.data, quizQuery.data],
+  );
   const questions = useMemo<QuizQuestionRow[]>(
     () => (isNew ? draftQuestions : (quizQuery.data?.questions ?? [])),
     [isNew, draftQuestions, quizQuery.data],
@@ -669,13 +700,27 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const addGenerated = useMutation({
     mutationFn: async (drafts: QuizDraft[]) => {
-      if (scope.kind === "course-new") throw new Error("unreachable: course-new is local-only");
-      if (!containerId) throw new Error("no container");
       const cleaned = drafts
         .map(cleanDraft)
         .filter((d): d is QuizDraft => d !== null)
         .slice(0, Math.max(0, MAX_QUESTIONS - questions.length));
       if (cleaned.length === 0) throw new Error("empty");
+
+      // New General Course Quiz — questions live in local state until the
+      // lecturer presses "Create quiz" (same as the manual Add-question flow).
+      if (scope.kind === "course-new") {
+        setDraftQuestions((prev) => [
+          ...prev,
+          ...cleaned.map((d, i) => ({
+            ...d,
+            id: crypto.randomUUID(),
+            order_index: prev.length + i,
+          })),
+        ]);
+        return { added: cleaned.length, dropped: drafts.length - cleaned.length };
+      }
+
+      if (!containerId) throw new Error("no container");
       const base = questions.reduce((m, q) => Math.max(m, q.order_index), -1) + 1;
       const rows = cleaned.map((d, i) => ({
         prompt: d.prompt,
@@ -712,12 +757,21 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
 
   const replaceGenerated = useMutation({
     mutationFn: async (drafts: QuizDraft[]) => {
-      if (scope.kind === "course-new") throw new Error("unreachable: course-new is local-only");
       const cleaned = drafts
         .map(cleanDraft)
         .filter((d): d is QuizDraft => d !== null)
         .slice(0, MAX_QUESTIONS);
       if (cleaned.length === 0) throw new Error("empty");
+
+      // New General Course Quiz — swap the local draft list; nothing persisted
+      // until "Create quiz".
+      if (scope.kind === "course-new") {
+        setDraftQuestions(
+          cleaned.map((d, i) => ({ ...d, id: crypto.randomUUID(), order_index: i })),
+        );
+        return cleaned.length;
+      }
+
       const payload = cleaned.map((d, i) => ({
         prompt: d.prompt,
         choices: d.choices,
@@ -789,7 +843,6 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
   };
 
   const generate = async () => {
-    if (scope.kind === "course-new") return; // AI generation is offered after creation
     const n = Number(aiCount);
     if (!Number.isInteger(n) || n < 1 || n > MAX_QUESTIONS) {
       toast.error(QUIZ_GEN_ERROR_MESSAGES.INVALID_QUESTION_COUNT);
@@ -809,7 +862,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
           : await runGenerate({
               data: {
                 courseWide: true,
-                courseQuizId: scope.courseQuizId,
+                // The persisted builder names its quiz; the new-quiz builder has
+                // none yet — the course is derived server-side either way.
+                ...(scope.kind === "course" ? { courseQuizId: scope.courseQuizId } : {}),
                 questionCount: n,
                 difficulty: aiDifficulty,
               },
@@ -1222,16 +1277,14 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             >
               <Plus className="mr-1.5 h-4 w-4" /> Add question
             </Button>
-            {!isNew && (
-              <Button
-                variant="outline"
-                className="rounded-full"
-                disabled={atLimit}
-                onClick={() => setAiOpen(true)}
-              >
-                <Sparkles className="mr-1.5 h-4 w-4" /> Generate with AI
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              className="rounded-full"
+              disabled={atLimit}
+              onClick={() => setAiOpen(true)}
+            >
+              <Sparkles className="mr-1.5 h-4 w-4" /> Generate with AI
+            </Button>
             {atLimit && (
               <span className="text-xs text-muted-foreground">
                 Maximum {MAX_QUESTIONS} questions per quiz.
@@ -1250,7 +1303,7 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
               </h2>
               <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
                 {isNew
-                  ? "A general course quiz must have at least one question. Add one below, then press Create quiz."
+                  ? "A general course quiz must have at least one question. Add them manually or generate a first draft from the whole course's material with AI, then press Create quiz."
                   : isCourse
                     ? "This assessment covers the whole course. Students take it in addition to the module quizzes. Add questions manually or generate a first draft with AI. Students only see it once it has at least one question."
                     : "Students must complete a quiz after studying this module before it counts as complete. Add questions manually or generate a first draft with AI."}
@@ -1259,15 +1312,9 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
                 <Button className="rounded-full" onClick={() => setDialog({ kind: "new" })}>
                   <Plus className="mr-1.5 h-4 w-4" /> {isNew ? "Add question" : "Create manually"}
                 </Button>
-                {!isNew && (
-                  <Button
-                    variant="outline"
-                    className="rounded-full"
-                    onClick={() => setAiOpen(true)}
-                  >
-                    <Sparkles className="mr-1.5 h-4 w-4" /> Generate with AI
-                  </Button>
-                )}
+                <Button variant="outline" className="rounded-full" onClick={() => setAiOpen(true)}>
+                  <Sparkles className="mr-1.5 h-4 w-4" /> Generate with AI
+                </Button>
               </div>
             </div>
           ) : (
@@ -1467,7 +1514,11 @@ export function QuizBuilder({ scope }: { scope: QuizBuilderScope }) {
             <DialogTitle>Generate quiz with AI</DialogTitle>
             <DialogDescription>
               {isCourse
-                ? "AceTutor generates questions from the analysable learning material across every module in this course. You review and edit every question before anything is saved."
+                ? `AceTutor generates questions from the entire course content — the analysable learning material across every module. You review and edit every question before anything is saved${
+                    isNew
+                      ? "; they go into this quiz's draft list until you press Create quiz."
+                      : "."
+                  }`
                 : "AceTutor generates questions from the analysable learning material in this module. You review and edit every question before anything is saved."}
             </DialogDescription>
           </DialogHeader>

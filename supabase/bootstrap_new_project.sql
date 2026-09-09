@@ -366,6 +366,10 @@ create table if not exists public.vark_profiles (
   prediction_confidence    numeric(4,3),
   model_version            text,
   assessment_completed_at  timestamptz,
+  -- Set when the student explicitly skips the optional VARK onboarding step
+  -- (onboarding.vark.tsx). Null + null assessment_completed_at = "pending";
+  -- see varkOnboardingStatus() in src/lib/vark.ts.
+  onboarding_skipped_at    timestamptz,
   ml_predicted_category     text,
   ml_prediction_confidence  numeric(4,3),
   ml_class_probabilities    jsonb,

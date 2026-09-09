@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { varkOnboardingStatus } from "@/lib/vark";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -150,6 +151,26 @@ function PreferencesOnboarding() {
     });
   }, [existing]);
 
+  // After preferences, the optional VARK "Learning Style Check" step is next —
+  // but only while the student is genuinely "pending" (never completed, never
+  // skipped). The VARK route also self-guards, so a stale read here is harmless.
+  const goNextInOnboarding = async () => {
+    if (!user) return navigate({ to: "/" });
+    try {
+      const { data, error } = await supabase
+        .from("vark_profiles")
+        .select("assessment_completed_at, onboarding_skipped_at")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!error && varkOnboardingStatus(data ?? null) === "pending") {
+        return navigate({ to: "/onboarding/vark" });
+      }
+    } catch {
+      /* fall through to home */
+    }
+    navigate({ to: "/" });
+  };
+
   const section = SECTIONS[step];
   const selected = answers[section.field];
   const isLast = step === TOTAL - 1;
@@ -192,7 +213,7 @@ function PreferencesOnboarding() {
       description:
         "Your new preferences apply to future Study Paths and new AI explanations. Existing Study Paths are unchanged.",
     });
-    navigate({ to: "/" });
+    await goNextInOnboarding();
   };
 
   const skipForNow = async () => {
@@ -232,7 +253,7 @@ function PreferencesOnboarding() {
       return;
     }
     await queryClient.invalidateQueries({ queryKey: ["learning-preferences"] });
-    navigate({ to: "/" });
+    await goNextInOnboarding();
   };
 
   return (

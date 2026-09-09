@@ -695,6 +695,7 @@ export type Database = {
           ml_predicted_category: string | null;
           ml_prediction_confidence: number | null;
           model_version: string | null;
+          onboarding_skipped_at: string | null;
           prediction_confidence: number | null;
           prediction_source: string;
           predicted_category: string | null;
@@ -714,6 +715,7 @@ export type Database = {
           ml_predicted_category?: string | null;
           ml_prediction_confidence?: number | null;
           model_version?: string | null;
+          onboarding_skipped_at?: string | null;
           prediction_confidence?: number | null;
           prediction_source?: string;
           predicted_category?: string | null;
@@ -733,6 +735,7 @@ export type Database = {
           ml_predicted_category?: string | null;
           ml_prediction_confidence?: number | null;
           model_version?: string | null;
+          onboarding_skipped_at?: string | null;
           prediction_confidence?: number | null;
           prediction_source?: string;
           predicted_category?: string | null;

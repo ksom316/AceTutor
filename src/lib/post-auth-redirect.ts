@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { varkOnboardingStatus } from "@/lib/vark";
 
 /**
  * The single source of truth for "where does this freshly-authenticated user
@@ -15,12 +16,16 @@ import { supabase } from "@/integrations/supabase/client";
  *
  *   teacher + claimed slot                -> lecturer workspace
  *   student, no learning_preferences row  -> learning-preferences onboarding
+ *   student, prefs done, VARK "pending"   -> VARK Learning Style Check step
  *   genuine deep-link redirect            -> that path
  *   everyone else (returning student)     -> student home  ("/")
  *
  * "Has a learning_preferences row" — not "has non-null preference values" — is
- * the onboarding gate: completing the form and pressing "Skip for now" both
- * leave a row, so a student is asked exactly once and never looped back.
+ * the preferences onboarding gate: completing the form and pressing "Skip for
+ * now" both leave a row, so a student is asked exactly once and never looped
+ * back. The VARK step gate is `varkOnboardingStatus` (src/lib/vark.ts): the
+ * prompt shows only while the student has neither completed nor explicitly
+ * skipped it, so it too is shown at most once.
  *
  * A `redirect` that merely points at a generic landing surface ("/" or
  * "/dashboard") is NOT treated as a deep link: the `_authenticated` guard plants
@@ -41,6 +46,9 @@ export const STUDENT_HOME = "/";
 export const LECTURER_HOME = "/lecturer";
 /** Learning-preferences onboarding. */
 export const PREFERENCES_ONBOARDING = "/onboarding/preferences";
+/** Optional VARK "Learning Style Check" onboarding step — shown once, after
+ *  preferences, until the student completes OR skips it. Never blocks. */
+export const VARK_ONBOARDING = "/onboarding/vark";
 
 /**
  * Paths that never count as a genuine deep-link `redirect`:
@@ -62,7 +70,12 @@ function safeRedirect(redirect: string | null | undefined): string | undefined {
   return redirect;
 }
 
-export type PostAuthReason = "lecturer" | "onboarding" | "redirect" | "student-home";
+export type PostAuthReason =
+  | "lecturer"
+  | "onboarding"
+  | "vark-onboarding"
+  | "redirect"
+  | "student-home";
 
 export type PostAuthDestination = { to: string; reason: PostAuthReason };
 
@@ -70,7 +83,7 @@ export async function resolvePostAuthDestination(
   userId: string,
   redirect?: string | null,
 ): Promise<PostAuthDestination> {
-  const [roleRes, slotRes, prefsRes] = await Promise.all([
+  const [roleRes, slotRes, prefsRes, varkRes] = await Promise.all([
     supabase.from("user_roles").select("role").eq("user_id", userId).maybeSingle(),
     // RLS (lecturer_slots_select_own) already scopes this to the caller's slot.
     supabase.from("lecturer_slots").select("course_id").maybeSingle(),
@@ -79,6 +92,14 @@ export async function resolvePostAuthDestination(
     // back through onboarding. A missing row means the student has never dealt
     // with it.
     supabase.from("learning_preferences").select("user_id").eq("user_id", userId).maybeSingle(),
+    // The optional VARK step. Unlike preferences, "skipped" is tracked with its
+    // own column (onboarding_skipped_at) so it can be told apart from "never
+    // seen it" — only a genuinely pending student is prompted.
+    supabase
+      .from("vark_profiles")
+      .select("assessment_completed_at, onboarding_skipped_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
   ]);
 
   // Only trust the role when the query actually succeeded. A failed role query
@@ -102,6 +123,21 @@ export async function resolvePostAuthDestination(
   const prefsRowMissing = !prefsRes.error && prefsRes.data === null;
   if (role === "student" && prefsRowMissing) {
     return { to: PREFERENCES_ONBOARDING, reason: "onboarding" };
+  }
+
+  // VARK "Learning Style Check" — the optional step after preferences. Prompt a
+  // student ONCE: preferences done (row present, above), the VARK probe
+  // succeeded, and the student has neither completed nor skipped it. A probe
+  // error is never read as "pending" (same rule as the preferences probe), so a
+  // transient failure can't loop a returning student back into onboarding.
+  if (
+    role === "student" &&
+    !prefsRowMissing &&
+    !prefsRes.error &&
+    !varkRes.error &&
+    varkOnboardingStatus(varkRes.data ?? null) === "pending"
+  ) {
+    return { to: VARK_ONBOARDING, reason: "vark-onboarding" };
   }
 
   const safe = safeRedirect(redirect);

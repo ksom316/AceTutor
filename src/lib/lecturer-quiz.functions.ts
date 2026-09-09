@@ -53,16 +53,22 @@ const schema = z.union([
     difficulty: difficultyModeSchema,
   }),
   z.object({
-    /** A specific General Course Quiz — questions cover the whole course. The
-     *  course is ALWAYS derived server-side from current_lecturer_course();
-     *  `courseQuizId` only identifies which of the lecturer's course quizzes is
-     *  being filled and is verified to belong to that course. */
+    /** Course-wide generation — questions cover the whole course. The course is
+     *  ALWAYS derived server-side from current_lecturer_course(). `courseQuizId`
+     *  is OPTIONAL: when present it identifies an existing General Course Quiz
+     *  being filled and is verified to belong to that course; when absent the
+     *  lecturer is generating questions for a quiz they haven't created yet (the
+     *  new-quiz builder), and nothing is written server-side, so no target quiz
+     *  is needed. */
     courseWide: z.literal(true),
-    courseQuizId: z.string().uuid(),
+    courseQuizId: z.string().uuid().optional(),
     questionCount: z.number().int().min(1).max(50),
     difficulty: difficultyModeSchema,
   }),
 ]);
+
+/** The `generateModuleQuiz` input contract, exported for unit tests. */
+export const generateQuizInputSchema = schema;
 
 export type GeneratedQuestion = {
   prompt: string;
@@ -391,14 +397,19 @@ export const generateModuleQuiz = createServerFn({ method: "POST" })
     // --- General Course Quiz: analysable text across every module in the
     //     lecturer's own course. Course is from current_lecturer_course() only. ---
     if ("courseWide" in data) {
-      // The target quiz must be one of this lecturer's own course quizzes.
-      const { data: ownQuiz } = await supabase
-        .from("course_quizzes")
-        .select("id")
-        .eq("id", data.courseQuizId)
-        .eq("course_id", lecturerCourseId)
-        .maybeSingle();
-      if (!ownQuiz) throw new Error("WRONG_COURSE");
+      // When a target quiz is named it must be one of this lecturer's own course
+      // quizzes. When it is omitted (the new-quiz builder generating before the
+      // quiz exists) there is nothing to verify — the course is still derived
+      // solely from current_lecturer_course() and nothing is persisted here.
+      if (data.courseQuizId) {
+        const { data: ownQuiz } = await supabase
+          .from("course_quizzes")
+          .select("id")
+          .eq("id", data.courseQuizId)
+          .eq("course_id", lecturerCourseId)
+          .maybeSingle();
+        if (!ownQuiz) throw new Error("WRONG_COURSE");
+      }
 
       const { data: course } = await supabase
         .from("courses")

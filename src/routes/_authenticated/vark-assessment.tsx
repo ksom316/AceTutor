@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
@@ -32,15 +32,23 @@ import {
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 export const Route = createFileRoute("/_authenticated/vark-assessment")({
+  // `?from=onboarding` — reached as the optional onboarding step (see
+  // onboarding.vark.tsx). Only changes the post-submit call-to-action (return to
+  // the dashboard instead of Profile); the assessment itself is identical.
+  validateSearch: (search: Record<string, unknown>): { from?: "onboarding" } => ({
+    from: search.from === "onboarding" ? "onboarding" : undefined,
+  }),
   component: VarkAssessmentPage,
 });
 
 /**
  * VARK learning-tendency assessment. Separate route from Learning Preferences
  * (/onboarding/preferences) — this is the OTHER half of the learner profile,
- * linked from Profile — but styled consistently and never a blocking gate:
- * there is no onboarding requirement here, and post-auth-redirect.ts is
- * untouched (it still gates only on learning_preferences row-existence).
+ * linked from Profile and offered as an OPTIONAL onboarding step
+ * (/onboarding/vark, reached here with `?from=onboarding`). Never a blocking
+ * gate: the onboarding prompt always has "Skip for now", and post-auth-
+ * redirect.ts only ever shows it ONCE (until the student completes OR skips —
+ * see varkOnboardingStatus in src/lib/vark.ts).
  *
  * Doubles as viewer + editor, same pattern as the preferences page: a student
  * with a completed profile lands on a read-only "your VARK profile" summary
@@ -56,6 +64,9 @@ export const Route = createFileRoute("/_authenticated/vark-assessment")({
  * Submit is pressed.
  */
 function VarkAssessmentPage() {
+  const { from } = Route.useSearch();
+  const navigate = useNavigate();
+  const fromOnboarding = from === "onboarding";
   const { profile, isLoading, submit, submitting } = useVarkProfile();
   // null = not decided yet (waiting for the profile to load once). Once the
   // first load settles, default to "summary" for a completed profile or
@@ -236,12 +247,25 @@ function VarkAssessmentPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button onClick={startRetake} variant="outline" className="rounded-full">
-              <RotateCcw className="mr-1.5 h-4 w-4" /> Retake assessment
-            </Button>
-            <Button asChild className="rounded-full">
-              <Link to="/profile">Back to profile</Link>
-            </Button>
+            {fromOnboarding ? (
+              <>
+                <Button className="rounded-full" onClick={() => navigate({ to: "/" })}>
+                  Continue to dashboard <ArrowRight className="ml-1.5 h-4 w-4" />
+                </Button>
+                <Button onClick={startRetake} variant="outline" className="rounded-full">
+                  <RotateCcw className="mr-1.5 h-4 w-4" /> Retake assessment
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button onClick={startRetake} variant="outline" className="rounded-full">
+                  <RotateCcw className="mr-1.5 h-4 w-4" /> Retake assessment
+                </Button>
+                <Button asChild className="rounded-full">
+                  <Link to="/profile">Back to profile</Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}

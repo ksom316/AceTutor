@@ -360,27 +360,38 @@ function ProfilePage() {
               ) : (
                 <p className="mt-1 font-display text-2xl">Not set yet</p>
               )}
-              <Link
-                to="/onboarding/preferences"
-                className="mt-2 inline-block text-xs underline-offset-4 hover:underline"
-              >
-                {learningPrefs &&
-                (learningPrefs.explanation_style ||
-                  learningPrefs.lesson_format ||
-                  learningPrefs.wrong_answer_help)
-                  ? "Edit preferences →"
-                  : "Set your preferences →"}
-              </Link>
+              <div className="mt-2 flex flex-col gap-1">
+                <Link
+                  to="/onboarding/preferences"
+                  className="inline-block text-xs underline-offset-4 hover:underline"
+                >
+                  {learningPrefs &&
+                  (learningPrefs.explanation_style ||
+                    learningPrefs.lesson_format ||
+                    learningPrefs.wrong_answer_help)
+                    ? "Edit preferences →"
+                    : "Set your preferences →"}
+                </Link>
+                <Link
+                  to="/vark-assessment"
+                  className="inline-block text-xs text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  {varkStatus === "completed"
+                    ? "Learning Style Check (VARK) →"
+                    : "Take the Learning Style Check (VARK) →"}
+                </Link>
+              </div>
             </div>
           </section>
 
-          {/* VARK learning tendency — the other half of the learner profile,
-              alongside Learning Preferences above. Optional, never gates
-              anything; see src/lib/vark.ts. */}
+          {/* Learning Style Check (VARK) — supports the learning-format
+              recommendations alongside Learning Preferences above. Optional,
+              never gates anything; see src/lib/vark.ts. */}
           <section className="mt-6 rounded-2xl border border-border bg-card p-6">
-            <h2 className="font-display text-xl">VARK learning tendency</h2>
+            <h2 className="font-display text-xl">Learning Style Check (VARK)</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              A short, optional check-in on how new ideas tend to click fastest for you.
+              A short, optional check-in on how new ideas tend to click fastest for you. It only
+              nudges format recommendations — your Learning Preferences above stay the main guide.
             </p>
             {varkStatus === "completed" && varkPrimary ? (
               <div className="mt-4 space-y-3">
@@ -411,7 +422,9 @@ function ProfilePage() {
               to="/vark-assessment"
               className="mt-3 inline-block text-xs underline-offset-4 hover:underline"
             >
-              {varkStatus === "completed" ? "Retake assessment →" : "Take the VARK assessment →"}
+              {varkStatus === "completed"
+                ? "Retake the Learning Style Check →"
+                : "Take the Learning Style Check →"}
             </Link>
           </section>
 
